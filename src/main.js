@@ -521,7 +521,9 @@ var App = {
       var extraNote = '';
       var nextModBtn = '';
       if (qState.moduleId === 'Daily') {
-        extraNote = '<div style="font-size:12px; color:var(--duo-text-light); margin-top:8px;">* Daily Quest จะบวกคะแนนให้แค่วันละ 1 ครั้ง (10 ข้อ/วัน) ทำซ้ำเพื่อทบทวนได้แต่จะไม่ได้คะแนนเพิ่มครับ</div>';
+        extraNote = '<div style="font-size:12px; color:var(--duo-text-light); margin-top:8px;">* Daily Quest จะได้ XP แค่วันละ 1 ครั้ง ทำซ้ำเพื่อทบทวนได้แต่ไม่ได้คะแนนเพิ่ม</div>';
+      } else if (qState.quizType) {
+        extraNote = '<div style="font-size:12px; color:var(--duo-text-light); margin-top:8px;">* แต่ละพาร์ทจะได้ XP เฉพาะครั้งแรกที่ทำ ทำซ้ำได้เพื่อทบทวน</div>';
       } else {
         var nextMid = Number(qState.moduleId) + 1;
         if (nextMid <= 6) {
@@ -567,6 +569,15 @@ var App = {
     var contextHtml = '';
     if (q.context) {
       var formattedCtx = q.context.replace(/\n/g, '<br>');
+      // Highlight the specific blank being asked about e.g. (4) → highlight ___(4)___
+      var blankMatch = q.text.match(/\((\d+)\)/);
+      if (blankMatch) {
+        var blankNum = blankMatch[1];
+        formattedCtx = formattedCtx.replace(
+          new RegExp('___\\(' + blankNum + '\\)___', 'g'),
+          '<span style="background:#FFE082;padding:2px 6px;border-radius:6px;font-weight:800;color:#7B5800;">___(' + blankNum + ')___</span>'
+        );
+      }
       contextHtml = '<div style="background:linear-gradient(145deg,#F0F8FF,#E3F2FD); border-radius:18px; border-left:4px solid var(--clay-blue); padding:14px 16px; margin-bottom:16px; font-size:13px; color:var(--clay-text); line-height:1.7; box-shadow:0 4px 0 rgba(60,130,220,0.1);">' + formattedCtx + '</div>';
     }
 
@@ -1178,8 +1189,11 @@ var App = {
   nextQuizQuestion: function() {
     this.state.quiz.currentIndex++;
     if (this.state.quiz.currentIndex >= this.state.quiz.questions.length) {
+      var isDailyQuest = this.state.quiz.moduleId === 'Daily';
+      var effectiveType = isDailyQuest ? 'Daily' : (this.state.quiz.quizType || 'Quiz');
+      var effectiveRef = isDailyQuest ? null : Number(this.state.quiz.moduleId);
       google.script.run.submitQuizScore(
-        this.state.user.UserID, 'Quiz', this.state.quiz.moduleId,
+        this.state.user.UserID, effectiveType, effectiveRef,
         this.state.quiz.score, this.state.quiz.questions.length, 0
       );
     }

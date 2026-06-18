@@ -130,7 +130,26 @@ export async function getFlashcards(moduleId) {
 }
 
 export async function submitQuizScore(userId, quizType, referenceId, score, maxScore, timeSpent) {
-  await supabase.from('scores').insert([{ user_id: userId, quiz_type: quizType, reference_id: referenceId, score, max_score: maxScore, time_spent: timeSpent || 0 }]);
+  // Prevent duplicate XP: Daily → once per day; module quizzes → once ever per type+module
+  if (quizType === 'Daily') {
+    const today = new Date().toISOString().split('T')[0];
+    const { data: existing } = await supabase.from('scores')
+      .select('id').eq('user_id', userId).eq('quiz_type', 'Daily')
+      .gte('created_at', today + 'T00:00:00.000Z').lte('created_at', today + 'T23:59:59.999Z');
+    if (existing && existing.length > 0) return { success: true, alreadyDone: true };
+  } else if (quizType !== 'Bonus' && quizType !== 'Flashcards') {
+    // Module quiz (PreTest / Activity / PostTest / Quiz) — check by type + module
+    let q = supabase.from('scores').select('id').eq('user_id', userId).eq('quiz_type', quizType);
+    if (referenceId !== null && referenceId !== undefined) q = q.eq('reference_id', referenceId);
+    const { data: existing } = await q;
+    if (existing && existing.length > 0) return { success: true, alreadyDone: true };
+  }
+
+  await supabase.from('scores').insert([{
+    user_id: userId, quiz_type: quizType,
+    reference_id: (referenceId !== null && referenceId !== undefined) ? referenceId : null,
+    score, max_score: maxScore, time_spent: timeSpent || 0
+  }]);
   const { data: user } = await supabase.from('users').select('xp').eq('id', userId).single();
   if (user) {
     await supabase.from('users').update({ xp: user.xp + (score * 10) }).eq('id', userId);
