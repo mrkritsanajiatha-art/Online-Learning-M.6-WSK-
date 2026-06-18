@@ -1,0 +1,1507 @@
+import * as api from './api.js';
+import QRCode from 'qrcode';
+import jsQR from 'jsqr';
+
+window.google = {
+  script: {
+    run: new Proxy({}, {
+      get: function(target, prop) {
+        if (prop === 'withSuccessHandler') {
+          return function(successHandler) {
+            return new Proxy({}, {
+              get: function(target2, prop2) {
+                if (prop2 === 'withFailureHandler') {
+                  return function(failureHandler) {
+                    return new Proxy({}, {
+                      get: function(target3, prop3) {
+                        return async function(...args) {
+                          try {
+                            const res = await api[prop3](...args);
+                            successHandler(res);
+                          } catch (e) {
+                            failureHandler(e);
+                          }
+                        }
+                      }
+                    });
+                  }
+                }
+                return async function(...args) {
+                  try {
+                    const res = await api[prop2](...args);
+                    successHandler(res);
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }
+              }
+            });
+          }
+        }
+        return async function(...args) {
+          await api[prop](...args);
+        }
+      }
+    })
+  }
+};
+
+
+var App = {
+  state: {
+    user: null,
+    currentRoute: 'login',
+    modules: null,
+    dashboardData: {
+      xp: 0, level: 'Beginner', streak: 0, badges: [],
+      readiness: 0, recommendation: { weakness: '-', module: 1 }
+    },
+    leaderboard: [],
+    quiz: { questions: [], currentIndex: 0, score: 0, moduleId: 1 },
+    flashcards: { cards: [], currentIndex: 0, moduleId: 1 },
+    admin: { tables: [], currentTable: '', headers: [], data: [], editingRow: -1 },
+    dataLoaded: false,
+    bonusScore: { total: 0, history: [] },
+    scannerStream: null,
+    scannerAnimFrame: null,
+    scannedUser: null,
+    scannedUserBonus: 0,
+    pendingBonusPoints: 10
+  },
+
+  bear: '&#x1F43B;',
+  bearHappy: '&#x1F43B;',
+  bearStar: '&#x2B50;',
+
+  init: function() {
+    var storedUser = localStorage.getItem('lms_user');
+    if (storedUser) {
+      try {
+        this.state.user = JSON.parse(storedUser);
+      } catch(e) {}
+    }
+    if (this.state.user) {
+      this.navigate(this.state.user.Role === 'Admin' ? 'admin' : 'dashboard');
+    } else {
+      this.render();
+    }
+  },
+
+  navigate: function(route, params) {
+    var self = this;
+    // Stop any running QR scanner camera when navigating away
+    this.stopQRScanner();
+    if (!this.state.user && route !== 'login' && route !== 'register') {
+      route = 'login';
+    }
+    this.state.currentRoute = route;
+
+    // Show loading
+    var el = document.getElementById('app');
+    if (el && route !== 'login' && route !== 'register') {
+      el.innerHTML = '<div class="loader"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลด...</div></div>' + this.bottomNav(route === 'dashboard' ? 'home' : route);
+    }
+
+    if (route === 'dashboard') {
+      if (!this.state.dataLoaded) {
+        // First load: fetch everything in one call
+        google.script.run.withSuccessHandler(function(res) {
+          if (res.success) {
+            if (res.dashboard) self.state.dashboardData = res.dashboard;
+            if (res.modules) self.state.modules = res.modules;
+            self.state.dataLoaded = true;
+          }
+          self.render();
+        }).withFailureHandler(function(e) { self.render(); }).getAppData(self.state.user.UserID);
+      } else {
+        // Subsequent loads: just refresh dashboard
+        google.script.run.withSuccessHandler(function(res) {
+          if (res.success) self.state.dashboardData = res.data;
+          self.render();
+        }).withFailureHandler(function(e) { self.render(); }).getDashboardData(self.state.user.UserID);
+      }
+    } else if (route === 'lessons') {
+      if (!this.state.modules) {
+        google.script.run.withSuccessHandler(function(res) {
+          self.state.modules = res;
+          self.render();
+        }).withFailureHandler(function(e) { self.render(); }).getModules();
+      } else {
+        this.render();
+      }
+    } else if (route === 'leaderboard') {
+      google.script.run.withSuccessHandler(function(res) {
+        if (res.success) self.state.leaderboard = res.data;
+        self.render();
+      }).withFailureHandler(function(e) { self.render(); }).getLeaderboard();
+    } else if (route === 'dailyQuest') {
+      this.state.quiz.moduleId = 'Daily';
+      this.state.quiz.currentIndex = 0;
+      this.state.quiz.score = 0;
+      google.script.run.withSuccessHandler(function(res) {
+        if (res.success) self.state.quiz.questions = res.data;
+        self.render();
+      }).withFailureHandler(function(e) { self.render(); }).getDailyQuest();
+    } else if (route === 'quiz') {
+      // params can be plain number "5" or "moduleId|quizType" e.g. "5|PreTest"
+      var paramStr = String(params || '1');
+      var parts = paramStr.split('|');
+      var mId = parts[0] || 1;
+      var qType = parts[1] || null;
+      this.state.quiz.moduleId = mId;
+      this.state.quiz.quizType = qType;
+      this.state.quiz.currentIndex = 0;
+      this.state.quiz.score = 0;
+      google.script.run.withSuccessHandler(function(res) {
+        if (res.success) self.state.quiz.questions = res.data;
+        self.render();
+      }).withFailureHandler(function(e) { self.render(); }).getQuizQuestions(mId, qType);
+    } else if (route === 'lesson') {
+      this.state.currentModuleId = params || 1;
+      this.state.currentRoute = 'lesson';
+      this.render();
+    } else if (route === 'flashcards') {
+      var fmId = params || 1;
+      this.state.flashcards.moduleId = fmId;
+      this.state.flashcards.currentIndex = 0;
+      google.script.run.withSuccessHandler(function(res) {
+        if (res.success) self.state.flashcards.cards = res.data;
+        self.render();
+      }).withFailureHandler(function(e) { self.render(); }).getFlashcards(fmId);
+    } else if (route === 'admin') {
+      this.render();
+    } else if (route === 'adminDB') {
+      google.script.run.withSuccessHandler(function(res) {
+        if (res.success) self.state.admin.tables = res.data;
+        self.render();
+      }).withFailureHandler(function(e) { self.render(); }).adminGetTables();
+    } else if (route === 'adminExport') {
+      this.render();
+    } else if (route === 'bonusQR') {
+      google.script.run.withSuccessHandler(function(res) {
+        if (res.success) self.state.bonusScore = { total: res.total, history: res.history };
+        self.render();
+      }).withFailureHandler(function() { self.render(); }).getBonusScore(self.state.user.UserID);
+    } else if (route === 'adminScanner') {
+      this.state.scannedUser = null;
+      this.render();
+    } else if (route === 'adminQuizBuilder') {
+      this.render();
+    } else if (route === 'adminTable') {
+      var tName = params;
+      this.state.admin.currentTable = tName;
+      this.state.admin.editingRow = -1;
+      google.script.run.withSuccessHandler(function(res) {
+        if (res.success) {
+          self.state.admin.headers = res.headers;
+          self.state.admin.data = res.data;
+        }
+        self.render();
+      }).withFailureHandler(function(e) { self.render(); }).adminGetTableData(tName);
+    } else {
+      this.render();
+    }
+  },
+
+  render: function() {
+    var el = document.getElementById('app');
+    if (!el) return;
+    var html = '';
+    var r = this.state.currentRoute;
+
+    if (r === 'login') { html = this.viewLogin(); }
+    else if (r === 'register') { html = this.viewRegister(); }
+    else if (r === 'dashboard') { html = this.viewDashboard() + this.bottomNav('home'); }
+    else if (r === 'lessons') { html = this.viewLessons() + this.bottomNav('lessons'); }
+    else if (r === 'moduleDetail') { html = this.viewModuleDetail(); }
+    else if (r === 'lesson') { html = this.viewLesson(); }
+    else if (r === 'quiz' || r === 'dailyQuest') { html = this.viewQuiz(); }
+    else if (r === 'flashcards') { html = this.viewFlashcards(); }
+    else if (r === 'profile') { html = this.viewProfile() + this.bottomNav('profile'); }
+    else if (r === 'leaderboard') { html = this.viewLeaderboard() + this.bottomNav('home'); }
+    else if (r === 'guide') { html = this.viewGuide() + this.bottomNav('profile'); }
+    else if (r === 'bonusQR') { html = this.viewBonusQR() + this.bottomNav('bonus'); }
+    else if (r === 'admin') { html = this.viewAdmin(); }
+    else if (r === 'adminScanner') { html = this.viewAdminScanner(); }
+    else if (r === 'adminDB') { html = this.viewAdminDB(); }
+    else if (r === 'adminTable') { html = this.viewAdminTable(); }
+    else if (r === 'adminExport') { html = this.viewAdminExport(); }
+    else if (r === 'adminQuizBuilder') { html = this.viewAdminQuizBuilder(); }
+    else { html = '<div class="loader">Page not found</div>'; }
+
+    el.innerHTML = html;
+    this.postRender();
+  },
+
+  postRender: function() {
+    var r = this.state.currentRoute;
+    if (r === 'bonusQR') this.initBonusQR();
+    else if (r === 'adminScanner') this.initQRScanner();
+  },
+
+  /* ===== VIEWS ===== */
+
+  viewLogin: function() {
+    return '<div class="page-content" style="display:flex; flex-direction:column; justify-content:center; min-height:100%;">' +
+      '<div class="text-center" style="margin-bottom: 28px;">' +
+        '<div class="mascot-bounce" style="font-size: 90px; filter: drop-shadow(0 10px 0 rgba(200,140,80,0.3)); display:inline-block;">' + this.bear + '</div>' +
+        '<h1 class="text-title" style="background: linear-gradient(135deg, var(--bear-brown), var(--clay-purple)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 28px; margin-bottom: 6px;">เรียนรู้พิชิตบทเรียน</h1>' +
+        '<div style="display:inline-block; background:linear-gradient(135deg,#FFE0CC,#EED5FF); border-radius:20px; padding:6px 18px; font-size:14px; font-weight:800; color:var(--bear-brown); box-shadow:0 4px 0 rgba(200,140,80,0.2);">ชั้น ม.6 (ว.ส.ค.69) 🐾</div>' +
+      '</div>' +
+      '<div class="card" style="padding: 20px;">' +
+        '<input type="text" class="input-field" placeholder="👤 Username (รหัสนักเรียน)" id="username">' +
+        '<input type="password" class="input-field" placeholder="🔒 Password" id="password">' +
+        '<button class="btn btn-primary" onclick="App.handleLogin()">🐻 เข้าสู่ระบบ</button>' +
+        '<button class="btn btn-outline" onclick="App.navigate(\'register\')">สมัครสมาชิกใหม่</button>' +
+      '</div>' +
+      '<div style="margin-top: 20px; text-align: center; font-size: 11px; color: var(--clay-text-light);">' +
+        '<b>พัฒนาโดย:</b> ครูกฤษณะ เจี๊ยะทา &nbsp;|&nbsp; <b>เนื้อหา:</b> ครูจิตสุภา คำโหงษ์' +
+      '</div>' +
+    '</div>';
+  },
+
+  viewRegister: function() {
+    return '<div class="page-content">' +
+      '<div class="text-center" style="margin-bottom:16px;">' +
+        '<div style="font-size:56px; filter:drop-shadow(0 8px 0 rgba(200,140,80,0.25));">' + this.bear + '</div>' +
+        '<h2 class="text-title" style="background: linear-gradient(135deg, var(--bear-brown), var(--clay-purple)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">สมัครสมาชิก</h2>' +
+        '<p style="font-size:13px; color:var(--clay-text-light);">พี่หมีน้อยอยากรู้จักเธอ! 🐾</p>' +
+      '</div>' +
+      '<div class="card" style="border:none; padding:0;">' +
+        '<select class="input-field" id="reg-prefix">' +
+          '<option value="นาย">นาย (Mr.)</option>' +
+          '<option value="นางสาว">นางสาว (Miss)</option>' +
+        '</select>' +
+        '<input type="text" class="input-field" placeholder="ชื่อ" id="reg-firstname">' +
+        '<input type="text" class="input-field" placeholder="นามสกุล" id="reg-lastname">' +
+        '<input type="text" class="input-field" placeholder="ห้อง (เช่น ม.6/1)" id="reg-class">' +
+        '<input type="number" class="input-field" placeholder="เลขที่" id="reg-number">' +
+        '<input type="text" class="input-field" placeholder="รหัสนักเรียน" id="reg-studentid">' +
+        '<input type="text" class="input-field" placeholder="Username" id="reg-username">' +
+        '<input type="password" class="input-field" placeholder="Password" id="reg-password">' +
+        '<input type="password" class="input-field" placeholder="ยืนยัน Password" id="reg-confirm-password">' +
+        '<button class="btn btn-primary" onclick="App.handleRegister()">สมัครสมาชิก</button>' +
+        '<button class="btn btn-outline" onclick="App.navigate(\'login\')">มีบัญชีอยู่แล้ว?</button>' +
+      '</div>' +
+    '</div>';
+  },
+
+  viewDashboard: function() {
+    var u = this.state.user;
+    var d = this.state.dashboardData;
+
+    return '<div class="page-content">' +
+      // Clay header greeting
+      '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:28px; padding:16px 20px; margin-bottom:18px; box-shadow:0 8px 0 rgba(160,80,200,0.2),0 14px 28px rgba(160,80,200,0.15); display:flex; gap:12px; align-items:center;">' +
+        '<div class="mascot-bounce" style="font-size:52px; filter:drop-shadow(0 4px 0 rgba(0,0,0,0.15)); flex-shrink:0;">' + this.bear + '</div>' +
+        '<div>' +
+          '<div style="font-size:18px; font-weight:800; color:white;">สวัสดี ' + u.FirstName + '! 🐾</div>' +
+          '<div style="font-size:12px; color:rgba(255,255,255,0.85); margin-top:4px;">วันนี้พี่หมีน้อยเตรียมบทเรียนไว้ให้แล้ว!</div>' +
+        '</div>' +
+      '</div>' +
+      // Stats row
+      '<div style="display:flex; gap:10px; margin-bottom:16px;">' +
+        '<div class="stat-card" style="background:linear-gradient(145deg,#FFF3E0,#FFE8CC); box-shadow:0 6px 0 rgba(200,140,80,0.2),0 10px 20px rgba(200,140,80,0.10);">' +
+          '<div style="font-size:22px;">⚡</div>' +
+          '<div style="font-weight:800; font-size:20px; color:var(--bear-orange);">' + d.xp + '</div>' +
+          '<div style="font-size:11px; color:var(--clay-text-light); font-weight:600;">XP</div>' +
+        '</div>' +
+        '<div class="stat-card" style="background:linear-gradient(145deg,#FFE0E0,#FFD0D0); box-shadow:0 6px 0 rgba(200,80,80,0.2),0 10px 20px rgba(200,80,80,0.10);">' +
+          '<div style="font-size:22px;">🔥</div>' +
+          '<div style="font-weight:800; font-size:20px; color:var(--clay-red);">' + d.streak + '</div>' +
+          '<div style="font-size:11px; color:var(--clay-text-light); font-weight:600;">Streak</div>' +
+        '</div>' +
+        '<div class="stat-card" style="background:linear-gradient(145deg,#E0FFE8,#C8F5D8); box-shadow:0 6px 0 rgba(80,180,100,0.2),0 10px 20px rgba(80,180,100,0.10);">' +
+          '<div style="font-size:22px;">🏅</div>' +
+          '<div style="font-weight:700; font-size:14px; color:var(--clay-green-shadow);">' + d.level + '</div>' +
+          '<div style="font-size:11px; color:var(--clay-text-light); font-weight:600;">Rank</div>' +
+        '</div>' +
+      '</div>' +
+      // Quick Actions
+      '<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">' +
+        '<div class="card action-card" style="background:linear-gradient(145deg,#FFF3E0,#FFE8CC); box-shadow:0 6px 0 rgba(200,140,80,0.2),0 10px 20px rgba(200,140,80,0.10); text-align:center; padding:20px 12px;" onclick="App.navigate(\'lessons\')">' +
+          '<div style="font-size:38px;">📚</div>' +
+          '<div style="font-weight:800; font-size:14px; color:var(--bear-brown); margin-top:8px;">เริ่มเรียน</div>' +
+          '<div style="font-size:11px; color:var(--clay-text-light); margin-top:4px;">4 โมดูล</div>' +
+        '</div>' +
+        '<div class="card action-card" style="background:linear-gradient(145deg,#FFF9D0,#FFF0A0); box-shadow:0 6px 0 rgba(180,160,60,0.2),0 10px 20px rgba(180,160,60,0.10); text-align:center; padding:20px 12px;" onclick="App.navigate(\'leaderboard\')">' +
+          '<div style="font-size:38px;">🏆</div>' +
+          '<div style="font-weight:800; font-size:14px; color:var(--clay-yellow-shadow); margin-top:8px;">อันดับ</div>' +
+          '<div style="font-size:11px; color:var(--clay-text-light); margin-top:4px;">Leaderboard</div>' +
+        '</div>' +
+      '</div>' +
+      // Bear recommendation
+      '<div class="card" style="background:linear-gradient(145deg,#F8F3FF,#EEE8FF); box-shadow:0 6px 0 rgba(160,100,220,0.2),0 10px 20px rgba(160,100,220,0.10);">' +
+        '<div style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">' +
+          '<div style="font-size:36px;">' + this.bear + '</div>' +
+          '<div>' +
+            '<div style="font-weight:800; font-size:15px; color:var(--clay-purple-shadow);">🐾 พี่หมีน้อยแนะนำ</div>' +
+            '<div style="font-size:13px; color:var(--clay-text-light); margin-top:4px;">ทบทวน <b style="color:var(--clay-text);">' + d.recommendation.weakness + '</b> นะ!</div>' +
+          '</div>' +
+        '</div>' +
+        '<button class="btn btn-primary" style="margin-bottom:0; font-size:13px;" onclick="App.navigate(\'quiz\', ' + d.recommendation.module + ')">ฝึกเลย! ⚡</button>' +
+      '</div>' +
+      // Daily Quest
+      '<div class="card action-card" style="background:linear-gradient(145deg,#E0EEFF,#CCE0FF); box-shadow:0 6px 0 rgba(60,130,220,0.2),0 10px 20px rgba(60,130,220,0.10); margin-top:4px; cursor:pointer;" onclick="App.navigate(\'dailyQuest\')">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<div style="font-size:40px;">' + this.bear + '</div>' +
+          '<div style="flex:1;">' +
+            '<div style="font-weight:800; font-size:15px; color:var(--clay-blue-shadow);">⭐ แบบฝึกหัดประจำวัน</div>' +
+            '<div style="font-size:12px; color:var(--clay-text-light); margin-top:4px;">ทำโจทย์สุ่ม 10 ข้อเพื่อรับ XP พิเศษ!</div>' +
+          '</div>' +
+          '<div style="width:36px; height:36px; border-radius:50%; background:white; box-shadow:0 4px 0 rgba(60,130,220,0.2); display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--clay-blue);">▶</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  },
+
+  viewGuide: function() {
+    return '<div class="page-content">' +
+      '<div class="text-center" style="margin-bottom:20px;">' +
+        '<div class="mascot-bounce" style="font-size:72px; filter:drop-shadow(0 8px 0 rgba(200,140,80,0.3));">' + this.bear + '</div>' +
+        '<h2 class="text-title" style="background:linear-gradient(135deg,var(--bear-brown),var(--clay-purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;">คำแนะนำจากพี่หมีน้อย</h2>' +
+      '</div>' +
+      '<div class="card" style="background:linear-gradient(145deg,#E0FFE8,#C8F5D8); box-shadow:0 6px 0 rgba(80,180,100,0.2),0 10px 20px rgba(80,180,100,0.10);">' +
+        '<h3 style="margin-top:0; color:var(--clay-green-shadow); font-size:15px;">🐾 1. เรียนทีละโมดูล</h3>' +
+        '<p style="font-size:13px; color:var(--clay-text-light); margin:0;">กดเข้าไปในแต่ละโมดูลเพื่อเลือกทำ Quiz หรือ Flashcard ได้เลย!</p>' +
+      '</div>' +
+      '<div class="card" style="background:linear-gradient(145deg,#FFF3E0,#FFE8CC); box-shadow:0 6px 0 rgba(200,140,80,0.2),0 10px 20px rgba(200,140,80,0.10);">' +
+        '<h3 style="margin-top:0; color:var(--bear-orange-shadow); font-size:15px;">⚡ 2. สะสม XP</h3>' +
+        '<p style="font-size:13px; color:var(--clay-text-light); margin:0;"><b>+10 XP</b> ต่อข้อที่ตอบถูก | <b>+20 XP</b> เมื่อจบ Flashcard</p>' +
+      '</div>' +
+      '<div class="card" style="background:linear-gradient(145deg,#FFE0E0,#FFD0D0); box-shadow:0 6px 0 rgba(200,80,80,0.2),0 10px 20px rgba(200,80,80,0.10);">' +
+        '<h3 style="margin-top:0; color:var(--clay-red-shadow); font-size:15px;">🔥 3. แข่งกับเพื่อน</h3>' +
+        '<p style="font-size:13px; color:var(--clay-text-light); margin:0;">ดู Leaderboard เพื่อเช็คอันดับ! พี่หมีน้อยเชียร์ให้นะ!</p>' +
+      '</div>' +
+      '<button class="btn btn-primary" onclick="App.navigate(\'dashboard\')">เข้าใจแล้ว! 🐾</button>' +
+    '</div>';
+  },
+
+  viewLessons: function() {
+    var icons = ['&#x1F4D6;', '&#x1F4DD;', '&#x1F4AC;', '&#x1F9E0;'];
+    var bgColors = [
+      'linear-gradient(135deg, #e8f5e9, #c8e6c9)',
+      'linear-gradient(135deg, #e3f2fd, #bbdefb)',
+      'linear-gradient(135deg, #fce4ec, #f8bbd0)',
+      'linear-gradient(135deg, #fff3e0, #ffe0b2)'
+    ];
+    var borderColors = ['var(--duo-green)', 'var(--duo-blue)', 'var(--duo-red)', 'var(--bear-orange)'];
+    var shadowColors = ['var(--duo-green-shadow)', 'var(--duo-blue-shadow)', 'var(--duo-red-shadow)', 'var(--bear-brown)'];
+
+    var mods = this.state.modules;
+    var modulesHtml = '';
+
+    if (mods && mods.length > 0) {
+      for (var i = 0; i < mods.length; i++) {
+        var m = mods[i];
+        var idx = i % 4;
+        modulesHtml += '<div class="card module-card" style="background:' + bgColors[idx] + '; box-shadow:0 6px 0 ' + shadowColors[idx].replace('var(--clay-green-shadow)','rgba(53,170,87,0.3)').replace('var(--clay-blue-shadow)','rgba(61,135,224,0.3)').replace('var(--clay-red-shadow)','rgba(224,72,72,0.3)').replace('var(--bear-brown)','rgba(124,79,42,0.3)') + ',0 10px 20px rgba(100,60,160,0.10); cursor:pointer;" onclick="App.showModuleDetail(' + m.id + ', ' + i + ')">' +
+          '<div style="display:flex; align-items:center; gap:16px;">' +
+            '<div style="width:56px; height:56px; border-radius:18px; background:white; box-shadow:0 4px 0 rgba(0,0,0,0.08); display:flex; align-items:center; justify-content:center; font-size:28px; flex-shrink:0;">' + icons[idx] + '</div>' +
+            '<div style="flex:1;">' +
+              '<div style="font-weight:800; font-size:16px; color:var(--clay-text);">Unit ' + m.id + ': ' + m.title + '</div>' +
+              '<div style="margin-top:4px; font-size:12px; color:var(--clay-text-light);">' + (m.desc || '') + '</div>' +
+            '</div>' +
+            '<div style="width:32px; height:32px; border-radius:50%; background:white; box-shadow:0 3px 0 rgba(0,0,0,0.08); display:flex; align-items:center; justify-content:center; font-size:14px; color:var(--clay-text-light);">›</div>' +
+          '</div>' +
+        '</div>';
+      }
+    } else {
+      modulesHtml = '<div class="loader"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลดบทเรียน...</div></div>';
+    }
+
+    return '<div class="page-content">' +
+      '<div style="background:linear-gradient(135deg,#5BA4F5,#C084FC); border-radius:28px; padding:16px 20px; margin-bottom:18px; box-shadow:0 8px 0 rgba(100,80,200,0.2),0 14px 28px rgba(100,80,200,0.15); display:flex; align-items:center; gap:12px;">' +
+        '<div style="font-size:40px; filter:drop-shadow(0 4px 0 rgba(0,0,0,0.15));">' + this.bear + '</div>' +
+        '<div>' +
+          '<div style="font-size:18px; font-weight:800; color:white;">เส้นทางการเรียนรู้</div>' +
+          '<div style="font-size:12px; color:rgba(255,255,255,0.85); margin-top:4px;">เลือกโมดูลที่อยากเรียนได้เลยนะ! 📚</div>' +
+        '</div>' +
+      '</div>' +
+      modulesHtml +
+    '</div>';
+  },
+
+  showModuleDetail: function(moduleId, idx) {
+    this.state.currentModuleId = moduleId;
+    this.state.currentModuleIdx = idx || 0;
+    this.state.currentRoute = 'moduleDetail';
+    this.render();
+  },
+
+  viewModuleDetail: function() {
+    var mid = this.state.currentModuleId;
+    var idx = this.state.currentModuleIdx || 0;
+    var mods = this.state.modules || [];
+    var mod = null;
+    for (var i = 0; i < mods.length; i++) {
+      if (Number(mods[i].id) === Number(mid)) { mod = mods[i]; break; }
+    }
+    var title = mod ? mod.title : 'Module ' + mid;
+    var desc = mod ? (mod.desc || '') : '';
+
+    var bgColors = [
+      'linear-gradient(135deg, #e8f5e9, #c8e6c9)',
+      'linear-gradient(135deg, #e3f2fd, #bbdefb)',
+      'linear-gradient(135deg, #fce4ec, #f8bbd0)',
+      'linear-gradient(135deg, #fff3e0, #ffe0b2)'
+    ];
+    var borderColors = ['var(--duo-green)', 'var(--duo-blue)', 'var(--duo-red)', 'var(--bear-orange)'];
+    var cIdx = idx % 4;
+
+    return '<div class="page-content">' +
+      '<button onclick="App.navigate(\'lessons\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:24px; padding:20px; margin-bottom:16px; text-align:center; box-shadow:0 8px 0 rgba(160,80,200,0.2),0 14px 28px rgba(160,80,200,0.12);">' +
+        '<div style="font-size:56px; margin-bottom:8px;">' + this.bear + '</div>' +
+        '<h2 style="margin:0 0 6px 0; color:white; font-size:20px; font-weight:800;">Unit ' + mid + ': ' + title + '</h2>' +
+        '<p style="margin:0; font-size:13px; color:rgba(255,255,255,0.85);">' + desc + '</p>' +
+      '</div>' +
+      // Learning path steps
+      '<div style="display:flex; flex-direction:column; gap:10px;">' +
+        // Step 1 - Pre-test
+        '<div class="card" style="background:linear-gradient(145deg,#FFE0E0,#FFD0D0); box-shadow:0 6px 0 rgba(200,80,80,0.2),0 10px 20px rgba(200,80,80,0.1); cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px;" onclick="App.navigate(\'quiz\', \'' + mid + '|PreTest\')">' +
+          '<div style="width:48px; height:48px; border-radius:16px; background:white; box-shadow:0 4px 0 rgba(200,80,80,0.15); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">1️⃣</div>' +
+          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:#b03030;">ทดสอบก่อนเรียน</div><div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">Pre-Test — วัดความรู้เบื้องต้น</div></div>' +
+          '<div style="font-size:20px; color:#b03030;">›</div>' +
+        '</div>' +
+        // Step 2 - Vocab flashcards
+        '<div class="card" style="background:linear-gradient(145deg,#FFF3E0,#FFE8CC); box-shadow:0 6px 0 rgba(200,140,80,0.2),0 10px 20px rgba(200,140,80,0.1); cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px;" onclick="App.navigate(\'flashcards\', ' + mid + ')">' +
+          '<div style="width:48px; height:48px; border-radius:16px; background:white; box-shadow:0 4px 0 rgba(200,140,80,0.15); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">2️⃣</div>' +
+          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:var(--bear-brown);">คำศัพท์</div><div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">Flashcards — ท่องศัพท์สำคัญ</div></div>' +
+          '<div style="font-size:20px; color:var(--bear-brown);">›</div>' +
+        '</div>' +
+        // Step 3 - Content
+        '<div class="card" style="background:linear-gradient(145deg,#E3F2FD,#BBDEFB); box-shadow:0 6px 0 rgba(60,130,220,0.2),0 10px 20px rgba(60,130,220,0.1); cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px;" onclick="App.navigate(\'lesson\', ' + mid + ')">' +
+          '<div style="width:48px; height:48px; border-radius:16px; background:white; box-shadow:0 4px 0 rgba(60,130,220,0.15); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">3️⃣</div>' +
+          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:var(--clay-blue-shadow);">เนื้อหา</div><div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">Lesson Content — ทฤษฎีและตัวอย่าง</div></div>' +
+          '<div style="font-size:20px; color:var(--clay-blue-shadow);">›</div>' +
+        '</div>' +
+        // Step 4 - Activity
+        '<div class="card" style="background:linear-gradient(145deg,#E8F5E9,#C8E6C9); box-shadow:0 6px 0 rgba(60,160,80,0.2),0 10px 20px rgba(60,160,80,0.1); cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px;" onclick="App.navigate(\'quiz\', \'' + mid + '|Activity\')">' +
+          '<div style="width:48px; height:48px; border-radius:16px; background:white; box-shadow:0 4px 0 rgba(60,160,80,0.15); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">4️⃣</div>' +
+          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:var(--clay-green-shadow);">แบบฝึกหัด</div><div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">Activity — ฝึกทำโจทย์</div></div>' +
+          '<div style="font-size:20px; color:var(--clay-green-shadow);">›</div>' +
+        '</div>' +
+        // Step 5 - Post-test
+        '<div class="card" style="background:linear-gradient(145deg,#F3E5F5,#E1BEE7); box-shadow:0 6px 0 rgba(150,80,200,0.2),0 10px 20px rgba(150,80,200,0.1); cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px;" onclick="App.navigate(\'quiz\', \'' + mid + '|PostTest\')">' +
+          '<div style="width:48px; height:48px; border-radius:16px; background:white; box-shadow:0 4px 0 rgba(150,80,200,0.15); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">5️⃣</div>' +
+          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:var(--clay-purple-shadow);">ทดสอบหลังเรียน</div><div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">Post-Test — วัดความรู้หลังเรียน</div></div>' +
+          '<div style="font-size:20px; color:var(--clay-purple-shadow);">›</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  },
+
+  viewLesson: function() {
+    var mid = this.state.currentModuleId;
+    return '<div class="page-content">' +
+      '<button onclick="App.navigate(\'moduleDetail\')" style="background:none; border:none; font-size:18px; color:var(--duo-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<h2 class="text-title" style="color:var(--bear-brown); margin-top:0;">&#x1F4D6; เนื้อหาบทเรียน</h2>' +
+      '<div class="card" style="min-height: 300px; display:flex; flex-direction:column; justify-content:center; align-items:center;">' +
+        '<div style="font-size:64px; margin-bottom:16px;">' + this.bear + '</div>' +
+        '<p style="font-size:16px; color:var(--duo-text-light); text-align:center;">เนื้อหาส่วนนี้รอคุณครูเพิ่มข้อมูลอยู่นะครับ!</p>' +
+      '</div>' +
+    '</div>';
+  },
+
+  viewQuiz: function() {
+    var qState = this.state.quiz;
+    if (qState.questions.length === 0) {
+      return '<div class="loader">' +
+        '<div class="loader-bear">' + this.bear + '</div>' +
+        '<div class="loader-text">ยังไม่มีข้อสอบในระบบ</div>' +
+        '<button class="btn btn-outline" style="width:auto; padding:12px 24px; margin-top:16px;" onclick="App.navigate(\'dashboard\')">กลับหน้าหลัก</button>' +
+      '</div>';
+    }
+    if (qState.currentIndex >= qState.questions.length) {
+      var stars = qState.score >= qState.questions.length ? '&#x2B50;&#x2B50;&#x2B50;' :
+                  qState.score >= qState.questions.length * 0.5 ? '&#x2B50;&#x2B50;' : '&#x2B50;';
+      var msg = qState.score === qState.questions.length ? 'เก่งมากเลย! พี่หมีน้อยภูมิใจจัง!' :
+                qState.score >= qState.questions.length * 0.5 ? 'ดีมากเลย! ทำต่อไปนะ!' : 'พยายามอีกนิด พี่หมีน้อยเชื่อในตัวเธอ!';
+      var extraNote = '';
+      var nextModBtn = '';
+      if (qState.moduleId === 'Daily') {
+        extraNote = '<div style="font-size:12px; color:var(--duo-text-light); margin-top:8px;">* Daily Quest จะบวกคะแนนให้แค่วันละ 1 ครั้ง (10 ข้อ/วัน) ทำซ้ำเพื่อทบทวนได้แต่จะไม่ได้คะแนนเพิ่มครับ</div>';
+      } else {
+        var nextMid = Number(qState.moduleId) + 1;
+        if (nextMid <= 6) {
+          nextModBtn = '<button class="btn btn-primary" style="margin-bottom:8px; background-color:var(--duo-blue); border-color:var(--duo-blue-shadow);" onclick="App.navigate(\'moduleDetail\', ' + nextMid + ')">ไปบทเรียนถัดไป (โมดูล ' + nextMid + ') &#x27A1;</button>';
+        }
+      }
+
+      return '<div class="page-content" style="display:flex; flex-direction:column; justify-content:center; align-items:center;">' +
+        '<div class="mascot-bounce" style="font-size:80px; margin-bottom:16px;">' + this.bear + '</div>' +
+        '<div style="font-size:36px; margin-bottom:8px;">' + stars + '</div>' +
+        '<h2 class="text-title" style="color:var(--bear-brown);">จบแล้ว!</h2>' +
+        '<p style="font-size:14px; color:var(--duo-text-light); text-align:center;">' + msg + '</p>' +
+        '<div class="card" style="width:100%; text-align:center; margin: 20px 0;">' +
+          '<p style="font-size:18px; font-weight:800; color:var(--duo-text); margin:0 0 8px 0;">คะแนน: ' + qState.score + ' / ' + qState.questions.length + '</p>' +
+          '<div style="font-size:22px; font-weight:800; color:var(--bear-orange);">+' + (qState.score * 10) + ' XP</div>' +
+          extraNote +
+        '</div>' +
+        nextModBtn +
+        '<button class="btn btn-primary" style="margin-bottom:8px;" onclick="App.navigate(\'lessons\')">กลับหน้ารวมบทเรียน</button>' +
+        '<button class="btn btn-outline" onclick="App.navigate(\'dashboard\')">หน้าหลัก</button>' +
+      '</div>';
+    }
+
+    var q = qState.questions[qState.currentIndex];
+    var progressPct = (qState.currentIndex / qState.questions.length) * 100;
+
+    // Create a copy of options and shuffle them
+    var shuffledOptions = q.options.slice();
+    for (var i = shuffledOptions.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var temp = shuffledOptions[i];
+      shuffledOptions[i] = shuffledOptions[j];
+      shuffledOptions[j] = temp;
+    }
+
+    var optionsHtml = '';
+    for (var i = 0; i < shuffledOptions.length; i++) {
+      var safeOpt = shuffledOptions[i].replace(/'/g, "\\'").replace(/\n/g, ' ');
+      optionsHtml += '<button class="btn quiz-option" onclick="App.answerQuiz(this, \'' + safeOpt + '\')">' + shuffledOptions[i] + '</button>';
+    }
+
+    // Context box for conversation/reading questions
+    var contextHtml = '';
+    if (q.context) {
+      var formattedCtx = q.context.replace(/\n/g, '<br>');
+      contextHtml = '<div style="background:linear-gradient(145deg,#F0F8FF,#E3F2FD); border-radius:18px; border-left:4px solid var(--clay-blue); padding:14px 16px; margin-bottom:16px; font-size:13px; color:var(--clay-text); line-height:1.7; box-shadow:0 4px 0 rgba(60,130,220,0.1);">' + formattedCtx + '</div>';
+    }
+
+    // Quiz type label
+    var typeLabel = '';
+    if (qState.quizType === 'PreTest') typeLabel = '<span style="background:linear-gradient(135deg,#FFE0E0,#FFD0D0); color:#b03030; font-size:11px; font-weight:800; padding:4px 10px; border-radius:10px; margin-bottom:12px; display:inline-block;">📋 Pre-Test</span>';
+    else if (qState.quizType === 'PostTest') typeLabel = '<span style="background:linear-gradient(135deg,#F3E5F5,#E1BEE7); color:var(--clay-purple-shadow); font-size:11px; font-weight:800; padding:4px 10px; border-radius:10px; margin-bottom:12px; display:inline-block;">🎓 Post-Test</span>';
+    else if (qState.quizType === 'Activity') typeLabel = '<span style="background:linear-gradient(135deg,#E8F5E9,#C8E6C9); color:var(--clay-green-shadow); font-size:11px; font-weight:800; padding:4px 10px; border-radius:10px; margin-bottom:12px; display:inline-block;">✏️ Activity</span>';
+
+    return '<div class="page-content" style="padding-top: 16px; padding-bottom:100px; display:flex; flex-direction:column;">' +
+      '<div style="display:flex; align-items:center; gap:12px; margin-bottom: 16px;">' +
+        '<button onclick="App.navigate(\'lessons\')" style="background:none; border:none; font-size:22px; color:var(--duo-gray-shadow); font-weight:800; cursor:pointer;">&#x2715;</button>' +
+        '<div class="progress-bar-container" style="margin:0; flex:1;"><div class="progress-bar-fill" style="width: ' + progressPct + '%; background-color:var(--duo-green);"></div></div>' +
+        '<span style="font-size:13px; font-weight:700; color:var(--duo-text-light);">' + (qState.currentIndex + 1) + '/' + qState.questions.length + '</span>' +
+      '</div>' +
+      typeLabel +
+      contextHtml +
+      '<div style="display:flex; gap:12px; align-items:flex-start; margin-bottom: 16px;">' +
+        '<div style="font-size:48px; flex-shrink:0;">' + this.bear + '</div>' +
+        '<div class="speech-bubble" style="flex:1; font-size:15px; font-weight:600; line-height:1.5; white-space:pre-line;">' + q.text + '</div>' +
+      '</div>' +
+      '<div id="quiz-options">' + optionsHtml + '</div>' +
+    '</div>' +
+    '<div id="quiz-footer" style="position:absolute; bottom:0; left:0; width:100%; background:white; border-top:2px solid var(--duo-gray); padding:16px; box-sizing:border-box; display:flex; flex-direction:column; justify-content:center;">' +
+      '<div id="quiz-feedback" style="display:none; margin-bottom:12px;"></div>' +
+      '<button id="quiz-next-btn" class="btn btn-primary" style="margin:0;" disabled>Check</button>' +
+    '</div>';
+  },
+
+  viewFlashcards: function() {
+    var fState = this.state.flashcards;
+    if (fState.cards.length === 0) return '<div class="loader"><div style="font-size:48px;">' + this.bear + '</div><div class="loader-text">กำลังเตรียมคำศัพท์...</div></div>';
+    if (fState.currentIndex >= fState.cards.length) {
+      return '<div class="page-content" style="display:flex; flex-direction:column; justify-content:center; align-items:center;">' +
+        '<div class="mascot-bounce" style="font-size:80px; margin-bottom:16px;">' + this.bear + '</div>' +
+        '<h2 class="text-title" style="color:var(--duo-blue-shadow);">ท่องศัพท์ครบแล้ว!</h2>' +
+        '<p style="font-size:14px; color:var(--duo-text-light);">เก่งมาก! พี่หมีน้อยให้ XP เป็นรางวัล!</p>' +
+        '<div class="card" style="width:100%; text-align:center; margin: 20px 0;">' +
+          '<div style="font-size:22px; font-weight:800; color:var(--bear-orange);">+20 XP</div>' +
+        '</div>' +
+        '<button class="btn btn-primary" onclick="App.navigate(\'lessons\')">กลับหน้าบทเรียน</button>' +
+      '</div>';
+    }
+
+    var card = fState.cards[fState.currentIndex];
+    var progressPct = (fState.currentIndex / fState.cards.length) * 100;
+
+    return '<div class="page-content" style="padding-top: 16px; padding-bottom:100px; display:flex; flex-direction:column; flex:1;">' +
+      '<div style="display:flex; align-items:center; gap:12px; margin-bottom: 20px;">' +
+        '<button onclick="App.navigate(\'lessons\')" style="background:none; border:none; font-size:22px; color:var(--duo-gray-shadow); font-weight:800; cursor:pointer;">&#x2715;</button>' +
+        '<div class="progress-bar-container" style="margin:0; flex:1;"><div class="progress-bar-fill" style="width: ' + progressPct + '%; background-color:var(--duo-blue);"></div></div>' +
+        '<span style="font-size:13px; font-weight:700; color:var(--duo-text-light);">' + (fState.currentIndex + 1) + '/' + fState.cards.length + '</span>' +
+      '</div>' +
+      '<div style="display:flex; align-items:center; gap:8px; margin-bottom:16px;"><div style="font-size:28px;">' + this.bear + '</div><h2 class="text-title" style="margin:0; font-size:18px;">คำศัพท์ใหม่</h2></div>' +
+      '<div class="card" style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; cursor:pointer; border-bottom: 5px solid var(--duo-gray-shadow); min-height:200px;" onclick="document.getElementById(\'fc-meaning\').style.display=\'block\'; document.getElementById(\'fc-front\').style.display=\'none\';">' +
+        '<div id="fc-front">' +
+          '<h1 style="font-size: 32px; color: var(--bear-brown); margin-bottom: 8px; font-weight:800;">' + card.vocab + '</h1>' +
+          '<div style="font-size:14px; color:var(--duo-text-light); font-weight:700;">' + card.pronun + '</div>' +
+          '<p style="font-size: 14px; color: var(--duo-blue); font-weight:800; margin-top: 24px;">&#x1F43E; แตะเพื่อดูความหมาย</p>' +
+        '</div>' +
+        '<div id="fc-meaning" style="display:none;">' +
+          '<p style="font-size: 28px; font-weight:800; color:var(--duo-blue); margin-bottom:12px; margin-top:0;">' + card.meaning + '</p>' +
+          '<p style="font-size: 14px; color: var(--duo-text-light); font-weight:600; line-height:1.5;">"' + card.example + '"</p>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="position:absolute; bottom:0; left:0; width:100%; background:white; border-top:2px solid var(--duo-gray); padding:16px; box-sizing:border-box; display:flex; gap:10px;">' +
+      '<button class="btn btn-outline" style="margin:0; color:var(--duo-red); font-size:13px;" onclick="App.nextFlashcard()">ยังจำไม่ได้</button>' +
+      '<button class="btn btn-secondary" style="margin:0; font-size:13px;" onclick="App.nextFlashcard()">จำได้แล้ว!</button>' +
+    '</div>';
+  },
+
+  viewLeaderboard: function() {
+    var lb = this.state.leaderboard;
+    var listHtml = '';
+    for (var i = 0; i < lb.length; i++) {
+      var s = lb[i];
+      var medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '<span style="font-weight:800; font-size:15px; color:var(--clay-text-light);">' + (i + 1) + '</span>';
+      var av = s.profileImage ? '<img src="' + s.profileImage + '" style="width:44px;height:44px;border-radius:50%;object-fit:cover;box-shadow:0 3px 0 rgba(0,0,0,0.1);">' : '<div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:22px;box-shadow:0 3px 0 rgba(150,100,200,0.2);">👤</div>';
+      var isMe = this.state.user && s.name.indexOf(this.state.user.FirstName) >= 0;
+      var itemStyle = isMe
+        ? 'background:linear-gradient(145deg,#FFF3E0,#FFE8CC); border-radius:20px; box-shadow:0 5px 0 rgba(200,140,80,0.2),0 8px 16px rgba(200,140,80,0.10); padding:12px 14px; margin-bottom:8px;'
+        : 'background:var(--clay-white); border-radius:18px; box-shadow:0 4px 0 rgba(150,100,200,0.12),0 6px 12px rgba(150,100,200,0.08); padding:10px 14px; margin-bottom:8px;';
+      listHtml += '<div style="display:flex; justify-content:space-between; align-items:center; ' + itemStyle + '">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<div style="width:28px; text-align:center; font-size:20px;">' + medal + '</div>' + av +
+          '<div><div style="font-weight:700; font-size:14px; color:var(--clay-text);">' + s.name + '</div>' +
+            '<div style="font-size:12px; color:var(--clay-text-light);">' + s.className + '</div></div>' +
+        '</div>' +
+        '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:12px; padding:6px 12px; font-weight:800; color:white; font-size:13px; box-shadow:0 3px 0 rgba(160,80,200,0.2);">' + s.xp + ' XP</div>' +
+      '</div>';
+    }
+    if (!listHtml) listHtml = '<p class="text-center" style="font-weight:bold; color:var(--clay-text-light);">ยังไม่มีข้อมูล</p>';
+
+    return '<div class="page-content" style="padding:0;">' +
+      '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:0 0 28px 28px; padding:20px; box-shadow:0 8px 0 rgba(160,80,200,0.2),0 14px 28px rgba(160,80,200,0.15); margin-bottom:16px;">' +
+        '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+          '<div style="display:flex; align-items:center; gap:10px;">' +
+            '<div style="font-size:32px; filter:drop-shadow(0 4px 0 rgba(0,0,0,0.15));">' + this.bear + '</div>' +
+            '<div style="font-size:20px; font-weight:800; color:white;">🏆 Leaderboard</div>' +
+          '</div>' +
+          '<button onclick="App.navigate(\'dashboard\')" style="background:rgba(255,255,255,0.25); border:none; width:36px; height:36px; border-radius:50%; font-size:18px; cursor:pointer; color:white; display:flex; align-items:center; justify-content:center;">✕</button>' +
+        '</div>' +
+      '</div>' +
+      '<div style="padding:0 16px;">' + listHtml + '</div>' +
+    '</div>';
+  },
+
+  viewProfile: function() {
+    var u = this.state.user;
+    var d = this.state.dashboardData;
+    var avatar = u.ProfileImage
+      ? '<img src="' + u.ProfileImage + '" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">'
+      : '<div style="display:flex;justify-content:center;align-items:center;width:100%;height:100%;font-size:44px;">' + this.bear + '</div>';
+    var badgesHtml = '';
+    if (d.badges && d.badges.length > 0) {
+      for (var i = 0; i < d.badges.length; i++) {
+        badgesHtml += '<div class="clay-badge">🏅 ' + d.badges[i] + '</div>';
+      }
+    } else {
+      badgesHtml = '<div style="font-size:13px; color:var(--clay-text-light);">ยังไม่มีรางวัล เริ่มเรียนเลย! 🐾</div>';
+    }
+    var pct = Math.min(100, (d.xp / 5000) * 100);
+
+    return '<div class="page-content">' +
+      '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:28px; padding:24px; margin-bottom:16px; text-align:center; box-shadow:0 8px 0 rgba(160,80,200,0.2),0 14px 28px rgba(160,80,200,0.15);">' +
+        '<div style="position:relative; width:90px; height:90px; margin:0 auto 12px;">' +
+          '<div style="width:90px; height:90px; border-radius:50%; overflow:hidden; border:4px solid white; box-shadow:0 4px 12px rgba(0,0,0,0.2);">' + avatar + '</div>' +
+        '</div>' +
+        '<div style="font-weight:800; font-size:22px; color:white;">' + u.FirstName + ' ' + u.LastName + '</div>' +
+        '<div style="font-size:13px; color:rgba(255,255,255,0.85); margin-top:4px;">' + u.Class + ' เลขที่ ' + u.Number + '</div>' +
+      '</div>' +
+      '<div class="card">' +
+        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">' +
+          '<div style="font-weight:800; font-size:14px; color:var(--clay-text);">ระดับ: ' + d.level + '</div>' +
+          '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:12px; padding:4px 12px; font-weight:800; color:white; font-size:13px;">' + d.xp + ' XP</div>' +
+        '</div>' +
+        '<div class="progress-bar-container"><div class="progress-bar-fill" style="width:' + pct + '%;"></div></div>' +
+        '<div style="font-size:11px; color:var(--clay-text-light); margin-top:6px; text-align:right;">' + d.xp + ' / 5000 XP</div>' +
+      '</div>' +
+      '<div class="card">' +
+        '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin-bottom:12px;">🏅 รางวัล</div>' +
+        '<div style="display:flex; gap:8px; flex-wrap:wrap;">' + badgesHtml + '</div>' +
+      '</div>' +
+      '<button class="btn btn-outline" onclick="App.navigate(\'guide\')">📖 คู่มือการใช้งาน</button>' +
+      '<button class="btn btn-danger" onclick="App.logout()">ออกจากระบบ</button>' +
+    '</div>';
+  },
+
+  /* ===== BONUS QR VIEWS ===== */
+
+  viewBonusQR: function() {
+    var u = this.state.user;
+    var b = this.state.bonusScore;
+    var pct = b.total;
+    var scoreColor = pct >= 80 ? '#4ECB71' : pct >= 50 ? '#FF8C42' : '#C084FC';
+
+    var histHtml = '';
+    if (b.history && b.history.length > 0) {
+      for (var i = 0; i < Math.min(b.history.length, 5); i++) {
+        var h = b.history[i];
+        var dt = h.created_at ? new Date(h.created_at).toLocaleDateString('th-TH', { day:'numeric', month:'short' }) : '';
+        histHtml += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(150,100,200,0.1);">' +
+          '<span style="font-size:13px;color:var(--clay-text);">📅 ' + dt + '</span>' +
+          '<span style="font-size:14px;font-weight:800;color:var(--clay-green-shadow);">+' + h.score + ' คะแนน</span>' +
+        '</div>';
+      }
+    } else {
+      histHtml = '<p style="font-size:13px;color:var(--clay-text-light);text-align:center;margin:8px 0;">ยังไม่เคยได้รับคะแนนพิเศษ</p>';
+    }
+
+    return '<div class="page-content">' +
+      '<div style="background:linear-gradient(135deg,#C084FC,#5BA4F5);border-radius:28px;padding:20px;margin-bottom:16px;text-align:center;box-shadow:0 8px 0 rgba(100,80,200,0.2),0 14px 28px rgba(100,80,200,0.12);">' +
+        '<div style="font-size:40px;margin-bottom:6px;">🎫</div>' +
+        '<div style="font-size:18px;font-weight:800;color:white;">' + u.FirstName + ' ' + u.LastName + '</div>' +
+        '<div style="font-size:13px;color:rgba(255,255,255,0.85);margin-top:4px;">' + u.Class + ' · เลขที่ ' + u.Number + '</div>' +
+      '</div>' +
+
+      // QR Code card
+      '<div class="card" style="text-align:center;padding:24px;">' +
+        '<div style="font-size:13px;font-weight:700;color:var(--clay-text-light);margin-bottom:16px;">📱 แสดง QR Code นี้ให้ครูสแกน</div>' +
+        '<canvas id="bonus-qr-canvas" style="border-radius:16px;box-shadow:0 4px 12px rgba(150,100,200,0.2);max-width:220px;"></canvas>' +
+        '<div style="margin-top:12px;font-size:11px;color:var(--clay-text-light);">User ID: ' + u.UserID + '</div>' +
+      '</div>' +
+
+      // Score card
+      '<div class="card" style="background:linear-gradient(145deg,#F8F3FF,#EEE8FF);box-shadow:0 6px 0 rgba(160,100,220,0.2),0 10px 20px rgba(160,100,220,0.10);">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+          '<div style="font-weight:800;font-size:15px;color:var(--clay-purple-shadow);">⭐ คะแนนพิเศษ</div>' +
+          '<div style="background:linear-gradient(135deg,' + scoreColor + ',#C084FC);border-radius:14px;padding:6px 14px;font-weight:800;color:white;font-size:18px;">' + b.total + '<span style="font-size:12px;opacity:0.85;">/100</span></div>' +
+        '</div>' +
+        '<div class="progress-bar-container" style="height:14px;border-radius:10px;">' +
+          '<div class="progress-bar-fill" style="width:' + pct + '%;background:linear-gradient(90deg,' + scoreColor + ',#C084FC);border-radius:10px;height:100%;transition:width 0.5s ease;"></div>' +
+        '</div>' +
+        '<div style="font-size:11px;color:var(--clay-text-light);margin-top:6px;text-align:right;">' + b.total + ' / 100 คะแนน</div>' +
+      '</div>' +
+
+      // History
+      '<div class="card">' +
+        '<div style="font-weight:800;font-size:15px;color:var(--clay-text);margin-bottom:12px;">📋 ประวัติการรับคะแนน</div>' +
+        histHtml +
+      '</div>' +
+    '</div>';
+  },
+
+  viewAdminScanner: function() {
+    var scanned = this.state.scannedUser;
+
+    if (scanned) {
+      // Show result + give bonus UI
+      var bonus = this.state.scannedUserBonus;
+      var remaining = 100 - bonus;
+      var av = scanned.profile_image
+        ? '<img src="' + scanned.profile_image + '" style="width:60px;height:60px;border-radius:50%;object-fit:cover;">'
+        : '<div style="width:60px;height:60px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:28px;">👤</div>';
+
+      var pts = [5, 10, 20, 30];
+      var ptsHtml = '';
+      for (var i = 0; i < pts.length; i++) {
+        var p = pts[i];
+        var disabled = p > remaining ? 'opacity:0.4;pointer-events:none;' : '';
+        var sel = this.state.pendingBonusPoints === p ? 'background:linear-gradient(135deg,#FF8C42,#C084FC);color:white;box-shadow:0 4px 0 rgba(160,80,200,0.3);' : 'background:white;color:var(--clay-text);box-shadow:0 4px 0 rgba(150,100,200,0.15);';
+        ptsHtml += '<div style="' + sel + disabled + 'border-radius:16px;padding:12px 0;text-align:center;font-weight:800;font-size:18px;cursor:pointer;" onclick="App.state.pendingBonusPoints=' + p + ';App.render();">+' + p + '</div>';
+      }
+
+      return '<div class="page-content">' +
+        '<button onclick="App.navigate(\'adminScanner\')" style="background:none;border:none;font-size:18px;color:var(--clay-text-light);cursor:pointer;padding:0;margin-bottom:16px;font-weight:700;">🔄 สแกนใหม่</button>' +
+        '<div style="background:linear-gradient(135deg,#4ECB71,#5BA4F5);border-radius:24px;padding:16px;margin-bottom:16px;display:flex;align-items:center;gap:14px;box-shadow:0 6px 0 rgba(60,160,80,0.2);">' +
+          av +
+          '<div>' +
+            '<div style="font-size:18px;font-weight:800;color:white;">' + scanned.first_name + ' ' + scanned.last_name + '</div>' +
+            '<div style="font-size:13px;color:rgba(255,255,255,0.85);margin-top:3px;">' + scanned.class_name + ' · เลขที่ ' + scanned.student_number + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="card" style="text-align:center;background:linear-gradient(145deg,#F8F3FF,#EEE8FF);">' +
+          '<div style="font-size:13px;color:var(--clay-text-light);margin-bottom:6px;">คะแนนพิเศษปัจจุบัน</div>' +
+          '<div style="font-size:36px;font-weight:800;color:var(--clay-purple-shadow);">' + bonus + '<span style="font-size:16px;color:var(--clay-text-light);">/100</span></div>' +
+          '<div class="progress-bar-container" style="margin-top:10px;height:12px;"><div class="progress-bar-fill" style="width:' + bonus + '%;height:100%;border-radius:10px;background:linear-gradient(90deg,#4ECB71,#C084FC);"></div></div>' +
+          (remaining <= 0 ? '<div style="margin-top:8px;font-size:13px;font-weight:800;color:var(--clay-red);">ได้รับคะแนนครบ 100 แล้ว!</div>' : '<div style="margin-top:6px;font-size:12px;color:var(--clay-text-light);">เพิ่มได้อีก ' + remaining + ' คะแนน</div>') +
+        '</div>' +
+        (remaining > 0 ? (
+          '<div class="card">' +
+            '<div style="font-weight:800;font-size:15px;color:var(--clay-text);margin-bottom:14px;">ใส่คะแนนที่จะให้ (สูงสุด ' + remaining + '):</div>' +
+            '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">' +
+              '<button onclick="var v=parseInt(document.getElementById(\'bonus-input\').value||0);if(v>1)document.getElementById(\'bonus-input\').value=v-1;" style="width:44px;height:44px;border-radius:50%;border:none;background:var(--clay-bg);box-shadow:0 4px 0 rgba(150,100,200,0.2);font-size:22px;font-weight:800;cursor:pointer;color:var(--clay-text);">−</button>' +
+              '<input id="bonus-input" type="number" min="1" max="' + remaining + '" value="' + Math.min(this.state.pendingBonusPoints, remaining) + '" style="flex:1;text-align:center;font-size:32px;font-weight:800;color:var(--clay-purple-shadow);border:none;border-bottom:3px solid var(--clay-purple);background:transparent;outline:none;padding:8px 0;" oninput="App.state.pendingBonusPoints=Math.min(Math.max(parseInt(this.value)||1,1),' + remaining + ');this.value=App.state.pendingBonusPoints;">' +
+              '<button onclick="var v=parseInt(document.getElementById(\'bonus-input\').value||0);if(v<' + remaining + ')document.getElementById(\'bonus-input\').value=v+1;" style="width:44px;height:44px;border-radius:50%;border:none;background:var(--clay-bg);box-shadow:0 4px 0 rgba(150,100,200,0.2);font-size:22px;font-weight:800;cursor:pointer;color:var(--clay-text);">+</button>' +
+            '</div>' +
+            '<button class="btn btn-primary" onclick="App.state.pendingBonusPoints=parseInt(document.getElementById(\'bonus-input\').value)||1;App.doGiveBonus();" style="font-size:15px;">✅ ยืนยันให้คะแนน</button>' +
+            '<div id="bonus-give-status" style="text-align:center;font-size:13px;font-weight:700;margin-top:8px;"></div>' +
+          '</div>'
+        ) : '') +
+        '<button class="btn btn-outline" onclick="App.navigate(\'admin\')">กลับ Admin</button>' +
+      '</div>';
+    }
+
+    // Scanner camera view
+    return '<div style="position:relative;height:100vh;background:#1a1a2e;overflow:hidden;display:flex;flex-direction:column;">' +
+      '<div style="padding:16px 20px;display:flex;align-items:center;gap:12px;z-index:10;">' +
+        '<button onclick="App.navigate(\'admin\')" style="background:rgba(255,255,255,0.15);border:none;width:40px;height:40px;border-radius:50%;color:white;font-size:18px;cursor:pointer;">✕</button>' +
+        '<div style="color:white;font-weight:800;font-size:18px;">สแกน QR Code นักเรียน</div>' +
+      '</div>' +
+      '<div style="flex:1;position:relative;display:flex;align-items:center;justify-content:center;">' +
+        '<video id="qr-video" playsinline style="width:100%;height:100%;object-fit:cover;"></video>' +
+        '<canvas id="qr-canvas" style="display:none;"></canvas>' +
+        // Viewfinder overlay
+        '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">' +
+          '<div style="width:240px;height:240px;position:relative;">' +
+            '<div style="position:absolute;top:0;left:0;width:50px;height:50px;border-top:4px solid #4ECB71;border-left:4px solid #4ECB71;border-radius:4px 0 0 0;"></div>' +
+            '<div style="position:absolute;top:0;right:0;width:50px;height:50px;border-top:4px solid #4ECB71;border-right:4px solid #4ECB71;border-radius:0 4px 0 0;"></div>' +
+            '<div style="position:absolute;bottom:0;left:0;width:50px;height:50px;border-bottom:4px solid #4ECB71;border-left:4px solid #4ECB71;border-radius:0 0 0 4px;"></div>' +
+            '<div style="position:absolute;bottom:0;right:0;width:50px;height:50px;border-bottom:4px solid #4ECB71;border-right:4px solid #4ECB71;border-radius:0 0 4px 0;"></div>' +
+          '</div>' +
+        '</div>' +
+        // Scan line animation
+        '<div style="position:absolute;width:240px;height:3px;background:linear-gradient(90deg,transparent,#4ECB71,transparent);animation:scanline 2s linear infinite;pointer-events:none;"></div>' +
+      '</div>' +
+      '<div id="scanner-status" style="color:white;text-align:center;padding:20px;font-size:14px;font-weight:600;">📷 วางQR Code ไว้ในกรอบ</div>' +
+      '<style>@keyframes scanline{0%{top:30%}50%{top:70%}100%{top:30%}}.qr-scan-line{position:absolute;}</style>' +
+    '</div>';
+  },
+
+  /* ===== ADMIN VIEWS ===== */
+
+  viewAdmin: function() {
+    return '<div class="page-content">' +
+      '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">' +
+        '<h2 class="text-title" style="color:var(--bear-brown); margin:0;">&#x1F6E0;&#xFE0F; Admin Dashboard</h2>' +
+        '<button class="btn btn-danger" style="width:auto; padding:8px 16px; margin:0; font-size:12px;" onclick="App.state.user=null; App.navigate(\'login\')">ออกจากระบบ</button>' +
+      '</div>' +
+      
+      '<h3 style="color:var(--duo-text-light); font-size:14px; margin-top:0;">จัดการผู้เรียน</h3>' +
+      '<div class="card action-card" style="border-color:var(--duo-green); border-bottom-width:4px; margin-bottom:16px; cursor:pointer;" onclick="App.navigate(\'adminExport\')">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<div style="font-size:32px;">&#x1F4CA;</div>' +
+          '<div style="flex:1;">' +
+            '<h3 style="margin:0; font-size:16px; color:var(--duo-green-shadow);">ดาวน์โหลดคะแนน (Excel/CSV)</h3>' +
+            '<p style="margin:4px 0 0 0; font-size:12px; color:var(--duo-text-light);">โหลดข้อมูลคะแนนแยกตามห้องเรียน</p>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<h3 style="color:var(--duo-text-light); font-size:14px;">สแกนให้คะแนนพิเศษ</h3>' +
+      '<div class="card action-card" style="border-color:#4ECB71; border-bottom-width:4px; margin-bottom:16px; cursor:pointer;" onclick="App.navigate(\'adminScanner\')">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<div style="font-size:32px;">📷</div>' +
+          '<div style="flex:1;">' +
+            '<h3 style="margin:0; font-size:16px; color:#2a8a4a;">สแกน QR Code (คะแนนพิเศษ)</h3>' +
+            '<p style="margin:4px 0 0 0; font-size:12px; color:var(--duo-text-light);">สแกน QR ของนักเรียนเพื่อให้คะแนนสูงสุด 100 คะแนน</p>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<h3 style="color:var(--duo-text-light); font-size:14px;">จัดการเนื้อหาและข้อสอบ</h3>' +
+      '<div class="card action-card" style="border-color:var(--duo-blue); border-bottom-width:4px; margin-bottom:16px; cursor:pointer;" onclick="App.navigate(\'adminQuizBuilder\')">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<div style="font-size:32px;">&#x1F4DD;</div>' +
+          '<div style="flex:1;">' +
+            '<h3 style="margin:0; font-size:16px; color:var(--duo-blue-shadow);">สร้างข้อสอบ (Quiz Builder)</h3>' +
+            '<p style="margin:4px 0 0 0; font-size:12px; color:var(--duo-text-light);">เพิ่มข้อสอบใหม่แบบง่ายๆ เหมือน Google Form</p>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<h3 style="color:var(--duo-text-light); font-size:14px;">ฐานข้อมูลระบบทั้งหมด (Advanced)</h3>' +
+      '<div class="card action-card" style="border-color:var(--bear-orange); border-bottom-width:4px; cursor:pointer;" onclick="App.navigate(\'adminDB\')">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<div style="font-size:32px;">&#x1F5C4;&#xFE0F;</div>' +
+          '<div style="flex:1;">' +
+            '<h3 style="margin:0; font-size:16px; color:var(--bear-brown);">แก้ไขตารางข้อมูลทั้งหมด</h3>' +
+            '<p style="margin:4px 0 0 0; font-size:12px; color:var(--duo-text-light);">จัดการ Database ดิบโดยตรง (Users, Modules, etc.)</p>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  },
+
+  viewAdminExport: function() {
+    return '<div class="page-content">' +
+      '<button onclick="App.navigate(\'admin\')" style="background:none; border:none; font-size:18px; color:var(--duo-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<h2 class="text-title" style="color:var(--bear-brown); margin-top:0;">&#x1F4CA; ดาวน์โหลดคะแนน (CSV)</h2>' +
+      '<div class="card">' +
+        '<p style="font-size:14px; color:var(--duo-text-light); margin-top:0;">เลือกห้องเรียนที่ต้องการดาวน์โหลดข้อมูลคะแนน ระบบจะสร้างไฟล์ CSV ที่สามารถเปิดด้วย Excel ได้ทันที</p>' +
+        '<label style="display:block; font-weight:bold; margin-bottom:8px; font-size:14px;">เลือกห้องเรียน:</label>' +
+        '<select id="export-class" class="input-field" style="margin-bottom:16px;">' +
+          '<option value="ALL">ทุกห้อง (ALL)</option>' +
+          '<option value="ม.6/1">ม.6/1</option>' +
+          '<option value="ม.6/2">ม.6/2</option>' +
+          '<option value="ม.6/3">ม.6/3</option>' +
+        '</select>' +
+        '<button class="btn btn-primary" onclick="App.adminDownloadCSV()">ดาวน์โหลดไฟล์</button>' +
+        '<div id="export-status" style="margin-top:12px; font-size:13px; font-weight:bold; color:var(--duo-blue); text-align:center;"></div>' +
+      '</div>' +
+    '</div>';
+  },
+
+  viewAdminQuizBuilder: function() {
+    return '<div class="page-content">' +
+      '<button onclick="App.navigate(\'admin\')" style="background:none; border:none; font-size:18px; color:var(--duo-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<h2 class="text-title" style="color:var(--bear-brown); margin-top:0;">&#x1F4DD; สร้างข้อสอบ (Quiz Builder)</h2>' +
+      '<div class="card" style="border-top: 8px solid var(--duo-blue);">' +
+        '<label style="display:block; font-weight:bold; margin-bottom:8px; font-size:14px;">โจทย์ข้อสอบ:</label>' +
+        '<textarea id="qb-text" class="input-field" style="height:80px; resize:vertical;" placeholder="พิมพ์โจทย์คำถาม..."></textarea>' +
+        
+        '<label style="display:block; font-weight:bold; margin:16px 0 8px; font-size:14px;">คำตอบตัวเลือก (กดเลือกข้อที่ถูกต้อง):</label>' +
+        
+        '<div style="display:flex; align-items:center; margin-bottom:8px;">' +
+          '<input type="radio" name="qb-correct" value="1" style="width:20px; height:20px; margin-right:8px;" checked>' +
+          '<input type="text" id="qb-opt1" class="input-field" style="margin:0;" placeholder="ตัวเลือกที่ 1">' +
+        '</div>' +
+        '<div style="display:flex; align-items:center; margin-bottom:8px;">' +
+          '<input type="radio" name="qb-correct" value="2" style="width:20px; height:20px; margin-right:8px;">' +
+          '<input type="text" id="qb-opt2" class="input-field" style="margin:0;" placeholder="ตัวเลือกที่ 2">' +
+        '</div>' +
+        '<div style="display:flex; align-items:center; margin-bottom:8px;">' +
+          '<input type="radio" name="qb-correct" value="3" style="width:20px; height:20px; margin-right:8px;">' +
+          '<input type="text" id="qb-opt3" class="input-field" style="margin:0;" placeholder="ตัวเลือกที่ 3">' +
+        '</div>' +
+        '<div style="display:flex; align-items:center; margin-bottom:16px;">' +
+          '<input type="radio" name="qb-correct" value="4" style="width:20px; height:20px; margin-right:8px;">' +
+          '<input type="text" id="qb-opt4" class="input-field" style="margin:0;" placeholder="ตัวเลือกที่ 4">' +
+        '</div>' +
+
+        '<label style="display:block; font-weight:bold; margin-bottom:8px; font-size:14px;">คำอธิบายเฉลย (ไม่บังคับ):</label>' +
+        '<input type="text" id="qb-exp" class="input-field" placeholder="อธิบายสั้นๆ ทำไมถึงตอบข้อนี้">' +
+
+        '<label style="display:block; font-weight:bold; margin-bottom:8px; font-size:14px;">Module ID (เพื่อจัดกลุ่มข้อสอบ):</label>' +
+        '<input type="number" id="qb-mod" class="input-field" value="1">' +
+        
+        '<button class="btn btn-primary" onclick="App.adminSaveQuizBuilder()" style="margin-top:16px;">บันทึกข้อสอบเข้าสู่ระบบ</button>' +
+        '<div id="qb-status" style="margin-top:12px; font-size:13px; font-weight:bold; color:var(--duo-green); text-align:center;"></div>' +
+      '</div>' +
+    '</div>';
+  },
+
+  viewAdminDB: function() {
+    var tables = this.state.admin.tables || [];
+    if (tables.length === 0) return '<div class="loader">กำลังโหลดตารางข้อมูล...</div>';
+    
+    var listHtml = '';
+    for (var i = 0; i < tables.length; i++) {
+      listHtml += '<div class="card action-card" style="border-color:var(--bear-brown); border-left:5px solid var(--bear-orange); cursor:pointer; display:flex; justify-content:space-between; align-items:center;" onclick="App.navigate(\'adminTable\', \'' + tables[i] + '\')">' +
+        '<div style="font-size:16px; font-weight:bold; color:var(--bear-brown);">' + tables[i] + '</div>' +
+        '<div style="font-size:20px; color:var(--bear-orange);">&#x276F;</div>' +
+      '</div>';
+    }
+
+    return '<div class="page-content">' +
+      '<button onclick="App.navigate(\'admin\')" style="background:none; border:none; font-size:18px; color:var(--duo-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">' +
+        '<h2 class="text-title" style="color:var(--bear-brown); margin:0;">&#x1F5C4;&#xFE0F; Database Editor</h2>' +
+      '</div>' +
+      '<p style="font-size:13px; color:var(--duo-text-light);">เลือกตารางที่ต้องการจัดการโดยตรง (โหมดขั้นสูง)</p>' +
+      listHtml +
+    '</div>';
+  },
+
+  viewAdminTable: function() {
+    var tName = this.state.admin.currentTable;
+    var headers = this.state.admin.headers || [];
+    var data = this.state.admin.data || [];
+    var editingRow = this.state.admin.editingRow;
+
+    if (headers.length === 0) return '<div class="loader">กำลังโหลดข้อมูล...</div>';
+
+    var thHtml = '';
+    for (var i = 0; i < headers.length; i++) {
+      thHtml += '<th style="padding:10px; background:var(--bear-orange); color:white; text-align:left; border:1px solid #ccc; font-size:13px; min-width:120px;">' + headers[i] + '</th>';
+    }
+    thHtml += '<th style="padding:10px; background:var(--bear-brown); color:white; text-align:center; border:1px solid #ccc; font-size:13px; min-width:140px;">จัดการ</th>';
+
+    var trHtml = '';
+    for (var r = 0; r < data.length; r++) {
+      var row = data[r];
+      var isEditing = (r === editingRow);
+      var tdHtml = '';
+      
+      for (var c = 0; c < headers.length; c++) {
+        var val = row[headers[c]] || '';
+        if (isEditing) {
+          tdHtml += '<td style="padding:4px; border:1px solid #ccc;"><input type="text" id="edit-' + r + '-' + headers[c] + '" value="' + val + '" style="width:100%; box-sizing:border-box; padding:6px; border:1px solid var(--bear-orange); border-radius:4px;"></td>';
+        } else {
+          tdHtml += '<td style="padding:10px; border:1px solid #ccc; font-size:13px; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + val + '">' + val + '</td>';
+        }
+      }
+      
+      var actionHtml = '';
+      if (isEditing) {
+        actionHtml = '<button onclick="App.adminSaveRow(' + r + ')" style="background:var(--duo-green); color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; margin-right:4px;">บันทึก</button>' +
+                     '<button onclick="App.adminCancelEdit()" style="background:var(--duo-gray-shadow); color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer;">ยกเลิก</button>';
+      } else {
+        actionHtml = '<button onclick="App.state.admin.editingRow=' + r + '; App.render();" style="background:var(--duo-blue); color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; margin-right:4px;">แก้ไข</button>' +
+                     '<button onclick="App.adminDeleteRow(' + r + ')" style="background:var(--duo-red); color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer;">ลบ</button>';
+      }
+      tdHtml += '<td style="padding:4px; border:1px solid #ccc; text-align:center;">' + actionHtml + '</td>';
+      
+      trHtml += '<tr>' + tdHtml + '</tr>';
+    }
+
+    // New Row Input
+    var newTdHtml = '';
+    for (var c = 0; c < headers.length; c++) {
+      var ph = c === 0 ? '(Auto)' : headers[c];
+      newTdHtml += '<td style="padding:4px; border:1px solid #ccc;"><input type="text" id="new-' + headers[c] + '" placeholder="' + ph + '" style="width:100%; box-sizing:border-box; padding:6px; border:1px solid var(--duo-green); border-radius:4px;"></td>';
+    }
+    newTdHtml += '<td style="padding:4px; border:1px solid #ccc; text-align:center;"><button onclick="App.adminInsertRow()" style="background:var(--bear-orange); color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; width:100%; font-weight:bold;">+ เพิ่มข้อมูล</button></td>';
+    trHtml += '<tr style="background:#f9f9f9;">' + newTdHtml + '</tr>';
+
+    return '<div class="page-content" style="padding: 10px;">' +
+      '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">' +
+        '<button onclick="App.navigate(\'admin\')" style="background:none; border:none; font-size:16px; font-weight:bold; color:var(--duo-text-light); cursor:pointer;">&#x2190; กลับ</button>' +
+        '<h2 style="margin:0; font-size:18px; color:var(--bear-brown);">ตาราง: ' + tName + '</h2>' +
+      '</div>' +
+      '<div style="width:100%; overflow-x:auto; background:white; border-radius:8px; border:2px solid var(--duo-gray);">' +
+        '<table style="width:100%; border-collapse:collapse;">' +
+          '<thead><tr>' + thHtml + '</tr></thead>' +
+          '<tbody>' + trHtml + '</tbody>' +
+        '</table>' +
+      '</div>' +
+    '</div>';
+  },
+
+  /* ===== BOTTOM NAV ===== */
+
+  bottomNav: function(activeTab) {
+    var tabs = [
+      { id:'home',    icon:'&#x1F3E0;', label:'หน้าหลัก', route:'dashboard' },
+      { id:'lessons', icon:'&#x1F4DA;', label:'บทเรียน',  route:'lessons' },
+      { id:'bonus',   icon:'&#x1F3AB;', label:'QR คะแนน', route:'bonusQR' },
+      { id:'profile', icon:'&#x1F43E;', label:'โปรไฟล์',  route:'profile' }
+    ];
+    var navHtml = '';
+    for (var i = 0; i < tabs.length; i++) {
+      var tab = tabs[i];
+      var cls = activeTab === tab.id ? 'nav-item active' : 'nav-item';
+      navHtml += '<div class="' + cls + '" onclick="App.navigate(\'' + tab.route + '\')">' +
+        '<div class="nav-icon-wrap"><div class="nav-icon">' + tab.icon + '</div></div>' +
+        '<div class="nav-label">' + tab.label + '</div>' +
+      '</div>';
+    }
+    return '<div class="bottom-nav">' + navHtml + '</div>';
+  },
+
+  /* ===== CONTROLLERS ===== */
+
+  logout: function() {
+    this.state.user = null;
+    this.state.dataLoaded = false;
+    localStorage.removeItem('lms_user');
+    this.navigate('login');
+  },
+
+  handleLogin: function() {
+    var user = document.getElementById('username').value;
+    var pass = document.getElementById('password').value;
+    if (!user || !pass) { alert('กรุณากรอกข้อมูลให้ครบ'); return; }
+    var el = document.querySelector('.app-container');
+    if (el) el.style.opacity = '0.6';
+    google.script.run
+      .withSuccessHandler(function(response) {
+        if (el) el.style.opacity = '1';
+        if (response.success) {
+          App.state.user = response.user;
+          localStorage.setItem('lms_user', JSON.stringify(response.user));
+          if (response.user.Role === 'Admin') {
+            App.navigate('admin');
+          } else {
+            App.navigate('dashboard');
+          }
+        } else { alert(response.message); }
+      })
+      .withFailureHandler(function(error) {
+        if (el) el.style.opacity = '1';
+        alert('Error: ' + error.message);
+      })
+      .loginUser(user, pass);
+  },
+
+  handleRegister: function() {
+    var formData = {
+      prefix: document.getElementById('reg-prefix').value,
+      firstname: document.getElementById('reg-firstname').value,
+      lastname: document.getElementById('reg-lastname').value,
+      className: document.getElementById('reg-class').value,
+      number: document.getElementById('reg-number').value,
+      studentId: document.getElementById('reg-studentid').value,
+      username: document.getElementById('reg-username').value,
+      password: document.getElementById('reg-password').value,
+      confirmPassword: document.getElementById('reg-confirm-password').value
+    };
+    if (formData.password !== formData.confirmPassword) { alert('รหัสผ่านไม่ตรงกัน'); return; }
+    var el = document.querySelector('.app-container');
+    if (el) el.style.opacity = '0.6';
+    google.script.run
+      .withSuccessHandler(function(response) {
+        if (el) el.style.opacity = '1';
+        if (response.success) { alert('สมัครสำเร็จ!'); App.navigate('login'); }
+        else { alert(response.message); }
+      })
+      .withFailureHandler(function(error) { if (el) el.style.opacity = '1'; alert('Error: ' + error.message); })
+      .registerStudent(formData);
+  },
+
+  handleProfileUpload: function(event) {
+    var file = event.target.files[0];
+    if (!file) return;
+    var statusEl = document.getElementById('upload-status');
+    if (statusEl) statusEl.innerText = 'กำลังอัปโหลด...';
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (res.success) { App.state.user.ProfileImage = res.url; if (statusEl) statusEl.innerText = 'สำเร็จ!'; App.render(); }
+          else { if (statusEl) statusEl.innerText = 'Error: ' + res.message; }
+        })
+        .uploadProfileImage(App.state.user.UserID, e.target.result, file.name);
+    };
+    reader.readAsDataURL(file);
+  },
+
+  answerQuiz: function(btnElem, selectedOpt) {
+    var qState = this.state.quiz;
+    var q = qState.questions[qState.currentIndex];
+    var isCorrect = selectedOpt === q.correctAnswer;
+    var allBtns = document.querySelectorAll('.quiz-option');
+    for (var i = 0; i < allBtns.length; i++) { allBtns[i].classList.remove('correct', 'incorrect'); }
+    var feedbackEl = document.getElementById('quiz-feedback');
+    var footerEl = document.getElementById('quiz-footer');
+    var nextBtn = document.getElementById('quiz-next-btn');
+    if (isCorrect) {
+      qState.score++;
+      btnElem.classList.add('correct');
+      feedbackEl.innerHTML = '<div style="display:flex; align-items:center; gap:8px;"><span style="font-size:24px;">' + this.bear + '</span><div><h3 style="margin:0; color:var(--duo-green-shadow); font-size:16px;">ถูกต้อง!</h3><p style="margin:4px 0 0 0; font-size:13px; color:var(--duo-green-shadow);">' + q.explanation + '</p></div></div>';
+      footerEl.style.backgroundColor = '#d7ffb8';
+      nextBtn.className = 'btn btn-primary';
+    } else {
+      btnElem.classList.add('incorrect');
+      feedbackEl.innerHTML = '<div style="display:flex; align-items:center; gap:8px;"><span style="font-size:24px;">' + this.bear + '</span><div><h3 style="margin:0; color:var(--duo-red-shadow); font-size:16px;">คำตอบที่ถูกต้อง:</h3><p style="margin:4px 0 0 0; font-weight:800; font-size:15px; color:var(--duo-red-shadow);">' + q.correctAnswer + '</p><p style="margin:4px 0 0 0; font-size:12px; color:var(--duo-red-shadow);">' + q.explanation + '</p></div></div>';
+      footerEl.style.backgroundColor = '#ffdfe0';
+      nextBtn.className = 'btn btn-danger';
+    }
+    feedbackEl.style.display = 'block';
+    document.getElementById('quiz-options').style.pointerEvents = 'none';
+    nextBtn.removeAttribute('disabled');
+    nextBtn.innerText = 'ถัดไป';
+    nextBtn.onclick = function() { App.nextQuizQuestion(); };
+  },
+
+  nextQuizQuestion: function() {
+    this.state.quiz.currentIndex++;
+    if (this.state.quiz.currentIndex >= this.state.quiz.questions.length) {
+      google.script.run.submitQuizScore(
+        this.state.user.UserID, 'Quiz', this.state.quiz.moduleId,
+        this.state.quiz.score, this.state.quiz.questions.length, 0
+      );
+    }
+    this.render();
+  },
+
+  nextFlashcard: function() {
+    this.state.flashcards.currentIndex++;
+    if (this.state.flashcards.currentIndex >= this.state.flashcards.cards.length) {
+      google.script.run.submitQuizScore(this.state.user.UserID, 'Flashcards', this.state.flashcards.moduleId, 2, 2, 0);
+    }
+    this.render();
+  },
+
+  /* ===== ADMIN CONTROLLERS ===== */
+
+  adminCancelEdit: function() {
+    this.state.admin.editingRow = -1;
+    this.render();
+  },
+
+  adminSaveRow: function(rowIndex) {
+    var headers = this.state.admin.headers;
+    var rowData = this.state.admin.data[rowIndex];
+    var updatedData = {};
+    for (var i = 0; i < headers.length; i++) {
+      var el = document.getElementById('edit-' + rowIndex + '-' + headers[i]);
+      if (el) updatedData[headers[i]] = el.value;
+    }
+    
+    var tName = this.state.admin.currentTable;
+    var idCol = headers[0];
+    var idVal = rowData[idCol];
+    
+    var elContainer = document.querySelector('.page-content');
+    if (elContainer) elContainer.style.opacity = '0.5';
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.success) {
+          App.navigate('adminTable', tName); // Reload
+        } else {
+          alert('Error: ' + res.message);
+          if (elContainer) elContainer.style.opacity = '1';
+        }
+      })
+      .withFailureHandler(function(e) { alert('Error: '+e.message); if(elContainer) elContainer.style.opacity='1'; })
+      .adminUpdateRow(tName, idCol, idVal, updatedData);
+  },
+
+  adminInsertRow: function() {
+    var headers = this.state.admin.headers;
+    var newData = {};
+    for (var i = 0; i < headers.length; i++) {
+      var el = document.getElementById('new-' + headers[i]);
+      if (el) newData[headers[i]] = el.value;
+    }
+    
+    var tName = this.state.admin.currentTable;
+    var elContainer = document.querySelector('.page-content');
+    if (elContainer) elContainer.style.opacity = '0.5';
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.success) {
+          App.navigate('adminTable', tName); // Reload
+        } else {
+          alert('Error: ' + res.message);
+          if (elContainer) elContainer.style.opacity = '1';
+        }
+      })
+      .withFailureHandler(function(e) { alert('Error: '+e.message); if(elContainer) elContainer.style.opacity='1'; })
+      .adminInsertRow(tName, newData);
+  },
+
+  adminDeleteRow: function(rowIndex) {
+    if (!confirm('ยืนยันการลบข้อมูลนี้?')) return;
+    
+    var headers = this.state.admin.headers;
+    var rowData = this.state.admin.data[rowIndex];
+    var tName = this.state.admin.currentTable;
+    var idCol = headers[0];
+    var idVal = rowData[idCol];
+    
+    var elContainer = document.querySelector('.page-content');
+    if (elContainer) elContainer.style.opacity = '0.5';
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.success) {
+          App.navigate('adminTable', tName); // Reload
+        } else {
+          alert('Error: ' + res.message);
+          if (elContainer) elContainer.style.opacity = '1';
+        }
+      })
+      .withFailureHandler(function(e) { alert('Error: '+e.message); if(elContainer) elContainer.style.opacity='1'; })
+      .adminDeleteRow(tName, idCol, idVal);
+  },
+
+  adminDownloadCSV: function() {
+    var cls = document.getElementById('export-class').value;
+    var st = document.getElementById('export-status');
+    st.innerHTML = 'กำลังดึงข้อมูล... กรุณารอสักครู่';
+    
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.success) {
+          st.innerHTML = 'ดึงข้อมูลสำเร็จ! กำลังดาวน์โหลด...';
+          // Create Blob and Download
+          var blob = new Blob(["\ufeff" + res.csvData], { type: 'text/csv;charset=utf-8;' });
+          var link = document.createElement("a");
+          var url = URL.createObjectURL(blob);
+          link.setAttribute("href", url);
+          link.setAttribute("download", res.filename);
+          link.style.visibility = 'hidden';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        } else {
+          st.innerHTML = '<span style="color:var(--duo-red);">' + res.message + '</span>';
+        }
+      })
+      .withFailureHandler(function(e) {
+        st.innerHTML = '<span style="color:var(--duo-red);">Error: ' + e.message + '</span>';
+      })
+      .adminExportScoresCSV(cls);
+  },
+
+  /* ===== QR CODE CONTROLLERS ===== */
+
+  initBonusQR: function() {
+    var canvas = document.getElementById('bonus-qr-canvas');
+    if (!canvas) return;
+    var uid = String(this.state.user.UserID);
+    QRCode.toCanvas(canvas, uid, {
+      width: 220,
+      margin: 2,
+      color: { dark: '#3D2B5C', light: '#FFFFFF' },
+      errorCorrectionLevel: 'M'
+    }, function(err) {
+      if (err) console.error('QR error:', err);
+    });
+  },
+
+  initQRScanner: function() {
+    var self = this;
+    var video = document.getElementById('qr-video');
+    var canvas = document.getElementById('qr-canvas');
+    if (!video || !canvas) return;
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      .then(function(stream) {
+        self.state.scannerStream = stream;
+        video.srcObject = stream;
+        video.setAttribute('playsinline', true);
+        video.play();
+
+        var ctx = canvas.getContext('2d');
+        function tick() {
+          if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            var imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            var code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'dontInvert' });
+            if (code && code.data) {
+              self.onQRScanned(code.data);
+              return;
+            }
+          }
+          self.state.scannerAnimFrame = requestAnimationFrame(tick);
+        }
+        self.state.scannerAnimFrame = requestAnimationFrame(tick);
+      })
+      .catch(function(err) {
+        var st = document.getElementById('scanner-status');
+        if (st) st.innerText = '❌ ไม่สามารถเข้าถึงกล้องได้: ' + err.message;
+      });
+  },
+
+  stopQRScanner: function() {
+    if (this.state.scannerStream) {
+      this.state.scannerStream.getTracks().forEach(function(t) { t.stop(); });
+      this.state.scannerStream = null;
+    }
+    if (this.state.scannerAnimFrame) {
+      cancelAnimationFrame(this.state.scannerAnimFrame);
+      this.state.scannerAnimFrame = null;
+    }
+  },
+
+  onQRScanned: function(data) {
+    var self = this;
+    this.stopQRScanner();
+    var userId = (data || '').trim();
+    if (!userId) {
+      var st = document.getElementById('scanner-status');
+      if (st) st.innerText = '❌ QR Code ไม่ถูกต้อง กรุณาสแกนใหม่';
+      return;
+    }
+    var st = document.getElementById('scanner-status');
+    if (st) st.innerText = '🔍 กำลังค้นหาข้อมูล...';
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.success) {
+          self.state.scannedUser = res.user;
+          self.state.scannedUserBonus = res.currentBonus;
+          self.state.pendingBonusPoints = 10;
+          self.render();
+        } else {
+          if (st) st.innerText = '❌ ' + (res.message || 'ไม่พบผู้เรียน');
+          // Restart scanner after 2s
+          setTimeout(function() { self.initQRScanner(); }, 2000);
+        }
+      })
+      .withFailureHandler(function(e) {
+        if (st) st.innerText = '❌ Error: ' + e.message;
+      })
+      .adminScanGetUser(userId);
+  },
+
+  doGiveBonus: function() {
+    var self = this;
+    var targetUser = this.state.scannedUser;
+    var pts = this.state.pendingBonusPoints;
+    if (!targetUser) return;
+
+    var btn = document.querySelector('.btn-primary');
+    if (btn) { btn.disabled = true; btn.innerText = 'กำลังบันทึก...'; }
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        var st = document.getElementById('bonus-give-status');
+        if (res.success) {
+          if (st) {
+            st.style.color = 'var(--clay-green-shadow)';
+            st.innerText = '✅ ให้คะแนน +' + res.given + ' สำเร็จ! (รวม ' + res.newTotal + '/100)';
+          }
+          self.state.scannedUserBonus = res.newTotal;
+          setTimeout(function() { self.render(); }, 1500);
+        } else {
+          if (st) { st.style.color = 'var(--clay-red)'; st.innerText = '❌ ' + res.message; }
+          if (btn) { btn.disabled = false; btn.innerText = '✅ ให้คะแนน'; }
+        }
+      })
+      .withFailureHandler(function(e) {
+        var st = document.getElementById('bonus-give-status');
+        if (st) st.innerText = '❌ Error: ' + e.message;
+      })
+      .adminGiveBonus(targetUser.id, pts, self.state.user ? self.state.user.UserID : 0);
+  },
+
+  adminSaveQuizBuilder: function() {
+    var txt = document.getElementById('qb-text').value.trim();
+    if (!txt) return alert('กรุณาพิมพ์โจทย์');
+    
+    var opt1 = document.getElementById('qb-opt1').value.trim();
+    var opt2 = document.getElementById('qb-opt2').value.trim();
+    var opt3 = document.getElementById('qb-opt3').value.trim();
+    var opt4 = document.getElementById('qb-opt4').value.trim();
+    if (!opt1 || !opt2 || !opt3 || !opt4) return alert('กรุณาใส่ตัวเลือกให้ครบ 4 ข้อ');
+    
+    var radios = document.getElementsByName('qb-correct');
+    var correctIdx = 1;
+    for (var i = 0; i < radios.length; i++) {
+      if (radios[i].checked) { correctIdx = parseInt(radios[i].value); break; }
+    }
+    
+    var correctAns = document.getElementById('qb-opt' + correctIdx).value.trim();
+    var exp = document.getElementById('qb-exp').value.trim();
+    var mid = document.getElementById('qb-mod').value;
+    
+    var st = document.getElementById('qb-status');
+    st.innerHTML = 'กำลังบันทึก...';
+    
+    var newData = {
+      'QuizID': '', // Auto
+      'ModuleID': mid,
+      'QuestionText': txt,
+      'Option1': opt1,
+      'Option2': opt2,
+      'Option3': opt3,
+      'Option4': opt4,
+      'CorrectAnswer': correctAns,
+      'Explanation': exp
+    };
+    
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.success) {
+          st.innerHTML = 'บันทึกเรียบร้อย! สามารถเพิ่มข้อต่อไปได้เลย';
+          document.getElementById('qb-text').value = '';
+          document.getElementById('qb-opt1').value = '';
+          document.getElementById('qb-opt2').value = '';
+          document.getElementById('qb-opt3').value = '';
+          document.getElementById('qb-opt4').value = '';
+          document.getElementById('qb-exp').value = '';
+          radios[0].checked = true;
+        } else {
+          st.innerHTML = '<span style="color:var(--duo-red);">Error: ' + res.message + '</span>';
+        }
+      })
+      .withFailureHandler(function(e) {
+        st.innerHTML = '<span style="color:var(--duo-red);">Error: ' + e.message + '</span>';
+      })
+      .adminInsertRow('QuizBank', newData);
+  }
+};
+
+window.App = App;
+
+/* Boot */
+(function() {
+  function boot() {
+    var el = document.getElementById('app');
+    if (el) {
+      try { App.init(); }
+      catch(e) { el.innerHTML = '<div style="color:red;padding:20px;font-size:14px;"><b>Error:</b> ' + e.message + '</div>'; }
+    } else { setTimeout(boot, 100); }
+  }
+  boot();
+})();
+

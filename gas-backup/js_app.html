@@ -1,0 +1,1115 @@
+<script>
+var App = {
+  state: {
+    user: null,
+    currentRoute: 'login',
+    modules: null,
+    dashboardData: {
+      xp: 0, level: 'Beginner', streak: 0, badges: [],
+      readiness: 0, recommendation: { weakness: '-', module: 1 }
+    },
+    leaderboard: [],
+    quiz: { questions: [], currentIndex: 0, score: 0, moduleId: 1 },
+    flashcards: { cards: [], currentIndex: 0, moduleId: 1 },
+    admin: { tables: [], currentTable: '', headers: [], data: [], editingRow: -1 },
+    dataLoaded: false
+  },
+
+  bear: '&#x1F43B;',
+  bearHappy: '&#x1F43B;',
+  bearStar: '&#x2B50;',
+
+  init: function() {
+    var storedUser = localStorage.getItem('lms_user');
+    if (storedUser) {
+      try {
+        this.state.user = JSON.parse(storedUser);
+      } catch(e) {}
+    }
+    if (this.state.user) {
+      this.navigate(this.state.user.Role === 'Admin' ? 'admin' : 'dashboard');
+    } else {
+      this.render();
+    }
+  },
+
+  navigate: function(route, params) {
+    var self = this;
+    if (!this.state.user && route !== 'login' && route !== 'register') {
+      route = 'login';
+    }
+    this.state.currentRoute = route;
+
+    // Show loading
+    var el = document.getElementById('app');
+    if (el && route !== 'login' && route !== 'register') {
+      el.innerHTML = '<div class="loader"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลด...</div></div>' + this.bottomNav(route === 'dashboard' ? 'home' : route);
+    }
+
+    if (route === 'dashboard') {
+      if (!this.state.dataLoaded) {
+        // First load: fetch everything in one call
+        google.script.run.withSuccessHandler(function(res) {
+          if (res.success) {
+            if (res.dashboard) self.state.dashboardData = res.dashboard;
+            if (res.modules) self.state.modules = res.modules;
+            self.state.dataLoaded = true;
+          }
+          self.render();
+        }).withFailureHandler(function(e) { self.render(); }).getAppData(self.state.user.UserID);
+      } else {
+        // Subsequent loads: just refresh dashboard
+        google.script.run.withSuccessHandler(function(res) {
+          if (res.success) self.state.dashboardData = res.data;
+          self.render();
+        }).withFailureHandler(function(e) { self.render(); }).getDashboardData(self.state.user.UserID);
+      }
+    } else if (route === 'lessons') {
+      if (!this.state.modules) {
+        google.script.run.withSuccessHandler(function(res) {
+          self.state.modules = res;
+          self.render();
+        }).withFailureHandler(function(e) { self.render(); }).getModules();
+      } else {
+        this.render();
+      }
+    } else if (route === 'leaderboard') {
+      google.script.run.withSuccessHandler(function(res) {
+        if (res.success) self.state.leaderboard = res.data;
+        self.render();
+      }).withFailureHandler(function(e) { self.render(); }).getLeaderboard();
+    } else if (route === 'dailyQuest') {
+      this.state.quiz.moduleId = 'Daily';
+      this.state.quiz.currentIndex = 0;
+      this.state.quiz.score = 0;
+      google.script.run.withSuccessHandler(function(res) {
+        if (res.success) self.state.quiz.questions = res.data;
+        self.render();
+      }).withFailureHandler(function(e) { self.render(); }).getDailyQuest();
+    } else if (route === 'quiz') {
+      var mId = params || 1;
+      this.state.quiz.moduleId = mId;
+      this.state.quiz.currentIndex = 0;
+      this.state.quiz.score = 0;
+      google.script.run.withSuccessHandler(function(res) {
+        if (res.success) self.state.quiz.questions = res.data;
+        self.render();
+      }).withFailureHandler(function(e) { self.render(); }).getQuizQuestions(mId);
+    } else if (route === 'lesson') {
+      this.state.currentModuleId = params || 1;
+      this.state.currentRoute = 'lesson';
+      this.render();
+    } else if (route === 'flashcards') {
+      var fmId = params || 1;
+      this.state.flashcards.moduleId = fmId;
+      this.state.flashcards.currentIndex = 0;
+      google.script.run.withSuccessHandler(function(res) {
+        if (res.success) self.state.flashcards.cards = res.data;
+        self.render();
+      }).withFailureHandler(function(e) { self.render(); }).getFlashcards(fmId);
+    } else if (route === 'admin') {
+      this.render();
+    } else if (route === 'adminDB') {
+      google.script.run.withSuccessHandler(function(res) {
+        if (res.success) self.state.admin.tables = res.data;
+        self.render();
+      }).withFailureHandler(function(e) { self.render(); }).adminGetTables();
+    } else if (route === 'adminExport') {
+      this.render();
+    } else if (route === 'adminQuizBuilder') {
+      this.render();
+    } else if (route === 'adminTable') {
+      var tName = params;
+      this.state.admin.currentTable = tName;
+      this.state.admin.editingRow = -1;
+      google.script.run.withSuccessHandler(function(res) {
+        if (res.success) {
+          self.state.admin.headers = res.headers;
+          self.state.admin.data = res.data;
+        }
+        self.render();
+      }).withFailureHandler(function(e) { self.render(); }).adminGetTableData(tName);
+    } else {
+      this.render();
+    }
+  },
+
+  render: function() {
+    var el = document.getElementById('app');
+    if (!el) return;
+    var html = '';
+    var r = this.state.currentRoute;
+
+    if (r === 'login') { html = this.viewLogin(); }
+    else if (r === 'register') { html = this.viewRegister(); }
+    else if (r === 'dashboard') { html = this.viewDashboard() + this.bottomNav('home'); }
+    else if (r === 'lessons') { html = this.viewLessons() + this.bottomNav('lessons'); }
+    else if (r === 'moduleDetail') { html = this.viewModuleDetail(); }
+    else if (r === 'lesson') { html = this.viewLesson(); }
+    else if (r === 'quiz' || r === 'dailyQuest') { html = this.viewQuiz(); }
+    else if (r === 'flashcards') { html = this.viewFlashcards(); }
+    else if (r === 'profile') { html = this.viewProfile() + this.bottomNav('profile'); }
+    else if (r === 'leaderboard') { html = this.viewLeaderboard() + this.bottomNav('home'); }
+    else if (r === 'guide') { html = this.viewGuide() + this.bottomNav('profile'); }
+    else if (r === 'admin') { html = this.viewAdmin(); }
+    else if (r === 'adminDB') { html = this.viewAdminDB(); }
+    else if (r === 'adminTable') { html = this.viewAdminTable(); }
+    else if (r === 'adminExport') { html = this.viewAdminExport(); }
+    else if (r === 'adminQuizBuilder') { html = this.viewAdminQuizBuilder(); }
+    else { html = '<div class="loader">Page not found</div>'; }
+
+    el.innerHTML = html;
+  },
+
+  /* ===== VIEWS ===== */
+
+  viewLogin: function() {
+    return '<div class="page-content" style="display:flex; flex-direction:column; justify-content:center;">' +
+      '<div class="text-center" style="margin-bottom: 32px;">' +
+        '<div class="mascot-bounce" style="font-size: 80px; filter: drop-shadow(0 8px 0 #d4a574);">' + this.bear + '</div>' +
+        '<h1 class="text-title" style="color: var(--bear-brown); font-size: 28px; margin-bottom: 8px;">เรียนรู้พิชิตบทเรียน</h1>' +
+        '<p class="text-subtitle" style="font-size: 16px; color: var(--bear-orange); font-weight: 800;">ชั้น ม.6 (ว.ส.ค.69)</p>' +
+        '<p style="font-size:13px; color:var(--duo-text-light); margin-top:8px;">&#x1F43E; พี่หมีน้อยพร้อมพาเธอเรียนแล้วนะ!</p>' +
+      '</div>' +
+      '<div class="card" style="border:none; padding:0;">' +
+        '<input type="text" class="input-field" placeholder="&#x1F464; Username (รหัสนักเรียน)" id="username">' +
+        '<input type="password" class="input-field" placeholder="&#x1F512; Password" id="password">' +
+        '<button class="btn btn-primary" onclick="App.handleLogin()">เข้าสู่ระบบ</button>' +
+        '<button class="btn btn-outline" onclick="App.navigate(\'register\')">สมัครสมาชิก</button>' +
+      '</div>' +
+      '<div style="margin-top: 24px; text-align: center; font-size: 11px; color: var(--duo-text-light);">' +
+        '<b>พัฒนาโดย:</b> ครูกฤษณะ เจี๊ยะทา<br>' +
+        '<b>เนื้อหาบทเรียน:</b> ครูจิตสุภา คำโหงษ์' +
+      '</div>' +
+    '</div>';
+  },
+
+  viewRegister: function() {
+    return '<div class="page-content">' +
+      '<div class="text-center" style="margin-bottom:16px;">' +
+        '<div style="font-size:48px;">' + this.bear + '</div>' +
+        '<h2 class="text-title" style="color: var(--bear-brown);">สมัครสมาชิก</h2>' +
+        '<p style="font-size:13px; color:var(--duo-text-light);">พี่หมีน้อยอยากรู้จักเธอ!</p>' +
+      '</div>' +
+      '<div class="card" style="border:none; padding:0;">' +
+        '<select class="input-field" id="reg-prefix">' +
+          '<option value="นาย">นาย (Mr.)</option>' +
+          '<option value="นางสาว">นางสาว (Miss)</option>' +
+        '</select>' +
+        '<input type="text" class="input-field" placeholder="ชื่อ" id="reg-firstname">' +
+        '<input type="text" class="input-field" placeholder="นามสกุล" id="reg-lastname">' +
+        '<input type="text" class="input-field" placeholder="ห้อง (เช่น ม.6/1)" id="reg-class">' +
+        '<input type="number" class="input-field" placeholder="เลขที่" id="reg-number">' +
+        '<input type="text" class="input-field" placeholder="รหัสนักเรียน" id="reg-studentid">' +
+        '<input type="text" class="input-field" placeholder="Username" id="reg-username">' +
+        '<input type="password" class="input-field" placeholder="Password" id="reg-password">' +
+        '<input type="password" class="input-field" placeholder="ยืนยัน Password" id="reg-confirm-password">' +
+        '<button class="btn btn-primary" onclick="App.handleRegister()">สมัครสมาชิก</button>' +
+        '<button class="btn btn-outline" onclick="App.navigate(\'login\')">มีบัญชีอยู่แล้ว?</button>' +
+      '</div>' +
+    '</div>';
+  },
+
+  viewDashboard: function() {
+    var u = this.state.user;
+    var d = this.state.dashboardData;
+    var avatar = u.ProfileImage ? '<img src="' + u.ProfileImage + '" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" onerror="this.style.display=\'none\'; this.parentElement.innerHTML=\'&#x1F43B;\'">' : this.bear;
+
+    return '<div class="page-content">' +
+      // Bear greeting
+      '<div class="bear-speech" style="margin-bottom:20px;">' +
+        '<div style="display:flex; gap:12px; align-items:center;">' +
+          '<div class="mascot-bounce" style="font-size:48px; flex-shrink:0;">' + this.bear + '</div>' +
+          '<div class="speech-bubble">' +
+            '<b style="color:var(--bear-brown);">สวัสดี ' + u.FirstName + '!</b><br>' +
+            '<span style="font-size:13px; color:var(--duo-text-light);">วันนี้พี่หมีน้อยเตรียมบทเรียนไว้ให้แล้วนะ มาเรียนกันเถอะ!</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      // Stats row
+      '<div style="display:flex; gap:10px; margin-bottom:16px;">' +
+        '<div class="stat-card" style="background: linear-gradient(135deg, #fff8e1, #fffde7);">' +
+          '<div style="font-size:20px;">&#x26A1;</div>' +
+          '<div style="font-weight:800; font-size:18px; color:var(--bear-orange);">' + d.xp + '</div>' +
+          '<div style="font-size:11px; color:var(--duo-text-light);">XP</div>' +
+        '</div>' +
+        '<div class="stat-card" style="background: linear-gradient(135deg, #fce4ec, #fff0f0);">' +
+          '<div style="font-size:20px;">&#x1F525;</div>' +
+          '<div style="font-weight:800; font-size:18px; color:var(--duo-red);">' + d.streak + '</div>' +
+          '<div style="font-size:11px; color:var(--duo-text-light);">Streak</div>' +
+        '</div>' +
+        '<div class="stat-card" style="background: linear-gradient(135deg, #e8f5e9, #f1f8e9);">' +
+          '<div style="font-size:20px;">&#x1F3C5;</div>' +
+          '<div style="font-weight:800; font-size:18px; color:var(--duo-green);">' + d.level + '</div>' +
+          '<div style="font-size:11px; color:var(--duo-text-light);">Rank</div>' +
+        '</div>' +
+      '</div>' +
+      // Quick Actions
+      '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px;">' +
+        '<div class="card action-card" style="border-color:var(--bear-orange); background:linear-gradient(135deg, #fff3e0, #fffde7);" onclick="App.navigate(\'lessons\')">' +
+          '<div style="font-size: 36px;">&#x1F4DA;</div>' +
+          '<h3 style="margin:8px 0 0 0; font-size:14px; color:var(--bear-brown);">เริ่มเรียน</h3>' +
+          '<p style="font-size:11px; color:var(--duo-text-light); margin:4px 0 0 0;">4 โมดูล</p>' +
+        '</div>' +
+        '<div class="card action-card" style="border-color:var(--duo-yellow); background:linear-gradient(135deg, #fffde7, #fff8e1);" onclick="App.navigate(\'leaderboard\')">' +
+          '<div style="font-size: 36px;">&#x1F3C6;</div>' +
+          '<h3 style="margin:8px 0 0 0; font-size:14px; color:var(--duo-yellow-shadow);">อันดับ</h3>' +
+          '<p style="font-size:11px; color:var(--duo-text-light); margin:4px 0 0 0;">Leaderboard</p>' +
+        '</div>' +
+      '</div>' +
+      // Bear recommendation
+      '<div class="card" style="border-color:var(--bear-brown); border-width: 2px; border-left:5px solid var(--bear-orange);">' +
+        '<div style="display:flex; gap:12px; align-items:center;">' +
+          '<div style="font-size:36px;">' + this.bear + '</div>' +
+          '<div>' +
+            '<h3 style="margin:0 0 4px 0; font-size:15px; color:var(--bear-brown);">&#x1F43E; พี่หมีน้อยแนะนำ</h3>' +
+            '<p class="text-subtitle" style="margin:0; font-size:13px;">เธอควรทบทวนเรื่อง <b>' + d.recommendation.weakness + '</b> นะ!</p>' +
+          '</div>' +
+        '</div>' +
+        '<button class="btn btn-primary" style="margin-top: 12px; margin-bottom: 0; font-size:13px;" onclick="App.navigate(\'quiz\', ' + d.recommendation.module + ')">ฝึกเลย!</button>' +
+      '</div>' +
+      // Daily Quest Card
+      '<div class="card action-card" style="border-color:var(--duo-blue); border-bottom-width:4px; margin-top:20px; cursor:pointer;" onclick="App.navigate(\'dailyQuest\')">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<div style="font-size:40px;">' + this.bear + '</div>' +
+          '<div style="flex:1;">' +
+            '<h3 style="margin:0; font-size:16px; color:var(--duo-blue-shadow);">&#x2B50; แบบฝึกหัดประจำวัน (สุ่ม)</h3>' +
+            '<p style="margin:4px 0 0 0; font-size:12px; color:var(--duo-text-light);">ทำโจทย์สุ่ม 10 ข้อเพื่อรับ XP พิเศษ!</p>' +
+          '</div>' +
+          '<div style="font-size:20px; color:var(--duo-blue);">&#x25B6;</div>' +
+        '</div>' +
+      '</div>' +
+      '</div>' +
+    '</div>';
+  },
+
+  viewGuide: function() {
+    return '<div class="page-content">' +
+      '<div class="text-center" style="margin-bottom:20px;">' +
+        '<div class="mascot-bounce" style="font-size:64px;">' + this.bear + '</div>' +
+        '<h2 class="text-title" style="color:var(--bear-brown);">คำแนะนำจากพี่หมีน้อย</h2>' +
+      '</div>' +
+      '<div class="card" style="border-left:4px solid var(--duo-green);">' +
+        '<h3 style="margin-top:0; color: var(--duo-green); font-size:15px;">&#x1F43E; 1. เรียนทีละโมดูล</h3>' +
+        '<p style="font-size:13px; color:var(--duo-text-light);">กดเข้าไปในแต่ละโมดูลเพื่อเลือกทำ Quiz หรือ Flashcard ได้เลย!</p>' +
+      '</div>' +
+      '<div class="card" style="border-left:4px solid var(--bear-orange);">' +
+        '<h3 style="margin-top:0; color: var(--bear-orange); font-size:15px;">&#x26A1; 2. สะสม XP</h3>' +
+        '<p style="font-size:13px; color:var(--duo-text-light);"><b>+10 XP</b> ต่อข้อที่ตอบถูก | <b>+20 XP</b> เมื่อจบ Flashcard</p>' +
+      '</div>' +
+      '<div class="card" style="border-left:4px solid var(--duo-red);">' +
+        '<h3 style="margin-top:0; color: var(--duo-red); font-size:15px;">&#x1F525; 3. แข่งกับเพื่อน</h3>' +
+        '<p style="font-size:13px; color:var(--duo-text-light);">ดู Leaderboard เพื่อเช็คอันดับ! พี่หมีน้อยเชียร์ให้นะ!</p>' +
+      '</div>' +
+      '<button class="btn btn-primary" onclick="App.navigate(\'dashboard\')">เข้าใจแล้ว! &#x1F43E;</button>' +
+    '</div>';
+  },
+
+  viewLessons: function() {
+    var icons = ['&#x1F4D6;', '&#x1F4DD;', '&#x1F4AC;', '&#x1F9E0;'];
+    var bgColors = [
+      'linear-gradient(135deg, #e8f5e9, #c8e6c9)',
+      'linear-gradient(135deg, #e3f2fd, #bbdefb)',
+      'linear-gradient(135deg, #fce4ec, #f8bbd0)',
+      'linear-gradient(135deg, #fff3e0, #ffe0b2)'
+    ];
+    var borderColors = ['var(--duo-green)', 'var(--duo-blue)', 'var(--duo-red)', 'var(--bear-orange)'];
+    var shadowColors = ['var(--duo-green-shadow)', 'var(--duo-blue-shadow)', 'var(--duo-red-shadow)', 'var(--bear-brown)'];
+
+    var mods = this.state.modules;
+    var modulesHtml = '';
+
+    if (mods && mods.length > 0) {
+      for (var i = 0; i < mods.length; i++) {
+        var m = mods[i];
+        var idx = i % 4;
+        modulesHtml += '<div class="card module-card" style="border-color:' + borderColors[idx] + '; border-bottom-width:5px; cursor:pointer; overflow:hidden;" onclick="App.showModuleDetail(' + m.id + ', ' + i + ')">' +
+          '<div style="display:flex; align-items:center; gap:16px;">' +
+            '<div style="width:56px; height:56px; border-radius:16px; background:' + bgColors[idx] + '; display:flex; align-items:center; justify-content:center; font-size:28px; flex-shrink:0;">' + icons[idx] + '</div>' +
+            '<div style="flex:1;">' +
+              '<h3 style="margin:0 0 4px 0; color:' + shadowColors[idx] + '; font-size:16px;">Unit ' + m.id + ': ' + m.title + '</h3>' +
+              '<p style="margin:0; font-size:12px; color:var(--duo-text-light);">' + (m.desc || '') + '</p>' +
+            '</div>' +
+            '<div style="font-size:20px; color:var(--duo-gray-shadow);">&#x276F;</div>' +
+          '</div>' +
+        '</div>';
+      }
+    } else {
+      modulesHtml = '<div class="loader"><div style="font-size:48px;">' + this.bear + '</div><div class="loader-text">กำลังโหลดบทเรียน...</div></div>';
+    }
+
+    return '<div class="page-content">' +
+      '<div style="display:flex; align-items:center; gap:12px; margin-bottom:20px;">' +
+        '<div style="font-size:36px;">' + this.bear + '</div>' +
+        '<div>' +
+          '<h2 class="text-title" style="margin:0; font-size:20px;">เส้นทางการเรียนรู้</h2>' +
+          '<p style="margin:2px 0 0 0; font-size:12px; color:var(--duo-text-light);">เลือกโมดูลที่อยากเรียนได้เลยนะ!</p>' +
+        '</div>' +
+      '</div>' +
+      modulesHtml +
+    '</div>';
+  },
+
+  showModuleDetail: function(moduleId, idx) {
+    this.state.currentModuleId = moduleId;
+    this.state.currentModuleIdx = idx || 0;
+    this.state.currentRoute = 'moduleDetail';
+    this.render();
+  },
+
+  viewModuleDetail: function() {
+    var mid = this.state.currentModuleId;
+    var idx = this.state.currentModuleIdx || 0;
+    var mods = this.state.modules || [];
+    var mod = null;
+    for (var i = 0; i < mods.length; i++) {
+      if (Number(mods[i].id) === Number(mid)) { mod = mods[i]; break; }
+    }
+    var title = mod ? mod.title : 'Module ' + mid;
+    var desc = mod ? (mod.desc || '') : '';
+
+    var bgColors = [
+      'linear-gradient(135deg, #e8f5e9, #c8e6c9)',
+      'linear-gradient(135deg, #e3f2fd, #bbdefb)',
+      'linear-gradient(135deg, #fce4ec, #f8bbd0)',
+      'linear-gradient(135deg, #fff3e0, #ffe0b2)'
+    ];
+    var borderColors = ['var(--duo-green)', 'var(--duo-blue)', 'var(--duo-red)', 'var(--bear-orange)'];
+    var cIdx = idx % 4;
+
+    return '<div class="page-content">' +
+      '<button onclick="App.navigate(\'lessons\')" style="background:none; border:none; font-size:18px; color:var(--duo-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<div class="card" style="text-align:center; border-color:' + borderColors[cIdx] + '; border-bottom-width:5px; background:' + bgColors[cIdx] + ';">' +
+        '<div style="font-size:64px; margin-bottom:8px;">' + this.bear + '</div>' +
+        '<h2 style="margin:0 0 8px 0; color:var(--bear-brown); font-size:22px;">' + title + '</h2>' +
+        '<p style="margin:0; font-size:13px; color:var(--duo-text-light);">' + desc + '</p>' +
+      '</div>' +
+      '<div style="display: grid; grid-template-columns: 1fr 1fr; gap:10px;">' +
+        '<div class="card" style="padding:16px; border-color:var(--duo-red); cursor:pointer;" onclick="App.navigate(\'quiz\', ' + mid + ')">' +
+          '<div style="font-size:32px;">&#x2753;</div><h3 style="margin:8px 0 0 0; font-size:14px; color:var(--duo-red-shadow);">ทดสอบก่อนเรียน</h3>' +
+        '</div>' +
+        '<div class="card" style="padding:16px; border-color:var(--duo-blue); cursor:pointer;" onclick="App.navigate(\'lesson\', ' + mid + ')">' +
+          '<div style="font-size:32px;">&#x1F4D6;</div><h3 style="margin:8px 0 0 0; font-size:14px; color:var(--duo-blue-shadow);">เนื้อหา</h3>' +
+        '</div>' +
+        '<div class="card" style="padding:16px; border-color:var(--bear-orange); cursor:pointer;" onclick="App.navigate(\'flashcards\', ' + mid + ')">' +
+          '<div style="font-size:32px;">&#x1F4D2;</div><h3 style="margin:8px 0 0 0; font-size:14px; color:var(--bear-brown);">คำศัพท์</h3>' +
+        '</div>' +
+        '<div class="card" style="padding:16px; border-color:var(--duo-green); cursor:pointer;" onclick="App.navigate(\'quiz\', ' + mid + ')">' +
+          '<div style="font-size:32px;">&#x270D;</div><h3 style="margin:8px 0 0 0; font-size:14px; color:var(--duo-green-shadow);">ทดสอบหลังเรียน</h3>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  },
+
+  viewLesson: function() {
+    var mid = this.state.currentModuleId;
+    return '<div class="page-content">' +
+      '<button onclick="App.navigate(\'moduleDetail\')" style="background:none; border:none; font-size:18px; color:var(--duo-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<h2 class="text-title" style="color:var(--bear-brown); margin-top:0;">&#x1F4D6; เนื้อหาบทเรียน</h2>' +
+      '<div class="card" style="min-height: 300px; display:flex; flex-direction:column; justify-content:center; align-items:center;">' +
+        '<div style="font-size:64px; margin-bottom:16px;">' + this.bear + '</div>' +
+        '<p style="font-size:16px; color:var(--duo-text-light); text-align:center;">เนื้อหาส่วนนี้รอคุณครูเพิ่มข้อมูลอยู่นะครับ!</p>' +
+      '</div>' +
+    '</div>';
+  },
+
+  viewQuiz: function() {
+    var qState = this.state.quiz;
+    if (qState.questions.length === 0) {
+      return '<div class="loader"><div style="font-size:48px;">' + this.bear + '</div><div class="loader-text">กำลังเตรียมข้อสอบ...</div></div>';
+    }
+    if (qState.currentIndex >= qState.questions.length) {
+      var stars = qState.score >= qState.questions.length ? '&#x2B50;&#x2B50;&#x2B50;' :
+                  qState.score >= qState.questions.length * 0.5 ? '&#x2B50;&#x2B50;' : '&#x2B50;';
+      var msg = qState.score === qState.questions.length ? 'เก่งมากเลย! พี่หมีน้อยภูมิใจจัง!' :
+                qState.score >= qState.questions.length * 0.5 ? 'ดีมากเลย! ทำต่อไปนะ!' : 'พยายามอีกนิด พี่หมีน้อยเชื่อในตัวเธอ!';
+      var extraNote = '';
+      var nextModBtn = '';
+      if (qState.moduleId === 'Daily') {
+        extraNote = '<div style="font-size:12px; color:var(--duo-text-light); margin-top:8px;">* Daily Quest จะบวกคะแนนให้แค่วันละ 1 ครั้ง (10 ข้อ/วัน) ทำซ้ำเพื่อทบทวนได้แต่จะไม่ได้คะแนนเพิ่มครับ</div>';
+      } else {
+        var nextMid = Number(qState.moduleId) + 1;
+        if (nextMid <= 6) {
+          nextModBtn = '<button class="btn btn-primary" style="margin-bottom:8px; background-color:var(--duo-blue); border-color:var(--duo-blue-shadow);" onclick="App.navigate(\'moduleDetail\', ' + nextMid + ')">ไปบทเรียนถัดไป (โมดูล ' + nextMid + ') &#x27A1;</button>';
+        }
+      }
+
+      return '<div class="page-content" style="display:flex; flex-direction:column; justify-content:center; align-items:center;">' +
+        '<div class="mascot-bounce" style="font-size:80px; margin-bottom:16px;">' + this.bear + '</div>' +
+        '<div style="font-size:36px; margin-bottom:8px;">' + stars + '</div>' +
+        '<h2 class="text-title" style="color:var(--bear-brown);">จบแล้ว!</h2>' +
+        '<p style="font-size:14px; color:var(--duo-text-light); text-align:center;">' + msg + '</p>' +
+        '<div class="card" style="width:100%; text-align:center; margin: 20px 0;">' +
+          '<p style="font-size:18px; font-weight:800; color:var(--duo-text); margin:0 0 8px 0;">คะแนน: ' + qState.score + ' / ' + qState.questions.length + '</p>' +
+          '<div style="font-size:22px; font-weight:800; color:var(--bear-orange);">+' + (qState.score * 10) + ' XP</div>' +
+          extraNote +
+        '</div>' +
+        nextModBtn +
+        '<button class="btn btn-primary" style="margin-bottom:8px;" onclick="App.navigate(\'lessons\')">กลับหน้ารวมบทเรียน</button>' +
+        '<button class="btn btn-outline" onclick="App.navigate(\'dashboard\')">หน้าหลัก</button>' +
+      '</div>';
+    }
+
+    var q = qState.questions[qState.currentIndex];
+    var progressPct = (qState.currentIndex / qState.questions.length) * 100;
+    
+    // Create a copy of options and shuffle them
+    var shuffledOptions = q.options.slice();
+    for (var i = shuffledOptions.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var temp = shuffledOptions[i];
+      shuffledOptions[i] = shuffledOptions[j];
+      shuffledOptions[j] = temp;
+    }
+
+    var optionsHtml = '';
+    for (var i = 0; i < shuffledOptions.length; i++) {
+      var safeOpt = shuffledOptions[i].replace(/'/g, "\\'");
+      optionsHtml += '<button class="btn quiz-option" onclick="App.answerQuiz(this, \'' + safeOpt + '\')">' + shuffledOptions[i] + '</button>';
+    }
+
+    return '<div class="page-content" style="padding-top: 16px; padding-bottom:100px; display:flex; flex-direction:column;">' +
+      '<div style="display:flex; align-items:center; gap:12px; margin-bottom: 20px;">' +
+        '<button onclick="App.navigate(\'lessons\')" style="background:none; border:none; font-size:22px; color:var(--duo-gray-shadow); font-weight:800; cursor:pointer;">&#x2715;</button>' +
+        '<div class="progress-bar-container" style="margin:0; flex:1;"><div class="progress-bar-fill" style="width: ' + progressPct + '%; background-color:var(--duo-green);"></div></div>' +
+        '<span style="font-size:13px; font-weight:700; color:var(--duo-text-light);">' + (qState.currentIndex + 1) + '/' + qState.questions.length + '</span>' +
+      '</div>' +
+      '<div style="display:flex; gap:12px; align-items:flex-start; margin-bottom: 24px;">' +
+        '<div style="font-size:48px; flex-shrink:0;">' + this.bear + '</div>' +
+        '<div class="speech-bubble" style="flex:1; font-size:16px; font-weight:600; line-height:1.5;">' + q.text + '</div>' +
+      '</div>' +
+      '<div id="quiz-options">' + optionsHtml + '</div>' +
+    '</div>' +
+    '<div id="quiz-footer" style="position:absolute; bottom:0; left:0; width:100%; background:white; border-top:2px solid var(--duo-gray); padding:16px; box-sizing:border-box; display:flex; flex-direction:column; justify-content:center;">' +
+      '<div id="quiz-feedback" style="display:none; margin-bottom:12px;"></div>' +
+      '<button id="quiz-next-btn" class="btn btn-primary" style="margin:0;" disabled>Check</button>' +
+    '</div>';
+  },
+
+  viewFlashcards: function() {
+    var fState = this.state.flashcards;
+    if (fState.cards.length === 0) return '<div class="loader"><div style="font-size:48px;">' + this.bear + '</div><div class="loader-text">กำลังเตรียมคำศัพท์...</div></div>';
+    if (fState.currentIndex >= fState.cards.length) {
+      return '<div class="page-content" style="display:flex; flex-direction:column; justify-content:center; align-items:center;">' +
+        '<div class="mascot-bounce" style="font-size:80px; margin-bottom:16px;">' + this.bear + '</div>' +
+        '<h2 class="text-title" style="color:var(--duo-blue-shadow);">ท่องศัพท์ครบแล้ว!</h2>' +
+        '<p style="font-size:14px; color:var(--duo-text-light);">เก่งมาก! พี่หมีน้อยให้ XP เป็นรางวัล!</p>' +
+        '<div class="card" style="width:100%; text-align:center; margin: 20px 0;">' +
+          '<div style="font-size:22px; font-weight:800; color:var(--bear-orange);">+20 XP</div>' +
+        '</div>' +
+        '<button class="btn btn-primary" onclick="App.navigate(\'lessons\')">กลับหน้าบทเรียน</button>' +
+      '</div>';
+    }
+
+    var card = fState.cards[fState.currentIndex];
+    var progressPct = (fState.currentIndex / fState.cards.length) * 100;
+
+    return '<div class="page-content" style="padding-top: 16px; padding-bottom:100px; display:flex; flex-direction:column; flex:1;">' +
+      '<div style="display:flex; align-items:center; gap:12px; margin-bottom: 20px;">' +
+        '<button onclick="App.navigate(\'lessons\')" style="background:none; border:none; font-size:22px; color:var(--duo-gray-shadow); font-weight:800; cursor:pointer;">&#x2715;</button>' +
+        '<div class="progress-bar-container" style="margin:0; flex:1;"><div class="progress-bar-fill" style="width: ' + progressPct + '%; background-color:var(--duo-blue);"></div></div>' +
+        '<span style="font-size:13px; font-weight:700; color:var(--duo-text-light);">' + (fState.currentIndex + 1) + '/' + fState.cards.length + '</span>' +
+      '</div>' +
+      '<div style="display:flex; align-items:center; gap:8px; margin-bottom:16px;"><div style="font-size:28px;">' + this.bear + '</div><h2 class="text-title" style="margin:0; font-size:18px;">คำศัพท์ใหม่</h2></div>' +
+      '<div class="card" style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; cursor:pointer; border-bottom: 5px solid var(--duo-gray-shadow); min-height:200px;" onclick="document.getElementById(\'fc-meaning\').style.display=\'block\'; document.getElementById(\'fc-front\').style.display=\'none\';">' +
+        '<div id="fc-front">' +
+          '<h1 style="font-size: 32px; color: var(--bear-brown); margin-bottom: 8px; font-weight:800;">' + card.vocab + '</h1>' +
+          '<div style="font-size:14px; color:var(--duo-text-light); font-weight:700;">' + card.pronun + '</div>' +
+          '<p style="font-size: 14px; color: var(--duo-blue); font-weight:800; margin-top: 24px;">&#x1F43E; แตะเพื่อดูความหมาย</p>' +
+        '</div>' +
+        '<div id="fc-meaning" style="display:none;">' +
+          '<p style="font-size: 28px; font-weight:800; color:var(--duo-blue); margin-bottom:12px; margin-top:0;">' + card.meaning + '</p>' +
+          '<p style="font-size: 14px; color: var(--duo-text-light); font-weight:600; line-height:1.5;">"' + card.example + '"</p>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="position:absolute; bottom:0; left:0; width:100%; background:white; border-top:2px solid var(--duo-gray); padding:16px; box-sizing:border-box; display:flex; gap:10px;">' +
+      '<button class="btn btn-outline" style="margin:0; color:var(--duo-red); font-size:13px;" onclick="App.nextFlashcard()">ยังจำไม่ได้</button>' +
+      '<button class="btn btn-secondary" style="margin:0; font-size:13px;" onclick="App.nextFlashcard()">จำได้แล้ว!</button>' +
+    '</div>';
+  },
+
+  viewLeaderboard: function() {
+    var lb = this.state.leaderboard;
+    var listHtml = '';
+    for (var i = 0; i < lb.length; i++) {
+      var s = lb[i];
+      var medal = i === 0 ? '&#x1F947;' : i === 1 ? '&#x1F948;' : i === 2 ? '&#x1F949;' : '<span style="font-weight:800; font-size:16px; color:var(--duo-text-light);">' + (i + 1) + '</span>';
+      var av = s.profileImage ? '<img src="' + s.profileImage + '" style="width:44px;height:44px;border-radius:50%;object-fit:cover;">' : '<div style="width:44px;height:44px;border-radius:50%;background:var(--duo-gray);display:flex;align-items:center;justify-content:center;font-size:22px;">&#x1F464;</div>';
+      var isMe = this.state.user && s.name.indexOf(this.state.user.FirstName) >= 0;
+      var bg = isMe ? 'background:linear-gradient(135deg, #fff3e0, #fffde7); border:2px solid var(--bear-orange); border-radius:16px;' : 'border-bottom: 1px solid var(--duo-gray);';
+      listHtml += '<div style="display:flex; justify-content:space-between; align-items:center; padding:10px 12px; ' + bg + ' margin-bottom:4px;">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<div style="width:24px; text-align:center;">' + medal + '</div>' + av +
+          '<div><div style="font-weight:700; font-size:14px;">' + s.name + '</div>' +
+            '<div style="font-size:12px; color:var(--duo-text-light);">' + s.className + '</div></div>' +
+        '</div>' +
+        '<span style="font-weight:800; color:var(--bear-orange); font-size:14px;">' + s.xp + ' XP</span>' +
+      '</div>';
+    }
+    if (!listHtml) listHtml = '<p class="text-center" style="font-weight:bold; color:var(--duo-text-light);">ยังไม่มีข้อมูล</p>';
+
+    return '<div class="page-content" style="padding: 0;">' +
+      '<div style="padding: 16px 20px; background:linear-gradient(135deg, var(--bear-orange), var(--bear-brown)); color:white; margin-bottom: 12px;">' +
+        '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+          '<div style="display:flex; align-items:center; gap:8px;"><div style="font-size:28px;">' + this.bear + '</div><h2 class="text-title" style="margin:0; color:white; font-size:20px;">Leaderboard</h2></div>' +
+          '<button onclick="App.navigate(\'dashboard\')" style="background:none; border:none; font-size:20px; cursor:pointer; color:white;">&#x2715;</button>' +
+        '</div>' +
+      '</div>' +
+      '<div style="padding: 0 16px;">' + listHtml + '</div>' +
+    '</div>';
+  },
+
+  viewProfile: function() {
+    var u = this.state.user;
+    var d = this.state.dashboardData;
+    var avatar = u.ProfileImage ? '<img src="' + u.ProfileImage + '" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" onerror="this.style.display=\'none\'; this.parentElement.innerHTML=\'<div style=display:flex;justify-content:center;align-items:center;width:100%25;height:100%25;font-size:40px>&#x1F43B;</div>\'">' : '<div style="display:flex;justify-content:center;align-items:center;width:100%;height:100%;font-size:40px; background:var(--duo-gray);">' + this.bear + '</div>';
+    var badgesHtml = '';
+    if (d.badges && d.badges.length > 0) {
+      for (var i = 0; i < d.badges.length; i++) {
+        badgesHtml += '<div style="background:linear-gradient(135deg, #fff3e0, #fffde7); padding:10px 14px; border-radius:12px; font-size:13px; font-weight:700; color:var(--bear-brown); border:2px solid var(--bear-orange);">&#x1F3C5; ' + d.badges[i] + '</div>';
+      }
+    } else {
+      badgesHtml = '<span style="font-size:13px; color:var(--duo-text-light);">ยังไม่มีรางวัล เริ่มเรียนเลย!</span>';
+    }
+    var pct = Math.min(100, (d.xp / 5000) * 100);
+
+    return '<div class="page-content">' +
+      '<h2 class="text-title" style="margin-bottom: 20px; color:var(--bear-brown);">&#x1F43E; โปรไฟล์</h2>' +
+      '<div class="card text-center" style="border-width:2px; border-color:var(--bear-orange);">' +
+        '<div style="position:relative; width:90px; height:90px; margin:0 auto 12px;">' +
+          '<div style="width:90px; height:90px; border-radius:50%; display:flex; justify-content:center; align-items:center; overflow:hidden; border:3px solid var(--bear-orange);">' + avatar + '</div>' +
+          '<label for="profile-upload" style="position:absolute; bottom:-2px; right:-8px; background:var(--bear-orange); color:white; width:32px; height:32px; border-radius:50%; display:flex; justify-content:center; align-items:center; cursor:pointer; font-size:14px; border:3px solid white;">&#x1F4F7;</label>' +
+          '<input type="file" id="profile-upload" accept="image/*" style="display:none;" onchange="App.handleProfileUpload(event)">' +
+        '</div>' +
+        '<div id="upload-status" style="font-size:12px; font-weight:bold; color:var(--duo-blue); margin-bottom:8px;"></div>' +
+        '<div style="font-weight:800; font-size:22px; color:var(--duo-text);">' + u.FirstName + ' ' + u.LastName + '</div>' +
+        '<div class="text-subtitle" style="margin-bottom:12px; font-size:13px;">' + u.Class + ' เลขที่ ' + u.Number + '</div>' +
+        '<div style="text-align:left; font-weight:800; color:var(--bear-orange); font-size:13px;">' + d.level + ' (' + d.xp + ' XP)</div>' +
+        '<div class="progress-bar-container"><div class="progress-bar-fill" style="width:' + pct + '%; background:var(--bear-orange);"></div></div>' +
+      '</div>' +
+      '<div class="card">' +
+        '<h3 style="margin-top:0; font-size:16px; color:var(--bear-brown);">&#x1F3C5; รางวัล</h3>' +
+        '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">' + badgesHtml + '</div>' +
+      '</div>' +
+      '<button class="btn btn-danger" style="margin-top:16px;" onclick="App.logout()">ออกจากระบบ</button>' +
+    '</div>';
+  },
+
+  /* ===== ADMIN VIEWS ===== */
+
+  viewAdmin: function() {
+    return '<div class="page-content">' +
+      '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">' +
+        '<h2 class="text-title" style="color:var(--bear-brown); margin:0;">&#x1F6E0;&#xFE0F; Admin Dashboard</h2>' +
+        '<button class="btn btn-danger" style="width:auto; padding:8px 16px; margin:0; font-size:12px;" onclick="App.state.user=null; App.navigate(\'login\')">ออกจากระบบ</button>' +
+      '</div>' +
+      
+      '<h3 style="color:var(--duo-text-light); font-size:14px; margin-top:0;">จัดการผู้เรียน</h3>' +
+      '<div class="card action-card" style="border-color:var(--duo-green); border-bottom-width:4px; margin-bottom:16px; cursor:pointer;" onclick="App.navigate(\'adminExport\')">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<div style="font-size:32px;">&#x1F4CA;</div>' +
+          '<div style="flex:1;">' +
+            '<h3 style="margin:0; font-size:16px; color:var(--duo-green-shadow);">ดาวน์โหลดคะแนน (Excel/CSV)</h3>' +
+            '<p style="margin:4px 0 0 0; font-size:12px; color:var(--duo-text-light);">โหลดข้อมูลคะแนนแยกตามห้องเรียน</p>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<h3 style="color:var(--duo-text-light); font-size:14px;">จัดการเนื้อหาและข้อสอบ</h3>' +
+      '<div class="card action-card" style="border-color:var(--duo-blue); border-bottom-width:4px; margin-bottom:16px; cursor:pointer;" onclick="App.navigate(\'adminQuizBuilder\')">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<div style="font-size:32px;">&#x1F4DD;</div>' +
+          '<div style="flex:1;">' +
+            '<h3 style="margin:0; font-size:16px; color:var(--duo-blue-shadow);">สร้างข้อสอบ (Quiz Builder)</h3>' +
+            '<p style="margin:4px 0 0 0; font-size:12px; color:var(--duo-text-light);">เพิ่มข้อสอบใหม่แบบง่ายๆ เหมือน Google Form</p>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<h3 style="color:var(--duo-text-light); font-size:14px;">ฐานข้อมูลระบบทั้งหมด (Advanced)</h3>' +
+      '<div class="card action-card" style="border-color:var(--bear-orange); border-bottom-width:4px; cursor:pointer;" onclick="App.navigate(\'adminDB\')">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<div style="font-size:32px;">&#x1F5C4;&#xFE0F;</div>' +
+          '<div style="flex:1;">' +
+            '<h3 style="margin:0; font-size:16px; color:var(--bear-brown);">แก้ไขตารางข้อมูลทั้งหมด</h3>' +
+            '<p style="margin:4px 0 0 0; font-size:12px; color:var(--duo-text-light);">จัดการ Database ดิบโดยตรง (Users, Modules, etc.)</p>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  },
+
+  viewAdminExport: function() {
+    return '<div class="page-content">' +
+      '<button onclick="App.navigate(\'admin\')" style="background:none; border:none; font-size:18px; color:var(--duo-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<h2 class="text-title" style="color:var(--bear-brown); margin-top:0;">&#x1F4CA; ดาวน์โหลดคะแนน (CSV)</h2>' +
+      '<div class="card">' +
+        '<p style="font-size:14px; color:var(--duo-text-light); margin-top:0;">เลือกห้องเรียนที่ต้องการดาวน์โหลดข้อมูลคะแนน ระบบจะสร้างไฟล์ CSV ที่สามารถเปิดด้วย Excel ได้ทันที</p>' +
+        '<label style="display:block; font-weight:bold; margin-bottom:8px; font-size:14px;">เลือกห้องเรียน:</label>' +
+        '<select id="export-class" class="input-field" style="margin-bottom:16px;">' +
+          '<option value="ALL">ทุกห้อง (ALL)</option>' +
+          '<option value="ม.6/1">ม.6/1</option>' +
+          '<option value="ม.6/2">ม.6/2</option>' +
+          '<option value="ม.6/3">ม.6/3</option>' +
+        '</select>' +
+        '<button class="btn btn-primary" onclick="App.adminDownloadCSV()">ดาวน์โหลดไฟล์</button>' +
+        '<div id="export-status" style="margin-top:12px; font-size:13px; font-weight:bold; color:var(--duo-blue); text-align:center;"></div>' +
+      '</div>' +
+    '</div>';
+  },
+
+  viewAdminQuizBuilder: function() {
+    return '<div class="page-content">' +
+      '<button onclick="App.navigate(\'admin\')" style="background:none; border:none; font-size:18px; color:var(--duo-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<h2 class="text-title" style="color:var(--bear-brown); margin-top:0;">&#x1F4DD; สร้างข้อสอบ (Quiz Builder)</h2>' +
+      '<div class="card" style="border-top: 8px solid var(--duo-blue);">' +
+        '<label style="display:block; font-weight:bold; margin-bottom:8px; font-size:14px;">โจทย์ข้อสอบ:</label>' +
+        '<textarea id="qb-text" class="input-field" style="height:80px; resize:vertical;" placeholder="พิมพ์โจทย์คำถาม..."></textarea>' +
+        
+        '<label style="display:block; font-weight:bold; margin:16px 0 8px; font-size:14px;">คำตอบตัวเลือก (กดเลือกข้อที่ถูกต้อง):</label>' +
+        
+        '<div style="display:flex; align-items:center; margin-bottom:8px;">' +
+          '<input type="radio" name="qb-correct" value="1" style="width:20px; height:20px; margin-right:8px;" checked>' +
+          '<input type="text" id="qb-opt1" class="input-field" style="margin:0;" placeholder="ตัวเลือกที่ 1">' +
+        '</div>' +
+        '<div style="display:flex; align-items:center; margin-bottom:8px;">' +
+          '<input type="radio" name="qb-correct" value="2" style="width:20px; height:20px; margin-right:8px;">' +
+          '<input type="text" id="qb-opt2" class="input-field" style="margin:0;" placeholder="ตัวเลือกที่ 2">' +
+        '</div>' +
+        '<div style="display:flex; align-items:center; margin-bottom:8px;">' +
+          '<input type="radio" name="qb-correct" value="3" style="width:20px; height:20px; margin-right:8px;">' +
+          '<input type="text" id="qb-opt3" class="input-field" style="margin:0;" placeholder="ตัวเลือกที่ 3">' +
+        '</div>' +
+        '<div style="display:flex; align-items:center; margin-bottom:16px;">' +
+          '<input type="radio" name="qb-correct" value="4" style="width:20px; height:20px; margin-right:8px;">' +
+          '<input type="text" id="qb-opt4" class="input-field" style="margin:0;" placeholder="ตัวเลือกที่ 4">' +
+        '</div>' +
+
+        '<label style="display:block; font-weight:bold; margin-bottom:8px; font-size:14px;">คำอธิบายเฉลย (ไม่บังคับ):</label>' +
+        '<input type="text" id="qb-exp" class="input-field" placeholder="อธิบายสั้นๆ ทำไมถึงตอบข้อนี้">' +
+
+        '<label style="display:block; font-weight:bold; margin-bottom:8px; font-size:14px;">Module ID (เพื่อจัดกลุ่มข้อสอบ):</label>' +
+        '<input type="number" id="qb-mod" class="input-field" value="1">' +
+        
+        '<button class="btn btn-primary" onclick="App.adminSaveQuizBuilder()" style="margin-top:16px;">บันทึกข้อสอบเข้าสู่ระบบ</button>' +
+        '<div id="qb-status" style="margin-top:12px; font-size:13px; font-weight:bold; color:var(--duo-green); text-align:center;"></div>' +
+      '</div>' +
+    '</div>';
+  },
+
+  viewAdminDB: function() {
+    var tables = this.state.admin.tables || [];
+    if (tables.length === 0) return '<div class="loader">กำลังโหลดตารางข้อมูล...</div>';
+    
+    var listHtml = '';
+    for (var i = 0; i < tables.length; i++) {
+      listHtml += '<div class="card action-card" style="border-color:var(--bear-brown); border-left:5px solid var(--bear-orange); cursor:pointer; display:flex; justify-content:space-between; align-items:center;" onclick="App.navigate(\'adminTable\', \'' + tables[i] + '\')">' +
+        '<div style="font-size:16px; font-weight:bold; color:var(--bear-brown);">' + tables[i] + '</div>' +
+        '<div style="font-size:20px; color:var(--bear-orange);">&#x276F;</div>' +
+      '</div>';
+    }
+
+    return '<div class="page-content">' +
+      '<button onclick="App.navigate(\'admin\')" style="background:none; border:none; font-size:18px; color:var(--duo-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">' +
+        '<h2 class="text-title" style="color:var(--bear-brown); margin:0;">&#x1F5C4;&#xFE0F; Database Editor</h2>' +
+      '</div>' +
+      '<p style="font-size:13px; color:var(--duo-text-light);">เลือกตารางที่ต้องการจัดการโดยตรง (โหมดขั้นสูง)</p>' +
+      listHtml +
+    '</div>';
+  },
+
+  viewAdminTable: function() {
+    var tName = this.state.admin.currentTable;
+    var headers = this.state.admin.headers || [];
+    var data = this.state.admin.data || [];
+    var editingRow = this.state.admin.editingRow;
+
+    if (headers.length === 0) return '<div class="loader">กำลังโหลดข้อมูล...</div>';
+
+    var thHtml = '';
+    for (var i = 0; i < headers.length; i++) {
+      thHtml += '<th style="padding:10px; background:var(--bear-orange); color:white; text-align:left; border:1px solid #ccc; font-size:13px; min-width:120px;">' + headers[i] + '</th>';
+    }
+    thHtml += '<th style="padding:10px; background:var(--bear-brown); color:white; text-align:center; border:1px solid #ccc; font-size:13px; min-width:140px;">จัดการ</th>';
+
+    var trHtml = '';
+    for (var r = 0; r < data.length; r++) {
+      var row = data[r];
+      var isEditing = (r === editingRow);
+      var tdHtml = '';
+      
+      for (var c = 0; c < headers.length; c++) {
+        var val = row[headers[c]] || '';
+        if (isEditing) {
+          tdHtml += '<td style="padding:4px; border:1px solid #ccc;"><input type="text" id="edit-' + r + '-' + headers[c] + '" value="' + val + '" style="width:100%; box-sizing:border-box; padding:6px; border:1px solid var(--bear-orange); border-radius:4px;"></td>';
+        } else {
+          tdHtml += '<td style="padding:10px; border:1px solid #ccc; font-size:13px; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + val + '">' + val + '</td>';
+        }
+      }
+      
+      var actionHtml = '';
+      if (isEditing) {
+        actionHtml = '<button onclick="App.adminSaveRow(' + r + ')" style="background:var(--duo-green); color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; margin-right:4px;">บันทึก</button>' +
+                     '<button onclick="App.adminCancelEdit()" style="background:var(--duo-gray-shadow); color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer;">ยกเลิก</button>';
+      } else {
+        actionHtml = '<button onclick="App.state.admin.editingRow=' + r + '; App.render();" style="background:var(--duo-blue); color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; margin-right:4px;">แก้ไข</button>' +
+                     '<button onclick="App.adminDeleteRow(' + r + ')" style="background:var(--duo-red); color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer;">ลบ</button>';
+      }
+      tdHtml += '<td style="padding:4px; border:1px solid #ccc; text-align:center;">' + actionHtml + '</td>';
+      
+      trHtml += '<tr>' + tdHtml + '</tr>';
+    }
+
+    // New Row Input
+    var newTdHtml = '';
+    for (var c = 0; c < headers.length; c++) {
+      var ph = c === 0 ? '(Auto)' : headers[c];
+      newTdHtml += '<td style="padding:4px; border:1px solid #ccc;"><input type="text" id="new-' + headers[c] + '" placeholder="' + ph + '" style="width:100%; box-sizing:border-box; padding:6px; border:1px solid var(--duo-green); border-radius:4px;"></td>';
+    }
+    newTdHtml += '<td style="padding:4px; border:1px solid #ccc; text-align:center;"><button onclick="App.adminInsertRow()" style="background:var(--bear-orange); color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; width:100%; font-weight:bold;">+ เพิ่มข้อมูล</button></td>';
+    trHtml += '<tr style="background:#f9f9f9;">' + newTdHtml + '</tr>';
+
+    return '<div class="page-content" style="padding: 10px;">' +
+      '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">' +
+        '<button onclick="App.navigate(\'admin\')" style="background:none; border:none; font-size:16px; font-weight:bold; color:var(--duo-text-light); cursor:pointer;">&#x2190; กลับ</button>' +
+        '<h2 style="margin:0; font-size:18px; color:var(--bear-brown);">ตาราง: ' + tName + '</h2>' +
+      '</div>' +
+      '<div style="width:100%; overflow-x:auto; background:white; border-radius:8px; border:2px solid var(--duo-gray);">' +
+        '<table style="width:100%; border-collapse:collapse;">' +
+          '<thead><tr>' + thHtml + '</tr></thead>' +
+          '<tbody>' + trHtml + '</tbody>' +
+        '</table>' +
+      '</div>' +
+    '</div>';
+  },
+
+  /* ===== BOTTOM NAV ===== */
+
+  bottomNav: function(activeTab) {
+    var tabs = [
+      { id:'home', icon:'&#x1F3E0;', label:'หน้าหลัก', route:'dashboard' },
+      { id:'lessons', icon:'&#x1F4DA;', label:'บทเรียน', route:'lessons' },
+      { id:'profile', icon:'&#x1F43E;', label:'โปรไฟล์', route:'profile' }
+    ];
+    var navHtml = '';
+    for (var i = 0; i < tabs.length; i++) {
+      var tab = tabs[i];
+      var cls = activeTab === tab.id ? 'nav-item active' : 'nav-item';
+      navHtml += '<div class="' + cls + '" onclick="App.navigate(\'' + tab.route + '\')">' +
+        '<div class="nav-icon">' + tab.icon + '</div>' +
+        '<div class="nav-label">' + tab.label + '</div>' +
+      '</div>';
+    }
+    return '<div class="bottom-nav">' + navHtml + '</div>';
+  },
+
+  /* ===== CONTROLLERS ===== */
+
+  logout: function() {
+    this.state.user = null;
+    this.state.dataLoaded = false;
+    localStorage.removeItem('lms_user');
+    this.navigate('login');
+  },
+
+  handleLogin: function() {
+    var user = document.getElementById('username').value;
+    var pass = document.getElementById('password').value;
+    if (!user || !pass) { alert('กรุณากรอกข้อมูลให้ครบ'); return; }
+    var el = document.querySelector('.app-container');
+    if (el) el.style.opacity = '0.6';
+    google.script.run
+      .withSuccessHandler(function(response) {
+        if (el) el.style.opacity = '1';
+        if (response.success) {
+          App.state.user = response.user;
+          localStorage.setItem('lms_user', JSON.stringify(response.user));
+          if (response.user.Role === 'Admin') {
+            App.navigate('admin');
+          } else {
+            App.navigate('dashboard');
+          }
+        } else { alert(response.message); }
+      })
+      .withFailureHandler(function(error) {
+        if (el) el.style.opacity = '1';
+        alert('Error: ' + error.message);
+      })
+      .loginUser(user, pass);
+  },
+
+  handleRegister: function() {
+    var formData = {
+      prefix: document.getElementById('reg-prefix').value,
+      firstname: document.getElementById('reg-firstname').value,
+      lastname: document.getElementById('reg-lastname').value,
+      className: document.getElementById('reg-class').value,
+      number: document.getElementById('reg-number').value,
+      studentId: document.getElementById('reg-studentid').value,
+      username: document.getElementById('reg-username').value,
+      password: document.getElementById('reg-password').value,
+      confirmPassword: document.getElementById('reg-confirm-password').value
+    };
+    if (formData.password !== formData.confirmPassword) { alert('รหัสผ่านไม่ตรงกัน'); return; }
+    var el = document.querySelector('.app-container');
+    if (el) el.style.opacity = '0.6';
+    google.script.run
+      .withSuccessHandler(function(response) {
+        if (el) el.style.opacity = '1';
+        if (response.success) { alert('สมัครสำเร็จ!'); App.navigate('login'); }
+        else { alert(response.message); }
+      })
+      .withFailureHandler(function(error) { if (el) el.style.opacity = '1'; alert('Error: ' + error.message); })
+      .registerStudent(formData);
+  },
+
+  handleProfileUpload: function(event) {
+    var file = event.target.files[0];
+    if (!file) return;
+    var statusEl = document.getElementById('upload-status');
+    if (statusEl) statusEl.innerText = 'กำลังอัปโหลด...';
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (res.success) { App.state.user.ProfileImage = res.url; if (statusEl) statusEl.innerText = 'สำเร็จ!'; App.render(); }
+          else { if (statusEl) statusEl.innerText = 'Error: ' + res.message; }
+        })
+        .uploadProfileImage(App.state.user.UserID, e.target.result, file.name);
+    };
+    reader.readAsDataURL(file);
+  },
+
+  answerQuiz: function(btnElem, selectedOpt) {
+    var qState = this.state.quiz;
+    var q = qState.questions[qState.currentIndex];
+    var isCorrect = selectedOpt === q.correctAnswer;
+    var allBtns = document.querySelectorAll('.quiz-option');
+    for (var i = 0; i < allBtns.length; i++) { allBtns[i].classList.remove('correct', 'incorrect'); }
+    var feedbackEl = document.getElementById('quiz-feedback');
+    var footerEl = document.getElementById('quiz-footer');
+    var nextBtn = document.getElementById('quiz-next-btn');
+    if (isCorrect) {
+      qState.score++;
+      btnElem.classList.add('correct');
+      feedbackEl.innerHTML = '<div style="display:flex; align-items:center; gap:8px;"><span style="font-size:24px;">' + this.bear + '</span><div><h3 style="margin:0; color:var(--duo-green-shadow); font-size:16px;">ถูกต้อง!</h3><p style="margin:4px 0 0 0; font-size:13px; color:var(--duo-green-shadow);">' + q.explanation + '</p></div></div>';
+      footerEl.style.backgroundColor = '#d7ffb8';
+      nextBtn.className = 'btn btn-primary';
+    } else {
+      btnElem.classList.add('incorrect');
+      feedbackEl.innerHTML = '<div style="display:flex; align-items:center; gap:8px;"><span style="font-size:24px;">' + this.bear + '</span><div><h3 style="margin:0; color:var(--duo-red-shadow); font-size:16px;">คำตอบที่ถูกต้อง:</h3><p style="margin:4px 0 0 0; font-weight:800; font-size:15px; color:var(--duo-red-shadow);">' + q.correctAnswer + '</p><p style="margin:4px 0 0 0; font-size:12px; color:var(--duo-red-shadow);">' + q.explanation + '</p></div></div>';
+      footerEl.style.backgroundColor = '#ffdfe0';
+      nextBtn.className = 'btn btn-danger';
+    }
+    feedbackEl.style.display = 'block';
+    document.getElementById('quiz-options').style.pointerEvents = 'none';
+    nextBtn.removeAttribute('disabled');
+    nextBtn.innerText = 'ถัดไป';
+    nextBtn.onclick = function() { App.nextQuizQuestion(); };
+  },
+
+  nextQuizQuestion: function() {
+    this.state.quiz.currentIndex++;
+    if (this.state.quiz.currentIndex >= this.state.quiz.questions.length) {
+      google.script.run.submitQuizScore(
+        this.state.user.UserID, 'Quiz', this.state.quiz.moduleId,
+        this.state.quiz.score, this.state.quiz.questions.length, 0
+      );
+    }
+    this.render();
+  },
+
+  nextFlashcard: function() {
+    this.state.flashcards.currentIndex++;
+    if (this.state.flashcards.currentIndex >= this.state.flashcards.cards.length) {
+      google.script.run.submitQuizScore(this.state.user.UserID, 'Flashcards', this.state.flashcards.moduleId, 2, 2, 0);
+    }
+    this.render();
+  },
+
+  /* ===== ADMIN CONTROLLERS ===== */
+
+  adminCancelEdit: function() {
+    this.state.admin.editingRow = -1;
+    this.render();
+  },
+
+  adminSaveRow: function(rowIndex) {
+    var headers = this.state.admin.headers;
+    var rowData = this.state.admin.data[rowIndex];
+    var updatedData = {};
+    for (var i = 0; i < headers.length; i++) {
+      var el = document.getElementById('edit-' + rowIndex + '-' + headers[i]);
+      if (el) updatedData[headers[i]] = el.value;
+    }
+    
+    var tName = this.state.admin.currentTable;
+    var idCol = headers[0];
+    var idVal = rowData[idCol];
+    
+    var elContainer = document.querySelector('.page-content');
+    if (elContainer) elContainer.style.opacity = '0.5';
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.success) {
+          App.navigate('adminTable', tName); // Reload
+        } else {
+          alert('Error: ' + res.message);
+          if (elContainer) elContainer.style.opacity = '1';
+        }
+      })
+      .withFailureHandler(function(e) { alert('Error: '+e.message); if(elContainer) elContainer.style.opacity='1'; })
+      .adminUpdateRow(tName, idCol, idVal, updatedData);
+  },
+
+  adminInsertRow: function() {
+    var headers = this.state.admin.headers;
+    var newData = {};
+    for (var i = 0; i < headers.length; i++) {
+      var el = document.getElementById('new-' + headers[i]);
+      if (el) newData[headers[i]] = el.value;
+    }
+    
+    var tName = this.state.admin.currentTable;
+    var elContainer = document.querySelector('.page-content');
+    if (elContainer) elContainer.style.opacity = '0.5';
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.success) {
+          App.navigate('adminTable', tName); // Reload
+        } else {
+          alert('Error: ' + res.message);
+          if (elContainer) elContainer.style.opacity = '1';
+        }
+      })
+      .withFailureHandler(function(e) { alert('Error: '+e.message); if(elContainer) elContainer.style.opacity='1'; })
+      .adminInsertRow(tName, newData);
+  },
+
+  adminDeleteRow: function(rowIndex) {
+    if (!confirm('ยืนยันการลบข้อมูลนี้?')) return;
+    
+    var headers = this.state.admin.headers;
+    var rowData = this.state.admin.data[rowIndex];
+    var tName = this.state.admin.currentTable;
+    var idCol = headers[0];
+    var idVal = rowData[idCol];
+    
+    var elContainer = document.querySelector('.page-content');
+    if (elContainer) elContainer.style.opacity = '0.5';
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.success) {
+          App.navigate('adminTable', tName); // Reload
+        } else {
+          alert('Error: ' + res.message);
+          if (elContainer) elContainer.style.opacity = '1';
+        }
+      })
+      .withFailureHandler(function(e) { alert('Error: '+e.message); if(elContainer) elContainer.style.opacity='1'; })
+      .adminDeleteRow(tName, idCol, idVal);
+  },
+
+  adminDownloadCSV: function() {
+    var cls = document.getElementById('export-class').value;
+    var st = document.getElementById('export-status');
+    st.innerHTML = 'กำลังดึงข้อมูล... กรุณารอสักครู่';
+    
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.success) {
+          st.innerHTML = 'ดึงข้อมูลสำเร็จ! กำลังดาวน์โหลด...';
+          // Create Blob and Download
+          var blob = new Blob(["\ufeff" + res.csvData], { type: 'text/csv;charset=utf-8;' });
+          var link = document.createElement("a");
+          var url = URL.createObjectURL(blob);
+          link.setAttribute("href", url);
+          link.setAttribute("download", res.filename);
+          link.style.visibility = 'hidden';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        } else {
+          st.innerHTML = '<span style="color:var(--duo-red);">' + res.message + '</span>';
+        }
+      })
+      .withFailureHandler(function(e) {
+        st.innerHTML = '<span style="color:var(--duo-red);">Error: ' + e.message + '</span>';
+      })
+      .adminExportScoresCSV(cls);
+  },
+
+  adminSaveQuizBuilder: function() {
+    var txt = document.getElementById('qb-text').value.trim();
+    if (!txt) return alert('กรุณาพิมพ์โจทย์');
+    
+    var opt1 = document.getElementById('qb-opt1').value.trim();
+    var opt2 = document.getElementById('qb-opt2').value.trim();
+    var opt3 = document.getElementById('qb-opt3').value.trim();
+    var opt4 = document.getElementById('qb-opt4').value.trim();
+    if (!opt1 || !opt2 || !opt3 || !opt4) return alert('กรุณาใส่ตัวเลือกให้ครบ 4 ข้อ');
+    
+    var radios = document.getElementsByName('qb-correct');
+    var correctIdx = 1;
+    for (var i = 0; i < radios.length; i++) {
+      if (radios[i].checked) { correctIdx = parseInt(radios[i].value); break; }
+    }
+    
+    var correctAns = document.getElementById('qb-opt' + correctIdx).value.trim();
+    var exp = document.getElementById('qb-exp').value.trim();
+    var mid = document.getElementById('qb-mod').value;
+    
+    var st = document.getElementById('qb-status');
+    st.innerHTML = 'กำลังบันทึก...';
+    
+    var newData = {
+      'QuizID': '', // Auto
+      'ModuleID': mid,
+      'QuestionText': txt,
+      'Option1': opt1,
+      'Option2': opt2,
+      'Option3': opt3,
+      'Option4': opt4,
+      'CorrectAnswer': correctAns,
+      'Explanation': exp
+    };
+    
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.success) {
+          st.innerHTML = 'บันทึกเรียบร้อย! สามารถเพิ่มข้อต่อไปได้เลย';
+          document.getElementById('qb-text').value = '';
+          document.getElementById('qb-opt1').value = '';
+          document.getElementById('qb-opt2').value = '';
+          document.getElementById('qb-opt3').value = '';
+          document.getElementById('qb-opt4').value = '';
+          document.getElementById('qb-exp').value = '';
+          radios[0].checked = true;
+        } else {
+          st.innerHTML = '<span style="color:var(--duo-red);">Error: ' + res.message + '</span>';
+        }
+      })
+      .withFailureHandler(function(e) {
+        st.innerHTML = '<span style="color:var(--duo-red);">Error: ' + e.message + '</span>';
+      })
+      .adminInsertRow('QuizBank', newData);
+  }
+};
+
+/* Boot */
+(function() {
+  function boot() {
+    var el = document.getElementById('app');
+    if (el) {
+      try { App.init(); }
+      catch(e) { el.innerHTML = '<div style="color:red;padding:20px;font-size:14px;"><b>Error:</b> ' + e.message + '</div>'; }
+    } else { setTimeout(boot, 100); }
+  }
+  boot();
+})();
+</script>
