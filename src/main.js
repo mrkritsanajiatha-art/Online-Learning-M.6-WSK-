@@ -794,15 +794,6 @@ var App = {
         ? '<img src="' + scanned.profile_image + '" style="width:60px;height:60px;border-radius:50%;object-fit:cover;">'
         : '<div style="width:60px;height:60px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:28px;">👤</div>';
 
-      var pts = [5, 10, 20, 30];
-      var ptsHtml = '';
-      for (var i = 0; i < pts.length; i++) {
-        var p = pts[i];
-        var disabled = p > remaining ? 'opacity:0.4;pointer-events:none;' : '';
-        var sel = this.state.pendingBonusPoints === p ? 'background:linear-gradient(135deg,#FF8C42,#C084FC);color:white;box-shadow:0 4px 0 rgba(160,80,200,0.3);' : 'background:white;color:var(--clay-text);box-shadow:0 4px 0 rgba(150,100,200,0.15);';
-        ptsHtml += '<div style="' + sel + disabled + 'border-radius:16px;padding:12px 0;text-align:center;font-weight:800;font-size:18px;cursor:pointer;" onclick="App.state.pendingBonusPoints=' + p + ';App.render();">+' + p + '</div>';
-      }
-
       return '<div class="page-content">' +
         '<button onclick="App.navigate(\'adminScanner\')" style="background:none;border:none;font-size:18px;color:var(--clay-text-light);cursor:pointer;padding:0;margin-bottom:16px;font-weight:700;">🔄 สแกนใหม่</button>' +
         '<div style="background:linear-gradient(135deg,#4ECB71,#5BA4F5);border-radius:24px;padding:16px;margin-bottom:16px;display:flex;align-items:center;gap:14px;box-shadow:0 6px 0 rgba(60,160,80,0.2);">' +

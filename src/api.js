@@ -44,7 +44,8 @@ export async function registerStudent(userObj) {
 
 export async function getAppData(userId) {
   const { data: user } = await supabase.from('users').select('xp, level, streak').eq('id', userId).single();
-  const { data: modules } = await supabase.from('modules').select('*').order('display_order', { ascending: true });
+  // Module 1 (display_order 1) is the Vocab pool for the Daily Quest — hidden from the lesson list
+  const { data: modules } = await supabase.from('modules').select('*').neq('display_order', 1).order('display_order', { ascending: true });
   return {
     success: true,
     dashboard: { xp: user?.xp || 0, level: user?.level || 'Beginner', streak: user?.streak || 0, badges: [], readiness: 100, recommendation: { weakness: 'None', module: 1 } },
@@ -58,7 +59,8 @@ export async function getDashboardData(userId) {
 }
 
 export async function getModules() {
-  const { data } = await supabase.from('modules').select('*').order('display_order', { ascending: true });
+  // Module 1 (display_order 1) is the Vocab pool for the Daily Quest — hidden from the lesson list
+  const { data } = await supabase.from('modules').select('*').neq('display_order', 1).order('display_order', { ascending: true });
   return data?.map(m => ({ id: m.id, title: m.title, desc: m.description })) || [];
 }
 
@@ -82,16 +84,16 @@ export async function getDailyQuest() {
     options: [q.choice_a, q.choice_b, q.choice_c, q.choice_d].filter(Boolean),
     correctAnswer: q.correct_answer,
     explanation: q.explanation,
-    type: q.module_id === 4 ? 'Grammar' : 'Vocab'
+    type: q.pattern === 'Grammar' ? 'Grammar' : 'Vocab'
   });
 
   // 9 vocab questions from module 1 (Vocab 1-5)
   const { data: vocabData } = await supabase
     .from('quiz_bank').select('*').eq('module_id', 1);
 
-  // 1 grammar question from module 4 (Grammar Master)
+  // 1 grammar question from module 8 (Infinitive & Gerund)
   const { data: grammarData } = await supabase
-    .from('quiz_bank').select('*').eq('module_id', 4);
+    .from('quiz_bank').select('*').eq('module_id', 8).eq('pattern', 'Grammar');
 
   let vocab9 = shuffle(vocabData).slice(0, 9);
   let grammar1 = shuffle(grammarData).slice(0, 1);
