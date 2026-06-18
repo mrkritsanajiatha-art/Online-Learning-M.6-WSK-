@@ -205,7 +205,7 @@ export async function adminGiveBonus(targetUserId, points, adminUserId) {
     user_id: targetUserId,
     quiz_type: 'Bonus',
     score: canAdd,
-    reference_id: adminUserId || 0,
+    reference_id: null,
     max_score: 100,
     time_spent: 0
   }]);
