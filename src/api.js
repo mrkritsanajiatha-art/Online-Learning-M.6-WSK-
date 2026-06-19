@@ -136,6 +136,73 @@ export async function getQuizQuestions(moduleId, quizType) {
   };
 }
 
+export async function getCommunityData() {
+  // Derived entirely from existing data — no extra tables needed.
+  const { data: users } = await supabase.from('users')
+    .select('id, first_name, last_name, class_name, xp, streak, role, profile_image');
+  const students = (users || []).filter(u => (u.role || 'Student') !== 'Admin');
+  const { data: mods } = await supabase.from('modules').select('id, display_order');
+  const unitOf = {};
+  (mods || []).forEach(m => { if (m.display_order >= 5) unitOf[m.id] = m.display_order - 4; });
+
+  // all scores (small table) for per-student aggregates + feed
+  let all = [], from = 0, page = 1000;
+  while (true) {
+    const { data } = await supabase.from('scores').select('user_id, quiz_type, reference_id, score, created_at').order('created_at', { ascending: false }).range(from, from + page - 1);
+    if (!data || !data.length) break;
+    all = all.concat(data); if (data.length < page) break; from += page;
+  }
+
+  const info = {};
+  students.forEach(s => { info[s.id] = { name: (s.first_name + ' ' + s.last_name).trim(), cls: s.class_name, xp: s.xp || 0, streak: s.streak || 0, img: s.profile_image || '', units: new Set(), quizzes: new Set(), activity: 0 }; });
+  all.forEach(r => {
+    const u = info[r.user_id]; if (!u) return;
+    u.activity++;
+    const t = r.quiz_type;
+    if (t === 'PostTest') u.units.add(r.reference_id);
+    if (['PreTest', 'Activity', 'PostTest', 'Quiz'].indexOf(t) >= 0) u.quizzes.add(t + '|' + r.reference_id);
+  });
+
+  const leaderBy = (metric) => {
+    let best = null;
+    students.forEach(s => {
+      const u = info[s.id]; let v = 0;
+      if (metric === 'xp') v = u.xp;
+      else if (metric === 'streak') v = u.streak;
+      else if (metric === 'quizzes') v = u.quizzes.size;
+      else if (metric === 'units') v = u.units.size;
+      else if (metric === 'activity') v = u.activity;
+      if (v > 0 && (!best || v > best.value)) best = { holderId: s.id, holderName: u.name, value: v };
+    });
+    return best;
+  };
+
+  const titles = [
+    Object.assign({ key: 'champion', emoji: '📚', label: 'Learning Champion', desc: 'XP สูงสุด', unit: 'XP' }, leaderBy('xp') || {}),
+    Object.assign({ key: 'streakking', emoji: '🔥', label: 'Streak King', desc: 'เข้าต่อเนื่องนานสุด', unit: 'วัน' }, leaderBy('streak') || {}),
+    Object.assign({ key: 'quizmaster', emoji: '🎯', label: 'Quiz Master', desc: 'ทำแบบทดสอบมากสุด', unit: 'ชุด' }, leaderBy('quizzes') || {}),
+    Object.assign({ key: 'fastlearner', emoji: '🚀', label: 'Fast Learner', desc: 'เรียนจบ Unit มากสุด', unit: 'Unit' }, leaderBy('units') || {}),
+    Object.assign({ key: 'communitystar', emoji: '💬', label: 'Community Star', desc: 'ขยันที่สุด', unit: 'กิจกรรม' }, leaderBy('activity') || {})
+  ];
+
+  // Feed = most recent activities
+  const feed = all.slice(0, 30).map(r => {
+    const u = info[r.user_id]; if (!u) return null;
+    const t = r.quiz_type; let emoji = '✨', text = 'ทำกิจกรรม';
+    if (t === 'PostTest') { emoji = '🎓'; text = 'เรียนจบ Unit ' + (unitOf[r.reference_id] || ''); }
+    else if (t === 'Activity') { emoji = '✏️'; text = 'ทำแบบฝึกหัด'; }
+    else if (t === 'PreTest') { emoji = '📋'; text = 'ทำแบบทดสอบก่อนเรียน'; }
+    else if (t === 'Quiz') { emoji = '📝'; text = 'ทำแบบทดสอบ'; }
+    else if (t === 'Flashcards') { emoji = '📚'; text = 'ท่องคำศัพท์จบ 1 ชุด'; }
+    else if (t === 'Daily') { emoji = '⭐'; text = 'ทำแบบฝึกประจำวัน'; }
+    else if (t === 'WordBridge') { emoji = '🌉'; text = 'เล่นเกมสะพานคำจบ (+' + r.score + ' EXP)'; }
+    else if (t === 'Bonus') { emoji = '🎫'; text = 'ได้รับคะแนนพิเศษจากครู (+' + r.score + ')'; }
+    return { name: u.name, cls: u.cls, img: u.img, emoji: emoji, text: text, at: r.created_at };
+  }).filter(Boolean);
+
+  return { success: true, titles: titles, feed: feed };
+}
+
 export async function getCompletedModules(userId) {
   // A unit is "completed" once its Post-Test has been finished (recorded in scores)
   const { data } = await supabase.from('scores')

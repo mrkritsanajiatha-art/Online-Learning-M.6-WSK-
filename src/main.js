@@ -61,6 +61,7 @@ var App = {
     leaderboardClasses: [],
     completedModules: [],
     streakInfo: null,
+    community: { titles: [], feed: [], loaded: false },
     cropper: null,
     cropperOpen: false,
     editAvatar: null,
@@ -296,6 +297,14 @@ var App = {
         if (res.success) self.state.bonusScore = { total: res.total, history: res.history };
         self.render();
       }).withFailureHandler(function() { self.render(); }).getBonusScore(self.state.user.UserID);
+    } else if (route === 'community') {
+      this.state.community.loaded = false;
+      this.render();
+      google.script.run.withSuccessHandler(function(res) {
+        if (res && res.success) self.state.community = { titles: res.titles, feed: res.feed, loaded: true };
+        else self.state.community.loaded = true;
+        if (self.state.currentRoute === 'community') self.render();
+      }).withFailureHandler(function() { self.state.community.loaded = true; self.render(); }).getCommunityData();
     } else if (route === 'wordBridge') {
       this.initWordBridge();
       this.render();
@@ -340,6 +349,7 @@ var App = {
     else if (r === 'guide') { html = this.viewGuide() + this.bottomNav('profile'); }
     else if (r === 'bonusQR') { html = this.viewBonusQR() + this.bottomNav('bonus'); }
     else if (r === 'wordBridge') { html = this.viewWordBridge() + this.bottomNav('home'); }
+    else if (r === 'community') { html = this.viewCommunity() + this.bottomNav('home'); }
     else if (r === 'admin') { html = this.viewAdmin(); }
     else if (r === 'adminScanner') { html = this.viewAdminScanner(); }
     else if (r === 'adminDB') { html = this.viewAdminDB(); }
@@ -517,6 +527,89 @@ var App = {
           '<div style="width:36px; height:36px; border-radius:50%; background:white; box-shadow:0 4px 0 rgba(160,80,200,0.2); display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--clay-purple);">▶</div>' +
         '</div>' +
       '</div>' +
+      // Community
+      '<div class="card action-card" style="background:linear-gradient(145deg,#E0F7FA,#C8EEF5); box-shadow:0 6px 0 rgba(60,170,200,0.2),0 10px 20px rgba(60,170,200,0.10); margin-top:12px; cursor:pointer;" onclick="App.navigate(\'community\')">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<div style="font-size:40px;">🌟</div>' +
+          '<div style="flex:1;">' +
+            '<div style="font-weight:800; font-size:15px; color:#0E7C8B;">🌟 ชุมชนนักเรียน</div>' +
+            '<div style="font-size:12px; color:var(--clay-text-light); margin-top:4px;">ดูตำแหน่งพิเศษ + ความเคลื่อนไหวของเพื่อนๆ ทั้งระดับ</div>' +
+          '</div>' +
+          '<div style="width:36px; height:36px; border-radius:50%; background:white; box-shadow:0 4px 0 rgba(60,170,200,0.2); display:flex; align-items:center; justify-content:center; font-size:16px; color:#0E7C8B;">▶</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  },
+
+  timeAgo: function(iso) {
+    if (!iso) return '';
+    var diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (diff < 60) return 'เมื่อสักครู่';
+    if (diff < 3600) return Math.floor(diff / 60) + ' นาทีที่แล้ว';
+    if (diff < 86400) return Math.floor(diff / 3600) + ' ชม.ที่แล้ว';
+    if (diff < 604800) return Math.floor(diff / 86400) + ' วันที่แล้ว';
+    return new Date(iso).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+  },
+
+  viewCommunity: function() {
+    var c = this.state.community;
+    var myId = this.state.user ? this.state.user.UserID : null;
+
+    if (!c.loaded) {
+      return '<div class="page-content">' + this.communityHeader() +
+        '<div class="loader" style="height:auto; padding:40px 0;"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลดชุมชน...</div></div>' +
+      '</div>';
+    }
+
+    // Special titles
+    var titlesHtml = '';
+    for (var i = 0; i < c.titles.length; i++) {
+      var t = c.titles[i];
+      var has = t.holderId;
+      var mine = myId && t.holderId === myId;
+      titlesHtml += '<div style="flex:0 0 auto; width:140px; background:' + (mine ? 'linear-gradient(145deg,#FFF3E0,#FFE0CC)' : 'var(--clay-white)') + '; border-radius:18px; padding:14px; box-shadow:0 5px 0 rgba(150,100,200,0.12),0 8px 16px rgba(150,100,200,0.08);' + (mine ? 'border:2px solid var(--bear-orange);' : '') + '">' +
+        '<div style="font-size:30px; text-align:center;">' + t.emoji + '</div>' +
+        '<div style="font-weight:800; font-size:12px; text-align:center; color:var(--clay-text); margin-top:4px;">' + t.label + '</div>' +
+        '<div style="font-size:10px; text-align:center; color:var(--clay-text-light); margin-bottom:6px;">' + t.desc + '</div>' +
+        (has
+          ? '<div style="font-size:11px; font-weight:800; text-align:center; color:var(--clay-purple-shadow); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + t.holderName + '</div><div style="font-size:10px; text-align:center; color:var(--bear-orange); font-weight:800;">' + t.value + ' ' + t.unit + (mine ? ' · คุณ! 🎉' : '') + '</div>'
+          : '<div style="font-size:10px; text-align:center; color:var(--clay-text-light);">ยังไม่มีเจ้าของ</div>') +
+      '</div>';
+    }
+
+    // Feed
+    var feedHtml = '';
+    if (c.feed.length === 0) {
+      feedHtml = '<p class="text-center" style="color:var(--clay-text-light); font-weight:700; padding:20px 0;">ยังไม่มีความเคลื่อนไหว</p>';
+    } else {
+      for (var f = 0; f < c.feed.length; f++) {
+        var it = c.feed[f];
+        var av = it.img ? '<img src="' + it.img + '" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0;">' : '<div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">👤</div>';
+        feedHtml += '<div style="display:flex; align-items:center; gap:12px; background:var(--clay-white); border-radius:16px; padding:12px 14px; margin-bottom:8px; box-shadow:0 4px 0 rgba(150,100,200,0.10),0 6px 12px rgba(150,100,200,0.06);">' +
+          av +
+          '<div style="flex:1; min-width:0;">' +
+            '<div style="font-size:13px; color:var(--clay-text);"><b>' + it.name + '</b> <span style="color:var(--clay-text-light); font-size:11px;">' + (it.cls || '') + '</span></div>' +
+            '<div style="font-size:13px; color:var(--clay-text); margin-top:2px;">' + it.emoji + ' ' + it.text + '</div>' +
+          '</div>' +
+          '<div style="font-size:10px; color:var(--clay-text-light); flex-shrink:0; text-align:right;">' + this.timeAgo(it.at) + '</div>' +
+        '</div>';
+      }
+    }
+
+    return '<div class="page-content">' + this.communityHeader() +
+      '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin:4px 0 10px;">🏅 ตำแหน่งพิเศษประจำระดับ</div>' +
+      '<div style="display:flex; gap:10px; overflow-x:auto; padding-bottom:8px; margin-bottom:16px; -webkit-overflow-scrolling:touch;">' + titlesHtml + '</div>' +
+      '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin:4px 0 10px;">📣 ความเคลื่อนไหวล่าสุด</div>' +
+      feedHtml +
+    '</div>';
+  },
+
+  communityHeader: function() {
+    return '<div style="background:linear-gradient(135deg,#26C6DA,#5BA4F5); border-radius:24px; padding:18px 20px; margin-bottom:16px; box-shadow:0 8px 0 rgba(40,150,180,0.2),0 14px 28px rgba(40,150,180,0.15); display:flex; align-items:center; gap:12px;">' +
+      '<div style="font-size:36px; filter:drop-shadow(0 4px 0 rgba(0,0,0,0.12));">🌟</div>' +
+      '<div style="flex:1;"><div style="font-size:18px; font-weight:800; color:white;">ชุมชนนักเรียน</div>' +
+      '<div style="font-size:12px; color:rgba(255,255,255,0.9);">มาเชียร์กันให้เก่งขึ้นทั้งระดับ! 🎉</div></div>' +
+      '<button onclick="App.navigate(\'dashboard\')" style="background:rgba(255,255,255,0.25); border:none; width:34px; height:34px; border-radius:50%; font-size:16px; cursor:pointer; color:white;">✕</button>' +
     '</div>';
   },
 
