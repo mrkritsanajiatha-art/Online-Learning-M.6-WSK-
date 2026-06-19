@@ -60,6 +60,10 @@ var App = {
     leaderboardFilter: '',
     leaderboardClasses: [],
     completedModules: [],
+    streakInfo: null,
+    cropper: null,
+    cropperOpen: false,
+    editAvatar: null,
     quiz: { questions: [], currentIndex: 0, score: 0, moduleId: 1, submitted: false, awarded: 0, alreadyDone: false },
     flashcards: { cards: [], currentIndex: 0, moduleId: 1, submitted: false, awarded: 0, alreadyDone: false },
     admin: { tables: [], currentTable: '', headers: [], data: [], editingRow: -1 },
@@ -113,6 +117,35 @@ var App = {
   bearHappy: '&#x1F43B;',
   bearStar: '&#x2B50;',
 
+  // ===== LEVEL TIERS (XP-based, top out at 10,000) =====
+  levelTiers: [
+    { min: 0,    name: 'Beginner', th: 'มือใหม่',       emoji: '🐣' },
+    { min: 500,  name: 'Explorer', th: 'นักสำรวจ',      emoji: '🧭' },
+    { min: 1500, name: 'Learner',  th: 'นักเรียนรู้',    emoji: '📘' },
+    { min: 3000, name: 'Skilled',  th: 'ชำนาญ',          emoji: '🎯' },
+    { min: 5000, name: 'Advanced', th: 'ขั้นสูง',        emoji: '🏅' },
+    { min: 7000, name: 'Expert',   th: 'ผู้เชี่ยวชาญ',   emoji: '💎' },
+    { min: 9000, name: 'Master',   th: 'ปรมาจารย์',      emoji: '👑' }
+  ],
+  XP_MAX: 10000,
+
+  levelInfo: function(xp) {
+    xp = xp || 0;
+    var tiers = this.levelTiers, idx = 0;
+    for (var i = 0; i < tiers.length; i++) { if (xp >= tiers[i].min) idx = i; }
+    var cur = tiers[idx];
+    var next = tiers[idx + 1] || null;
+    var floor = cur.min;
+    var ceil = next ? next.min : this.XP_MAX;
+    var pct = ceil > floor ? Math.min(100, Math.round(((xp - floor) / (ceil - floor)) * 100)) : 100;
+    return {
+      index: idx, name: cur.name, th: cur.th, emoji: cur.emoji,
+      floor: floor, ceil: ceil, pct: pct,
+      isMax: !next,
+      next: next, toNext: next ? Math.max(0, ceil - xp) : 0
+    };
+  },
+
   init: function() {
     var storedUser = localStorage.getItem('lms_user');
     if (storedUser) {
@@ -121,10 +154,38 @@ var App = {
       } catch(e) {}
     }
     if (this.state.user) {
-      this.navigate(this.state.user.Role === 'Admin' ? 'admin' : 'dashboard');
+      if (this.state.user.Role === 'Admin') this.navigate('admin');
+      else this.afterAuth();
     } else {
       this.render();
     }
+  },
+
+  afterAuth: function() {
+    // Record login → real streak + daily bonus, then open dashboard
+    var self = this;
+    this.state.dataLoaded = false;
+    google.script.run.withSuccessHandler(function(res) {
+      if (res && res.success) {
+        self.state.streakInfo = res;
+        if (res.bonus > 0) {
+          setTimeout(function() {
+            self.celebrate(40);
+            self.toast('🔥 Streak ' + res.streak + ' วัน! รับโบนัส +' + res.bonus + ' XP');
+          }, 600);
+        }
+      }
+      self.navigate('dashboard');
+    }).withFailureHandler(function() { self.navigate('dashboard'); }).recordLogin(this.state.user.UserID);
+  },
+
+  toast: function(msg) {
+    var host = document.querySelector('.app-container') || document.body;
+    var t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = 'position:absolute; left:50%; top:18px; transform:translateX(-50%); background:linear-gradient(135deg,#FF8C42,#C084FC); color:white; font-weight:800; font-size:13px; padding:12px 18px; border-radius:16px; box-shadow:0 6px 16px rgba(160,80,200,0.35); z-index:10000; max-width:90%; text-align:center; animation:popIn 0.4s ease;';
+    host.appendChild(t);
+    setTimeout(function() { t.style.transition = 'opacity 0.4s'; t.style.opacity = '0'; setTimeout(function() { if (t.parentNode) t.parentNode.removeChild(t); }, 400); }, 2800);
   },
 
   navigate: function(route, params) {
@@ -274,6 +335,7 @@ var App = {
     else if (r === 'quiz' || r === 'dailyQuest') { html = this.viewQuiz(); }
     else if (r === 'flashcards') { html = this.viewFlashcards(); }
     else if (r === 'profile') { html = this.viewProfile() + this.bottomNav('profile'); }
+    else if (r === 'profileEdit') { html = this.viewProfileEdit() + this.bottomNav('profile'); }
     else if (r === 'leaderboard') { html = this.viewLeaderboard() + this.bottomNav('home'); }
     else if (r === 'guide') { html = this.viewGuide() + this.bottomNav('profile'); }
     else if (r === 'bonusQR') { html = this.viewBonusQR() + this.bottomNav('bonus'); }
@@ -294,6 +356,7 @@ var App = {
     var r = this.state.currentRoute;
     if (r === 'bonusQR') this.initBonusQR();
     else if (r === 'adminScanner') this.initQRScanner();
+    else if (r === 'profileEdit' && this.state.cropperOpen) this.initCropper();
   },
 
   // ===== CONFETTI (variable reward feedback) =====
@@ -394,8 +457,8 @@ var App = {
           '<div style="font-size:11px; color:var(--clay-text-light); font-weight:600;">Streak</div>' +
         '</div>' +
         '<div class="stat-card" style="background:linear-gradient(145deg,#E0FFE8,#C8F5D8); box-shadow:0 6px 0 rgba(80,180,100,0.2),0 10px 20px rgba(80,180,100,0.10);">' +
-          '<div style="font-size:22px;">🏅</div>' +
-          '<div style="font-weight:700; font-size:14px; color:var(--clay-green-shadow);">' + d.level + '</div>' +
+          '<div style="font-size:22px;">' + this.levelInfo(d.xp).emoji + '</div>' +
+          '<div style="font-weight:700; font-size:13px; color:var(--clay-green-shadow);">' + this.levelInfo(d.xp).name + '</div>' +
           '<div style="font-size:11px; color:var(--clay-text-light); font-weight:600;">Rank</div>' +
         '</div>' +
       '</div>' +
@@ -841,42 +904,254 @@ var App = {
   viewProfile: function() {
     var u = this.state.user;
     var d = this.state.dashboardData;
+    var lv = this.levelInfo(d.xp);
     var avatar = u.ProfileImage
       ? '<img src="' + u.ProfileImage + '" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">'
       : '<div style="display:flex;justify-content:center;align-items:center;width:100%;height:100%;font-size:44px;">' + this.bear + '</div>';
-    var badgesHtml = '';
-    if (d.badges && d.badges.length > 0) {
-      for (var i = 0; i < d.badges.length; i++) {
-        badgesHtml += '<div class="clay-badge">🏅 ' + d.badges[i] + '</div>';
-      }
-    } else {
-      badgesHtml = '<div style="font-size:13px; color:var(--clay-text-light);">ยังไม่มีรางวัล เริ่มเรียนเลย! 🐾</div>';
-    }
-    var pct = Math.min(100, (d.xp / 5000) * 100);
+
+    var nextLabel = lv.isMax
+      ? '🏆 ระดับสูงสุดแล้ว!'
+      : 'อีก ' + lv.toNext + ' XP → ' + lv.next.emoji + ' ' + lv.next.th;
 
     return '<div class="page-content">' +
       '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:28px; padding:24px; margin-bottom:16px; text-align:center; box-shadow:0 8px 0 rgba(160,80,200,0.2),0 14px 28px rgba(160,80,200,0.15);">' +
         '<div style="position:relative; width:90px; height:90px; margin:0 auto 12px;">' +
           '<div style="width:90px; height:90px; border-radius:50%; overflow:hidden; border:4px solid white; box-shadow:0 4px 12px rgba(0,0,0,0.2);">' + avatar + '</div>' +
+          '<div style="position:absolute; bottom:-2px; right:-2px; width:34px; height:34px; border-radius:50%; background:white; display:flex; align-items:center; justify-content:center; font-size:18px; box-shadow:0 3px 8px rgba(0,0,0,0.2);">' + lv.emoji + '</div>' +
         '</div>' +
         '<div style="font-weight:800; font-size:22px; color:white;">' + u.FirstName + ' ' + u.LastName + '</div>' +
-        '<div style="font-size:13px; color:rgba(255,255,255,0.85); margin-top:4px;">' + u.Class + ' เลขที่ ' + u.Number + '</div>' +
+        '<div style="font-size:13px; color:rgba(255,255,255,0.85); margin-top:4px;">' + (u.Class || '-') + ' เลขที่ ' + (u.Number || '-') + '</div>' +
+        '<button onclick="App.openProfileEdit()" style="margin-top:12px; background:rgba(255,255,255,0.95); border:none; border-radius:14px; padding:8px 18px; font-family:var(--font-main); font-weight:800; font-size:13px; color:var(--clay-purple-shadow); cursor:pointer; box-shadow:0 3px 0 rgba(0,0,0,0.12);">✏️ แก้ไขโปรไฟล์</button>' +
       '</div>' +
+      // Level card
       '<div class="card">' +
         '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">' +
-          '<div style="font-weight:800; font-size:14px; color:var(--clay-text);">ระดับ: ' + d.level + '</div>' +
+          '<div style="font-weight:800; font-size:15px; color:var(--clay-text);">' + lv.emoji + ' ' + lv.name + ' <span style="font-size:12px; color:var(--clay-text-light); font-weight:600;">(' + lv.th + ')</span></div>' +
           '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:12px; padding:4px 12px; font-weight:800; color:white; font-size:13px;">' + d.xp + ' XP</div>' +
         '</div>' +
-        '<div class="progress-bar-container"><div class="progress-bar-fill" style="width:' + pct + '%;"></div></div>' +
-        '<div style="font-size:11px; color:var(--clay-text-light); margin-top:6px; text-align:right;">' + d.xp + ' / 5000 XP</div>' +
+        '<div class="progress-bar-container"><div class="progress-bar-fill" style="width:' + lv.pct + '%;"></div></div>' +
+        '<div style="display:flex; justify-content:space-between; font-size:11px; color:var(--clay-text-light); margin-top:6px;">' +
+          '<span>' + nextLabel + '</span><span>เป้าหมายสูงสุด ' + this.XP_MAX.toLocaleString() + ' XP</span>' +
+        '</div>' +
       '</div>' +
+      // Streak card
+      '<div class="card" style="background:linear-gradient(145deg,#FFF3E0,#FFE0CC); box-shadow:0 6px 0 rgba(200,140,80,0.2),0 10px 20px rgba(200,140,80,0.10);">' +
+        '<div style="display:flex; align-items:center; gap:14px;">' +
+          '<div style="font-size:40px;">🔥</div>' +
+          '<div style="flex:1;">' +
+            '<div style="font-weight:800; font-size:18px; color:var(--bear-orange-shadow);">' + (d.streak || 0) + ' วันต่อเนื่อง</div>' +
+            '<div style="font-size:12px; color:var(--clay-text-light); margin-top:2px;">เข้าเรียนทุกวันรับโบนัส XP (สูงสุด +50/วัน) 🎁</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      // Level ladder
       '<div class="card">' +
-        '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin-bottom:12px;">🏅 รางวัล</div>' +
-        '<div style="display:flex; gap:8px; flex-wrap:wrap;">' + badgesHtml + '</div>' +
+        '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin-bottom:12px;">🪜 เส้นทางระดับ</div>' +
+        this.levelTiers.map(function(t, i){
+          var reached = d.xp >= t.min;
+          var isCur = i === lv.index;
+          return '<div style="display:flex; align-items:center; gap:10px; padding:6px 0; opacity:' + (reached?'1':'0.45') + ';">' +
+            '<div style="font-size:22px;">' + t.emoji + '</div>' +
+            '<div style="flex:1; font-weight:' + (isCur?'800':'600') + '; font-size:13px; color:' + (isCur?'var(--clay-purple-shadow)':'var(--clay-text)') + ';">' + t.name + ' <span style="color:var(--clay-text-light); font-weight:600;">' + t.th + '</span></div>' +
+            '<div style="font-size:11px; color:var(--clay-text-light);">' + t.min.toLocaleString() + '+ XP</div>' +
+            (isCur ? '<div style="font-size:11px; font-weight:800; color:var(--bear-orange);">● ปัจจุบัน</div>' : (reached ? '<div style="color:var(--clay-green);">✓</div>' : '')) +
+          '</div>';
+        }).join('') +
       '</div>' +
       '<button class="btn btn-outline" onclick="App.navigate(\'guide\')">📖 คู่มือการใช้งาน</button>' +
       '<button class="btn btn-danger" onclick="App.logout()">ออกจากระบบ</button>' +
     '</div>';
+  },
+
+  /* ===== PROFILE EDIT + IMAGE CROPPER ===== */
+
+  openProfileEdit: function() {
+    this.state.editAvatar = null;
+    this.state.cropperOpen = false;
+    this.state.cropper = null;
+    this.navigate('profileEdit');
+  },
+
+  viewProfileEdit: function() {
+    var u = this.state.user;
+    var previewSrc = this.state.editAvatar || u.ProfileImage || '';
+    var avatar = previewSrc
+      ? '<img src="' + previewSrc + '" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">'
+      : '<div style="display:flex;justify-content:center;align-items:center;width:100%;height:100%;font-size:44px;">' + this.bear + '</div>';
+
+    return '<div class="page-content">' +
+      '<button onclick="App.navigate(\'profile\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<h2 class="text-title" style="color:var(--bear-brown); margin-top:0;">✏️ แก้ไขโปรไฟล์</h2>' +
+      // avatar + change photo
+      '<div class="card" style="text-align:center;">' +
+        '<div style="width:110px; height:110px; margin:0 auto 12px; border-radius:50%; overflow:hidden; border:4px solid var(--clay-purple); box-shadow:0 4px 12px rgba(160,80,200,0.2);">' + avatar + '</div>' +
+        '<input type="file" id="avatar-file" accept="image/*" style="display:none;" onchange="App.onAvatarFileChosen(this)">' +
+        '<button class="btn btn-secondary" style="width:auto; padding:10px 20px; margin:0;" onclick="document.getElementById(\'avatar-file\').click()">📷 เลือก/เปลี่ยนรูป</button>' +
+        (this.state.editAvatar ? '<div style="font-size:12px; color:var(--clay-green-shadow); font-weight:700; margin-top:8px;">✓ ครอปรูปใหม่แล้ว — กดบันทึกเพื่อใช้งาน</div>' : '') +
+      '</div>' +
+      // name fields
+      '<div class="card">' +
+        '<div style="font-weight:800; font-size:14px; color:var(--clay-text); margin-bottom:8px;">ชื่อ</div>' +
+        '<input id="edit-firstname" class="input-field" style="margin-bottom:14px;" value="' + (u.FirstName || '').replace(/"/g,'&quot;') + '" placeholder="ชื่อ">' +
+        '<div style="font-weight:800; font-size:14px; color:var(--clay-text); margin-bottom:8px;">นามสกุล</div>' +
+        '<input id="edit-lastname" class="input-field" style="margin-bottom:0;" value="' + (u.LastName || '').replace(/"/g,'&quot;') + '" placeholder="นามสกุล">' +
+      '</div>' +
+      '<div id="profile-save-status" style="text-align:center; font-size:13px; font-weight:700; margin-bottom:8px;"></div>' +
+      '<button class="btn btn-primary" onclick="App.saveProfile()">💾 บันทึก</button>' +
+      '<button class="btn btn-outline" onclick="App.navigate(\'profile\')">ยกเลิก</button>' +
+      // cropper modal
+      (this.state.cropperOpen ? this.viewCropperModal() : '') +
+    '</div>';
+  },
+
+  viewCropperModal: function() {
+    return '<div id="cropper-modal" style="position:absolute; inset:0; background:rgba(45,30,70,0.85); z-index:9000; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px;">' +
+      '<div style="color:white; font-weight:800; font-size:16px; margin-bottom:14px;">ครอปรูปโปรไฟล์ 🖼️</div>' +
+      '<div id="crop-frame" style="position:relative; width:260px; height:260px; border-radius:50%; overflow:hidden; background:#000; box-shadow:0 0 0 4px white, 0 10px 30px rgba(0,0,0,0.4); touch-action:none; cursor:grab;">' +
+        '<img id="crop-img" draggable="false" style="position:absolute; left:0; top:0; user-select:none; pointer-events:none; max-width:none;">' +
+      '</div>' +
+      '<div style="display:flex; align-items:center; gap:10px; width:260px; margin-top:16px;">' +
+        '<span style="color:white; font-size:18px;">🔍</span>' +
+        '<input id="crop-zoom" type="range" min="1" max="3" step="0.01" value="1" style="flex:1;" oninput="App.cropZoom(this.value)">' +
+      '</div>' +
+      '<div style="display:flex; gap:10px; margin-top:18px; width:260px;">' +
+        '<button class="btn btn-outline" style="margin:0;" onclick="App.cropCancel()">ยกเลิก</button>' +
+        '<button class="btn btn-primary" style="margin:0;" onclick="App.cropApply()">✓ ใช้รูปนี้</button>' +
+      '</div>' +
+    '</div>';
+  },
+
+  onAvatarFileChosen: function(input) {
+    var file = input.files && input.files[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { alert('ไฟล์ใหญ่เกินไป (จำกัด 8MB)'); return; }
+    var self = this;
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var img = new Image();
+      img.onload = function() {
+        var FRAME = 260;
+        var base = Math.max(FRAME / img.naturalWidth, FRAME / img.naturalHeight);
+        self.state.cropper = {
+          src: e.target.result, natW: img.naturalWidth, natH: img.naturalHeight,
+          frame: FRAME, base: base, scale: base,
+          x: (FRAME - img.naturalWidth * base) / 2,
+          y: (FRAME - img.naturalHeight * base) / 2
+        };
+        self.state.cropperOpen = true;
+        self.render();
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  },
+
+  cropClamp: function() {
+    var c = this.state.cropper; if (!c) return;
+    var w = c.natW * c.scale, h = c.natH * c.scale;
+    if (c.x > 0) c.x = 0;
+    if (c.y > 0) c.y = 0;
+    if (c.x < c.frame - w) c.x = c.frame - w;
+    if (c.y < c.frame - h) c.y = c.frame - h;
+  },
+
+  cropApplyDom: function() {
+    var c = this.state.cropper; if (!c) return;
+    var img = document.getElementById('crop-img');
+    if (img) { img.style.width = (c.natW * c.scale) + 'px'; img.style.height = (c.natH * c.scale) + 'px'; img.style.left = c.x + 'px'; img.style.top = c.y + 'px'; }
+  },
+
+  cropZoom: function(val) {
+    var c = this.state.cropper; if (!c) return;
+    var newScale = Math.max(c.base, parseFloat(val) * c.base);
+    // keep frame center stable
+    var cx = (c.frame / 2 - c.x) / c.scale, cy = (c.frame / 2 - c.y) / c.scale;
+    c.scale = newScale;
+    c.x = c.frame / 2 - cx * c.scale;
+    c.y = c.frame / 2 - cy * c.scale;
+    this.cropClamp(); this.cropApplyDom();
+  },
+
+  cropCancel: function() {
+    this.state.cropperOpen = false; this.state.cropper = null;
+    var f = document.getElementById('avatar-file'); if (f) f.value = '';
+    this.render();
+  },
+
+  cropApply: function() {
+    var c = this.state.cropper; if (!c) return;
+    var out = 256;
+    var canvas = document.createElement('canvas');
+    canvas.width = out; canvas.height = out;
+    var ctx = canvas.getContext('2d');
+    var srcX = -c.x / c.scale, srcY = -c.y / c.scale, srcSize = c.frame / c.scale;
+    var imgEl = document.getElementById('crop-img');
+    var src = imgEl || (function(){ var im = new Image(); im.src = c.src; return im; })();
+    ctx.drawImage(src, srcX, srcY, srcSize, srcSize, 0, 0, out, out);
+    this.state.editAvatar = canvas.toDataURL('image/jpeg', 0.82);
+    this.state.cropperOpen = false; this.state.cropper = null;
+    this.render();
+  },
+
+  initCropper: function() {
+    var self = this;
+    var c = this.state.cropper; if (!c) return;
+    var imgEl = document.getElementById('crop-img');
+    if (imgEl && imgEl.getAttribute('src') !== c.src) imgEl.src = c.src;
+    this.cropApplyDom();
+    var frame = document.getElementById('crop-frame');
+    if (!frame) return;
+    var dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
+    var down = function(e) {
+      dragging = true; frame.style.cursor = 'grabbing';
+      var p = e.touches ? e.touches[0] : e;
+      sx = p.clientX; sy = p.clientY; ox = c.x; oy = c.y;
+    };
+    var move = function(e) {
+      if (!dragging) return;
+      var p = e.touches ? e.touches[0] : e;
+      c.x = ox + (p.clientX - sx); c.y = oy + (p.clientY - sy);
+      self.cropClamp(); self.cropApplyDom();
+      if (e.cancelable) e.preventDefault();
+    };
+    var up = function() { dragging = false; frame.style.cursor = 'grab'; };
+    frame.addEventListener('mousedown', down);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    frame.addEventListener('touchstart', down, { passive: true });
+    frame.addEventListener('touchmove', move, { passive: false });
+    frame.addEventListener('touchend', up);
+  },
+
+  saveProfile: function() {
+    var self = this;
+    var fn = document.getElementById('edit-firstname').value.trim();
+    var ln = document.getElementById('edit-lastname').value.trim();
+    var st = document.getElementById('profile-save-status');
+    if (!fn) { if (st) { st.style.color = 'var(--clay-red)'; st.innerText = 'กรุณากรอกชื่อ'; } return; }
+    if (st) { st.style.color = 'var(--clay-text-light)'; st.innerText = 'กำลังบันทึก... ⏳'; }
+    var newAvatar = this.state.editAvatar;
+
+    var doneName = false, doneImg = !newAvatar;
+    var finish = function() {
+      if (!doneName || !doneImg) return;
+      self.state.user.FirstName = fn; self.state.user.LastName = ln;
+      if (newAvatar) self.state.user.ProfileImage = newAvatar;
+      localStorage.setItem('lms_user', JSON.stringify(self.state.user));
+      self.state.editAvatar = null;
+      self.navigate('profile');
+    };
+    google.script.run.withSuccessHandler(function(res) {
+      if (!res.success) { if (st) { st.style.color = 'var(--clay-red)'; st.innerText = res.message || 'บันทึกชื่อไม่สำเร็จ'; } return; }
+      doneName = true; finish();
+    }).withFailureHandler(function(e){ if(st){st.style.color='var(--clay-red)'; st.innerText='Error: '+e.message;} }).updateProfileName(this.state.user.UserID, fn, ln);
+
+    if (newAvatar) {
+      google.script.run.withSuccessHandler(function(res) {
+        if (!res.success) { if (st) { st.style.color = 'var(--clay-red)'; st.innerText = res.message || 'บันทึกรูปไม่สำเร็จ'; } return; }
+        doneImg = true; finish();
+      }).withFailureHandler(function(e){ if(st){st.style.color='var(--clay-red)'; st.innerText='Error: '+e.message;} }).uploadProfileImage(this.state.user.UserID, newAvatar);
+    }
   },
 
   /* ===== BONUS QR VIEWS ===== */
@@ -1248,7 +1523,7 @@ var App = {
           if (response.user.Role === 'Admin') {
             App.navigate('admin');
           } else {
-            App.navigate('dashboard');
+            App.afterAuth();
           }
         } else { alert(response.message); }
       })

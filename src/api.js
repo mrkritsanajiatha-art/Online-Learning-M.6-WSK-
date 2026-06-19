@@ -196,7 +196,42 @@ export async function submitQuizScore(userId, quizType, referenceId, score, maxS
 }
 
 export async function uploadProfileImage(userId, base64Str) {
-  return { success: false, message: 'Upload via Base64 not supported in Supabase snippet directly yet. Needs Storage bucket setup.' };
+  // Cropped image is a small JPEG data URL stored directly in the TEXT column
+  const { error } = await supabase.from('users').update({ profile_image: base64Str }).eq('id', String(userId).trim());
+  if (error) return { success: false, message: error.message };
+  return { success: true, url: base64Str };
+}
+
+export async function updateProfileName(userId, firstName, lastName) {
+  const fn = (firstName || '').trim();
+  const ln = (lastName || '').trim();
+  if (!fn) return { success: false, message: 'กรุณากรอกชื่อ' };
+  const { error } = await supabase.from('users')
+    .update({ first_name: fn, last_name: ln })
+    .eq('id', String(userId).trim());
+  if (error) return { success: false, message: error.message };
+  return { success: true, firstName: fn, lastName: ln };
+}
+
+export async function recordLogin(userId) {
+  // Real streak: consecutive Thailand-days. Awards a daily login bonus (once/day).
+  const uid = String(userId).trim();
+  const { data: u } = await supabase.from('users').select('xp, streak, last_login').eq('id', uid).single();
+  if (!u) return { success: false };
+  const today = bangkokDate();
+  const last = u.last_login ? bangkokDate(u.last_login) : null;
+  if (last === today) {
+    return { success: true, streak: u.streak || 0, bonus: 0, already: true };
+  }
+  const yesterday = bangkokDate(Date.now() - 24 * 3600 * 1000);
+  const newStreak = (last === yesterday) ? (u.streak || 0) + 1 : 1;
+  const bonus = Math.min(50, newStreak * 10); // day1=10 … day5+=50 per day
+  await supabase.from('users').update({
+    last_login: new Date().toISOString(),
+    streak: newStreak,
+    xp: (u.xp || 0) + bonus
+  }).eq('id', uid);
+  return { success: true, streak: newStreak, bonus, already: false };
 }
 
 export async function adminGetTables() {
