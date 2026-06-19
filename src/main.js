@@ -1012,10 +1012,20 @@ var App = {
           '<div style="width:90px; height:90px; border-radius:50%; overflow:hidden; border:4px solid white; box-shadow:0 4px 12px rgba(0,0,0,0.2);">' + avatar + '</div>' +
           '<div style="position:absolute; bottom:-2px; right:-2px; width:34px; height:34px; border-radius:50%; background:white; display:flex; align-items:center; justify-content:center; font-size:18px; box-shadow:0 3px 8px rgba(0,0,0,0.2);">' + lv.emoji + '</div>' +
         '</div>' +
-        '<div style="font-weight:800; font-size:22px; color:white;">' + u.FirstName + ' ' + u.LastName + '</div>' +
+        '<div style="font-weight:800; font-size:22px; color:white;">' + u.FirstName + ' ' + u.LastName + (u.Nickname ? ' <span style="font-size:15px; opacity:0.9;">(' + u.Nickname + ')</span>' : '') + '</div>' +
         '<div style="font-size:13px; color:rgba(255,255,255,0.85); margin-top:4px;">' + (u.Class || '-') + ' เลขที่ ' + (u.Number || '-') + '</div>' +
+        (u.Motto ? '<div style="font-size:13px; color:white; margin-top:8px; font-style:italic;">💬 "' + this.esc(u.Motto) + '"</div>' : '') +
         '<button onclick="App.openProfileEdit()" style="margin-top:12px; background:rgba(255,255,255,0.95); border:none; border-radius:14px; padding:8px 18px; font-family:var(--font-main); font-weight:800; font-size:13px; color:var(--clay-purple-shadow); cursor:pointer; box-shadow:0 3px 0 rgba(0,0,0,0.12);">✏️ แก้ไขโปรไฟล์</button>' +
       '</div>' +
+      // About me
+      ((u.Dream || u.TargetGoal || u.Bio)
+        ? '<div class="card">' +
+            '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin-bottom:10px;">💬 เกี่ยวกับฉัน</div>' +
+            (u.TargetGoal ? '<div style="display:flex; gap:8px; margin-bottom:8px;"><span>🎯</span><div style="font-size:13px; color:var(--clay-text);"><b>เป้าหมาย:</b> ' + this.esc(u.TargetGoal) + '</div></div>' : '') +
+            (u.Dream ? '<div style="display:flex; gap:8px; margin-bottom:8px;"><span>🌈</span><div style="font-size:13px; color:var(--clay-text);"><b>ความฝัน:</b> ' + this.esc(u.Dream) + '</div></div>' : '') +
+            (u.Bio ? '<div style="display:flex; gap:8px;"><span>📝</span><div style="font-size:13px; color:var(--clay-text-light); line-height:1.6;">' + this.esc(u.Bio) + '</div></div>' : '') +
+          '</div>'
+        : '<div class="card" style="text-align:center; background:linear-gradient(145deg,#F8F3FF,#EEE8FF);"><div style="font-size:13px; color:var(--clay-text-light);">ยังไม่ได้กรอกข้อมูลแนะนำตัว 🐾<br>กด "แก้ไขโปรไฟล์" เพื่อเพิ่มความฝันและเป้าหมายของคุณ!</div></div>') +
       // Level card
       '<div class="card">' +
         '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">' +
@@ -1065,6 +1075,9 @@ var App = {
     this.navigate('profileEdit');
   },
 
+  esc: function(v) { return (v == null ? '' : String(v)).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); },
+  fieldLabel: function(t) { return '<div style="font-size:12px; font-weight:700; color:var(--clay-text-light); margin:0 0 4px 2px;">' + t + '</div>'; },
+
   viewProfileEdit: function() {
     var u = this.state.user;
     var previewSrc = this.state.editAvatar || u.ProfileImage || '';
@@ -1082,12 +1095,31 @@ var App = {
         '<button class="btn btn-secondary" style="width:auto; padding:10px 20px; margin:0;" onclick="document.getElementById(\'avatar-file\').click()">📷 เลือก/เปลี่ยนรูป</button>' +
         (this.state.editAvatar ? '<div style="font-size:12px; color:var(--clay-green-shadow); font-weight:700; margin-top:8px;">✓ ครอปรูปใหม่แล้ว — กดบันทึกเพื่อใช้งาน</div>' : '') +
       '</div>' +
-      // name fields
+      // basic info
       '<div class="card">' +
-        '<div style="font-weight:800; font-size:14px; color:var(--clay-text); margin-bottom:8px;">ชื่อ</div>' +
-        '<input id="edit-firstname" class="input-field" style="margin-bottom:14px;" value="' + (u.FirstName || '').replace(/"/g,'&quot;') + '" placeholder="ชื่อ">' +
-        '<div style="font-weight:800; font-size:14px; color:var(--clay-text); margin-bottom:8px;">นามสกุล</div>' +
-        '<input id="edit-lastname" class="input-field" style="margin-bottom:0;" value="' + (u.LastName || '').replace(/"/g,'&quot;') + '" placeholder="นามสกุล">' +
+        '<div style="font-weight:800; font-size:14px; color:var(--clay-text); margin-bottom:10px;">📋 ข้อมูลพื้นฐาน</div>' +
+        this.fieldLabel('ชื่อ') +
+        '<input id="edit-firstname" class="input-field" value="' + this.esc(u.FirstName) + '" placeholder="ชื่อ">' +
+        this.fieldLabel('นามสกุล') +
+        '<input id="edit-lastname" class="input-field" value="' + this.esc(u.LastName) + '" placeholder="นามสกุล">' +
+        this.fieldLabel('ชื่อเล่น') +
+        '<input id="edit-nickname" class="input-field" value="' + this.esc(u.Nickname) + '" placeholder="เช่น กฤษณ์">' +
+        '<div style="display:flex; gap:10px;">' +
+          '<div style="flex:1;">' + this.fieldLabel('ห้องเรียน') + '<input id="edit-class" class="input-field" style="margin-bottom:0;" value="' + this.esc(u.Class) + '" placeholder="เช่น ม.6/4"></div>' +
+          '<div style="width:96px;">' + this.fieldLabel('เลขที่') + '<input id="edit-number" type="number" class="input-field" style="margin-bottom:0;" value="' + this.esc(u.Number) + '" placeholder="เลขที่"></div>' +
+        '</div>' +
+      '</div>' +
+      // about me
+      '<div class="card">' +
+        '<div style="font-weight:800; font-size:14px; color:var(--clay-text); margin-bottom:10px;">💬 เกี่ยวกับฉัน</div>' +
+        this.fieldLabel('คติประจำตัว') +
+        '<input id="edit-motto" class="input-field" value="' + this.esc(u.Motto) + '" placeholder="เช่น Practice makes perfect">' +
+        this.fieldLabel('ความฝันในอนาคต') +
+        '<input id="edit-dream" class="input-field" value="' + this.esc(u.Dream) + '" placeholder="เช่น อยากเป็นล่าม / วิศวกร">' +
+        this.fieldLabel('เป้าหมายคะแนน (TOEIC / TGAT / A-Level)') +
+        '<input id="edit-target" class="input-field" value="' + this.esc(u.TargetGoal) + '" placeholder="เช่น A-Level อังกฤษ 80+">' +
+        this.fieldLabel('แนะนำตัวสั้นๆ') +
+        '<textarea id="edit-bio" class="input-field" style="margin-bottom:0; min-height:70px; resize:vertical;" placeholder="เล่าเกี่ยวกับตัวเองสั้นๆ">' + this.esc(u.Bio) + '</textarea>' +
       '</div>' +
       '<div id="profile-save-status" style="text-align:center; font-size:13px; font-weight:700; margin-bottom:8px;"></div>' +
       '<button class="btn btn-primary" onclick="App.saveProfile()">💾 บันทึก</button>' +
@@ -1218,26 +1250,34 @@ var App = {
 
   saveProfile: function() {
     var self = this;
-    var fn = document.getElementById('edit-firstname').value.trim();
-    var ln = document.getElementById('edit-lastname').value.trim();
+    var val = function(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; };
+    var f = {
+      firstName: val('edit-firstname'), lastName: val('edit-lastname'), nickname: val('edit-nickname'),
+      className: val('edit-class'), number: val('edit-number'),
+      motto: val('edit-motto'), dream: val('edit-dream'), targetGoal: val('edit-target'), bio: val('edit-bio')
+    };
     var st = document.getElementById('profile-save-status');
-    if (!fn) { if (st) { st.style.color = 'var(--clay-red)'; st.innerText = 'กรุณากรอกชื่อ'; } return; }
+    if (!f.firstName) { if (st) { st.style.color = 'var(--clay-red)'; st.innerText = 'กรุณากรอกชื่อ'; } return; }
     if (st) { st.style.color = 'var(--clay-text-light)'; st.innerText = 'กำลังบันทึก... ⏳'; }
     var newAvatar = this.state.editAvatar;
 
-    var doneName = false, doneImg = !newAvatar;
+    var doneInfo = false, doneImg = !newAvatar;
     var finish = function() {
-      if (!doneName || !doneImg) return;
-      self.state.user.FirstName = fn; self.state.user.LastName = ln;
-      if (newAvatar) self.state.user.ProfileImage = newAvatar;
-      localStorage.setItem('lms_user', JSON.stringify(self.state.user));
+      if (!doneInfo || !doneImg) return;
+      var u = self.state.user;
+      u.FirstName = f.firstName; u.LastName = f.lastName; u.Nickname = f.nickname;
+      u.Class = f.className; u.Number = f.number;
+      u.Motto = f.motto; u.Dream = f.dream; u.TargetGoal = f.targetGoal; u.Bio = f.bio;
+      if (newAvatar) u.ProfileImage = newAvatar;
+      localStorage.setItem('lms_user', JSON.stringify(u));
       self.state.editAvatar = null;
+      self.toast('✅ บันทึกโปรไฟล์แล้ว');
       self.navigate('profile');
     };
     google.script.run.withSuccessHandler(function(res) {
-      if (!res.success) { if (st) { st.style.color = 'var(--clay-red)'; st.innerText = res.message || 'บันทึกชื่อไม่สำเร็จ'; } return; }
-      doneName = true; finish();
-    }).withFailureHandler(function(e){ if(st){st.style.color='var(--clay-red)'; st.innerText='Error: '+e.message;} }).updateProfileName(this.state.user.UserID, fn, ln);
+      if (!res.success) { if (st) { st.style.color = 'var(--clay-red)'; st.innerText = res.message || 'บันทึกไม่สำเร็จ'; } return; }
+      doneInfo = true; finish();
+    }).withFailureHandler(function(e){ if(st){st.style.color='var(--clay-red)'; st.innerText='Error: '+e.message;} }).updateProfile(this.state.user.UserID, f);
 
     if (newAvatar) {
       google.script.run.withSuccessHandler(function(res) {

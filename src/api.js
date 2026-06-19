@@ -8,7 +8,13 @@ function mapUser(data) {
     Role: data.role || 'Student',
     Class: data.class_name,
     Number: data.student_number,
-    ProfileImage: data.profile_image || ''
+    ProfileImage: data.profile_image || '',
+    Nickname: data.nickname || '',
+    Motto: data.motto || '',
+    Dream: data.dream || '',
+    TargetGoal: data.target_goal || '',
+    Bio: data.bio || '',
+    TeamId: data.team_id || null
   };
 }
 
@@ -278,6 +284,27 @@ export async function updateProfileName(userId, firstName, lastName) {
     .eq('id', String(userId).trim());
   if (error) return { success: false, message: error.message };
   return { success: true, firstName: fn, lastName: ln };
+}
+
+export async function updateProfile(userId, f) {
+  const s = (v, n) => (v == null ? '' : String(v)).trim().slice(0, n);
+  const fn = s(f.firstName, 100);
+  if (!fn) return { success: false, message: 'กรุณากรอกชื่อ' };
+  const num = parseInt(f.number, 10);
+  const payload = {
+    first_name: fn,
+    last_name: s(f.lastName, 100),
+    nickname: s(f.nickname, 60),
+    class_name: s(f.className, 50),
+    student_number: isNaN(num) ? null : num,
+    motto: s(f.motto, 120),
+    dream: s(f.dream, 160),
+    target_goal: s(f.targetGoal, 160),
+    bio: s(f.bio, 300)
+  };
+  const { error } = await supabase.from('users').update(payload).eq('id', String(userId).trim());
+  if (error) return { success: false, message: error.message };
+  return { success: true, payload: payload };
 }
 
 export async function recordLogin(userId) {
