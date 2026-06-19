@@ -234,6 +234,29 @@ export async function adminGiveBonus(targetUserId, points, adminUserId) {
   return { success: true, given: canAdd, newTotal: bonusRes.total + canAdd };
 }
 
+export async function getGameStatus(userId, gameKey) {
+  const { data } = await supabase.from('scores')
+    .select('id, score')
+    .eq('user_id', String(userId).trim())
+    .eq('quiz_type', gameKey);
+  return { success: true, played: !!(data && data.length > 0), score: data && data[0] ? data[0].score : 0 };
+}
+
+export async function submitGameScore(userId, gameKey, exp) {
+  // One-time EXP per game (ever). exp already 0-100.
+  const uid = String(userId).trim();
+  const { data: existing } = await supabase.from('scores').select('id').eq('user_id', uid).eq('quiz_type', gameKey);
+  if (existing && existing.length > 0) return { success: true, alreadyDone: true, awarded: 0 };
+  const award = Math.max(0, Math.min(100, Math.round(exp || 0)));
+  const { error } = await supabase.from('scores').insert([{
+    user_id: uid, quiz_type: gameKey, reference_id: null, score: award, max_score: 100, time_spent: 0
+  }]);
+  if (error) return { success: false, message: error.message };
+  const { data: user } = await supabase.from('users').select('xp').eq('id', uid).single();
+  if (user) await supabase.from('users').update({ xp: user.xp + award }).eq('id', uid);
+  return { success: true, alreadyDone: false, awarded: award };
+}
+
 export async function adminAddQuiz(moduleId, text, opt1, opt2, opt3, opt4, answer, explain) {
   await supabase.from('quiz_bank').insert([{ module_id: moduleId, question: text, choice_a: opt1, choice_b: opt2, choice_c: opt3, choice_d: opt4, correct_answer: answer, explanation: explain }]);
   return { success: true };

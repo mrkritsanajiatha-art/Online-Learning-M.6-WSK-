@@ -66,8 +66,45 @@ var App = {
     scannerAnimFrame: null,
     scannedUser: null,
     scannedUserBonus: 0,
-    pendingBonusPoints: 10
+    pendingBonusPoints: 10,
+    wordBridge: { puzzleIndex: 0, slots: [], pool: [], checked: false, correctTotal: 0, totalSlots: 0, finished: false, awarded: 0, alreadyDone: false, started: false }
   },
+
+  // ===== WORD BRIDGE PUZZLES =====
+  // แต่ละโจทย์: เรียงคำศัพท์ให้ต่อกันเป็นเรื่องราว/ขั้นตอน จากต้นทาง -> ปลายทาง
+  // chain = ลำดับคำที่ถูกต้อง, decoys = คำลวง (จากคำศัพท์อื่น)
+  wordBridgePuzzles: [
+    {
+      start: '🌙 นอนดึก', end: '😷 ขาดเรียน',
+      chain: ['oversleep', 'under the weather', 'absent'],
+      decoys: ['priority', 'nail it'],
+      why: 'นอนดึก → oversleep (ตื่นสาย) → under the weather (รู้สึกไม่สบาย) → absent (ขาดเรียน)'
+    },
+    {
+      start: '🤔 เริ่มวางแผนชีวิต', end: '🎯 ลงมือทำ',
+      chain: ['consider / weigh', 'vision / aspiration', 'priority', 'objective / goal'],
+      decoys: ['eliminate', 'adapt / adaptable'],
+      why: 'พิจารณา (consider/weigh) → มีวิสัยทัศน์ (vision/aspiration) → จัดลำดับความสำคัญ (priority) → ตั้งเป้าหมาย (objective/goal)'
+    },
+    {
+      start: '📚 เตรียมแข่งสุนทรพจน์', end: '🏆 คว้าชัยชนะ',
+      chain: ['brush up on', 'common sense', 'adapt / adaptable', 'nail it'],
+      decoys: ['oversleep', 'recyclable'],
+      why: 'ทบทวน (brush up on) → ใช้สามัญสำนึก (common sense) → ปรับตัว (adapt) → ทำได้ยอดเยี่ยม (nail it)'
+    },
+    {
+      start: '🌍 ปัญหาขยะพลาสติก', end: '♻️ โลกสะอาดขึ้น',
+      chain: ['alternative', 'green packaging', 'recyclable', 'eliminate'],
+      decoys: ['by then', 'turn in / submit'],
+      why: 'หาทางเลือก (alternative) → บรรจุภัณฑ์รักษ์โลก (green packaging) → รีไซเคิลได้ (recyclable) → กำจัดขยะ (eliminate)'
+    },
+    {
+      start: '💭 คิดจะทำโปรเจกต์', end: '✅ ทำสำเร็จ',
+      chain: ['decide to + V', 'agree to + V', 'keep + V-ing', 'finish + V-ing'],
+      decoys: ['avoid + V-ing', 'under the weather'],
+      why: 'ตัดสินใจ (decide to) → ตกลงร่วมกัน (agree to) → ทำต่อเนื่อง (keep V-ing) → ทำเสร็จ (finish V-ing)'
+    }
+  ],
 
   bear: '&#x1F43B;',
   bearHappy: '&#x1F43B;',
@@ -182,6 +219,9 @@ var App = {
         if (res.success) self.state.bonusScore = { total: res.total, history: res.history };
         self.render();
       }).withFailureHandler(function() { self.render(); }).getBonusScore(self.state.user.UserID);
+    } else if (route === 'wordBridge') {
+      this.initWordBridge();
+      this.render();
     } else if (route === 'adminScanner') {
       this.state.scannedUser = null;
       this.render();
@@ -221,6 +261,7 @@ var App = {
     else if (r === 'leaderboard') { html = this.viewLeaderboard() + this.bottomNav('home'); }
     else if (r === 'guide') { html = this.viewGuide() + this.bottomNav('profile'); }
     else if (r === 'bonusQR') { html = this.viewBonusQR() + this.bottomNav('bonus'); }
+    else if (r === 'wordBridge') { html = this.viewWordBridge() + this.bottomNav('home'); }
     else if (r === 'admin') { html = this.viewAdmin(); }
     else if (r === 'adminScanner') { html = this.viewAdminScanner(); }
     else if (r === 'adminDB') { html = this.viewAdminDB(); }
@@ -350,6 +391,17 @@ var App = {
             '<div style="font-size:12px; color:var(--clay-text-light); margin-top:4px;">ทำโจทย์สุ่ม 10 ข้อเพื่อรับ XP พิเศษ!</div>' +
           '</div>' +
           '<div style="width:36px; height:36px; border-radius:50%; background:white; box-shadow:0 4px 0 rgba(60,130,220,0.2); display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--clay-blue);">▶</div>' +
+        '</div>' +
+      '</div>' +
+      // Word Bridge Game
+      '<div class="card action-card" style="background:linear-gradient(145deg,#FCE0FF,#EFD0FF); box-shadow:0 6px 0 rgba(160,80,200,0.2),0 10px 20px rgba(160,80,200,0.10); margin-top:12px; cursor:pointer;" onclick="App.navigate(\'wordBridge\')">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<div style="font-size:40px;">🌉</div>' +
+          '<div style="flex:1;">' +
+            '<div style="font-weight:800; font-size:15px; color:var(--clay-purple-shadow);">🔗 เกมสะพานคำ (Word Bridge)</div>' +
+            '<div style="font-size:12px; color:var(--clay-text-light); margin-top:4px;">เรียงคำศัพท์เชื่อมต้นทางถึงปลายทาง รับ EXP สูงสุด 100!</div>' +
+          '</div>' +
+          '<div style="width:36px; height:36px; border-radius:50%; background:white; box-shadow:0 4px 0 rgba(160,80,200,0.2); display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--clay-purple);">▶</div>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -1437,6 +1489,217 @@ var App = {
         if (st) st.innerText = '❌ Error: ' + e.message;
       })
       .adminGiveBonus(targetUser.id, pts, self.state.user ? self.state.user.UserID : 0);
+  },
+
+  /* ===== WORD BRIDGE GAME ===== */
+
+  initWordBridge: function() {
+    var wb = this.state.wordBridge;
+    // Reset progress and check if already played (one-time EXP)
+    wb.puzzleIndex = 0;
+    wb.checked = false;
+    wb.correctTotal = 0;
+    wb.finished = false;
+    wb.awarded = 0;
+    wb.started = false;
+    // total slots across all puzzles
+    var total = 0;
+    for (var i = 0; i < this.wordBridgePuzzles.length; i++) total += this.wordBridgePuzzles[i].chain.length;
+    wb.totalSlots = total;
+    this.wbLoadPuzzle(0);
+    // check completion status
+    var self = this;
+    google.script.run.withSuccessHandler(function(res) {
+      if (res && res.played) { self.state.wordBridge.alreadyDone = true; if (self.state.currentRoute === 'wordBridge') self.render(); }
+      else { self.state.wordBridge.alreadyDone = false; }
+    }).withFailureHandler(function(){}).getGameStatus(this.state.user.UserID, 'WordBridge');
+  },
+
+  wbLoadPuzzle: function(idx) {
+    var wb = this.state.wordBridge;
+    var p = this.wordBridgePuzzles[idx];
+    wb.checked = false;
+    wb.slots = new Array(p.chain.length).fill(null);
+    // pool = chain + decoys, shuffled
+    var pool = p.chain.concat(p.decoys || []);
+    for (var i = pool.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = pool[i]; pool[i] = pool[j]; pool[j] = t;
+    }
+    wb.pool = pool.map(function(w) { return { word: w, used: false }; });
+  },
+
+  wbPlaceWord: function(poolIdx) {
+    var wb = this.state.wordBridge;
+    if (wb.checked) return;
+    var item = wb.pool[poolIdx];
+    if (!item || item.used) return;
+    // find first empty slot
+    var empty = wb.slots.indexOf(null);
+    if (empty === -1) return;
+    wb.slots[empty] = poolIdx;
+    item.used = true;
+    this.render();
+  },
+
+  wbRemoveSlot: function(slotIdx) {
+    var wb = this.state.wordBridge;
+    if (wb.checked) return;
+    var poolIdx = wb.slots[slotIdx];
+    if (poolIdx === null || poolIdx === undefined) return;
+    wb.pool[poolIdx].used = false;
+    wb.slots[slotIdx] = null;
+    this.render();
+  },
+
+  wbCheck: function() {
+    var wb = this.state.wordBridge;
+    var p = this.wordBridgePuzzles[wb.puzzleIndex];
+    if (wb.slots.indexOf(null) !== -1) return; // not full
+    var correct = 0;
+    for (var i = 0; i < p.chain.length; i++) {
+      var placedWord = wb.pool[wb.slots[i]].word;
+      if (placedWord === p.chain[i]) correct++;
+    }
+    wb.correctTotal += correct;
+    wb.checked = true;
+    this.render();
+  },
+
+  wbNext: function() {
+    var wb = this.state.wordBridge;
+    if (wb.puzzleIndex < this.wordBridgePuzzles.length - 1) {
+      wb.puzzleIndex++;
+      this.wbLoadPuzzle(wb.puzzleIndex);
+      this.render();
+    } else {
+      // finished — compute EXP and submit (one-time)
+      wb.finished = true;
+      var exp = Math.round((wb.correctTotal / wb.totalSlots) * 100);
+      if (exp > 100) exp = 100;
+      var self = this;
+      google.script.run.withSuccessHandler(function(res) {
+        wb.awarded = res && !res.alreadyDone ? res.awarded : 0;
+        wb.alreadyDone = res ? res.alreadyDone : false;
+        self.render();
+      }).withFailureHandler(function() { self.render(); }).submitGameScore(this.state.user.UserID, 'WordBridge', exp);
+      this.render();
+    }
+  },
+
+  viewWordBridge: function() {
+    var wb = this.state.wordBridge;
+
+    // ----- Results screen -----
+    if (wb.finished) {
+      var exp = Math.round((wb.correctTotal / wb.totalSlots) * 100);
+      if (exp > 100) exp = 100;
+      var note = wb.alreadyDone
+        ? '<div style="font-size:12px; color:var(--clay-text-light); margin-top:8px;">* คุณเคยเล่นเกมนี้แล้ว จึงไม่ได้รับ EXP เพิ่ม (เล่นซ้ำเพื่อฝึกได้)</div>'
+        : '<div style="font-size:12px; color:var(--clay-text-light); margin-top:8px;">* ได้รับ EXP จากเกมนี้ครั้งแรกครั้งเดียว</div>';
+      return '<div class="page-content" style="display:flex; flex-direction:column; justify-content:center; align-items:center;">' +
+        '<div class="mascot-bounce" style="font-size:72px; margin-bottom:12px;">' + this.bear + '</div>' +
+        '<div style="font-size:34px; margin-bottom:6px;">🌉</div>' +
+        '<h2 class="text-title" style="color:var(--clay-purple-shadow);">สร้างสะพานครบแล้ว!</h2>' +
+        '<div class="card" style="width:100%; text-align:center; margin:16px 0;">' +
+          '<p style="font-size:18px; font-weight:800; color:var(--clay-text); margin:0 0 8px 0;">เชื่อมถูก: ' + wb.correctTotal + ' / ' + wb.totalSlots + '</p>' +
+          '<div style="font-size:26px; font-weight:800; color:var(--bear-orange);">' + (wb.awarded > 0 ? '+' + wb.awarded + ' EXP' : (exp + ' คะแนน')) + '</div>' +
+          note +
+        '</div>' +
+        '<button class="btn btn-primary" style="margin-bottom:8px;" onclick="App.navigate(\'wordBridge\')">เล่นอีกครั้ง 🔄</button>' +
+        '<button class="btn btn-outline" onclick="App.navigate(\'dashboard\')">กลับหน้าหลัก</button>' +
+      '</div>';
+    }
+
+    // ----- Intro screen -----
+    if (!wb.started) {
+      var doneBadge = wb.alreadyDone
+        ? '<div style="background:linear-gradient(135deg,#E8F5E9,#C8E6C9); border-radius:14px; padding:10px 14px; font-size:12px; font-weight:700; color:var(--clay-green-shadow); margin-bottom:14px;">✅ คุณเคยรับ EXP จากเกมนี้แล้ว — เล่นซ้ำเพื่อฝึกได้แต่ไม่ได้ EXP เพิ่ม</div>'
+        : '<div style="background:linear-gradient(135deg,#FFF3E0,#FFE8CC); border-radius:14px; padding:10px 14px; font-size:12px; font-weight:700; color:var(--bear-brown); margin-bottom:14px;">⚡ เล่นจบรับ EXP สูงสุด 100 (ครั้งแรกครั้งเดียว)</div>';
+      return '<div class="page-content">' +
+        '<button onclick="App.navigate(\'dashboard\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+        '<div style="background:linear-gradient(135deg,#C084FC,#5BA4F5); border-radius:24px; padding:24px; margin-bottom:16px; text-align:center; box-shadow:0 8px 0 rgba(120,80,200,0.2),0 14px 28px rgba(120,80,200,0.12);">' +
+          '<div style="font-size:56px; margin-bottom:6px;">🌉</div>' +
+          '<h2 style="margin:0 0 6px 0; color:white; font-size:22px; font-weight:800;">เกมสะพานคำ</h2>' +
+          '<p style="margin:0; font-size:13px; color:rgba(255,255,255,0.9);">Word Bridge — เชื่อมคำด้วยคำศัพท์ของเรา</p>' +
+        '</div>' +
+        doneBadge +
+        '<div class="card">' +
+          '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin-bottom:10px;">📖 วิธีเล่น</div>' +
+          '<div style="font-size:13px; color:var(--clay-text-light); line-height:1.8;">' +
+            '1️⃣ แต่ละด่านมีคำ <b>ต้นทาง</b> และ <b>ปลายทาง</b><br>' +
+            '2️⃣ แตะคำศัพท์ด้านล่างมาเรียงเป็น <b>สะพาน</b> เชื่อมต้นทาง→ปลายทางให้เป็นเรื่องราว/ขั้นตอนที่ถูกต้อง<br>' +
+            '3️⃣ แตะช่องที่วางแล้วเพื่อเอาคำออก<br>' +
+            '4️⃣ กด <b>ตรวจสะพาน</b> ระบบจะนับช่องที่ถูก ยิ่งถูกมาก EXP ยิ่งสูง (สูงสุด 100)' +
+          '</div>' +
+        '</div>' +
+        '<button class="btn btn-primary" onclick="App.state.wordBridge.started=true; App.render();">เริ่มเล่น! 🚀</button>' +
+      '</div>';
+    }
+
+    // ----- Play screen -----
+    var p = this.wordBridgePuzzles[wb.puzzleIndex];
+    var progressPct = (wb.puzzleIndex / this.wordBridgePuzzles.length) * 100;
+
+    // slots
+    var slotsHtml = '';
+    for (var i = 0; i < wb.slots.length; i++) {
+      var poolIdx = wb.slots[i];
+      var filled = poolIdx !== null && poolIdx !== undefined;
+      var label = filled ? wb.pool[poolIdx].word : '?';
+      var slotStyle, txtColor;
+      if (wb.checked && filled) {
+        var ok = wb.pool[poolIdx].word === p.chain[i];
+        slotStyle = ok ? 'background:linear-gradient(145deg,#E8F5E9,#C8E6C9); border:2px solid var(--clay-green);' : 'background:linear-gradient(145deg,#FFE0E0,#FFD0D0); border:2px solid var(--clay-red);';
+        txtColor = ok ? 'var(--clay-green-shadow)' : 'var(--clay-red-shadow)';
+        label = (ok ? '✓ ' : '✗ ') + wb.pool[poolIdx].word;
+      } else if (filled) {
+        slotStyle = 'background:linear-gradient(145deg,#F8F3FF,#EEE8FF); border:2px solid var(--clay-purple);';
+        txtColor = 'var(--clay-purple-shadow)';
+      } else {
+        slotStyle = 'background:rgba(255,255,255,0.5); border:2px dashed var(--clay-text-light);';
+        txtColor = 'var(--clay-text-light)';
+      }
+      slotsHtml += '<div onclick="App.wbRemoveSlot(' + i + ')" style="' + slotStyle + ' border-radius:14px; padding:12px 10px; text-align:center; font-weight:800; font-size:13px; color:' + txtColor + '; cursor:pointer; min-height:20px; display:flex; align-items:center; justify-content:center;">' + label + '</div>';
+      if (i < wb.slots.length - 1) slotsHtml += '<div style="text-align:center; color:var(--clay-purple); font-size:16px;">↓</div>';
+    }
+
+    // pool
+    var poolHtml = '';
+    for (var k = 0; k < wb.pool.length; k++) {
+      var it = wb.pool[k];
+      var ps = it.used ? 'opacity:0.35; pointer-events:none; background:var(--clay-bg);' : 'background:white; box-shadow:0 4px 0 rgba(150,100,200,0.2);';
+      poolHtml += '<div onclick="App.wbPlaceWord(' + k + ')" style="' + ps + ' border-radius:14px; padding:10px 14px; font-weight:800; font-size:13px; color:var(--clay-text); cursor:pointer;">' + it.word + '</div>';
+    }
+
+    var allFilled = wb.slots.indexOf(null) === -1;
+    var footerBtn;
+    if (wb.checked) {
+      footerBtn = '<div id="wb-why" style="background:linear-gradient(145deg,#F0F8FF,#E3F2FD); border-radius:14px; padding:12px; font-size:12px; color:var(--clay-text); line-height:1.6; margin-bottom:10px; border-left:4px solid var(--clay-blue);"><b>เฉลย:</b> ' + p.why + '</div>' +
+        '<button class="btn btn-primary" onclick="App.wbNext()">' + (wb.puzzleIndex < this.wordBridgePuzzles.length - 1 ? 'ด่านถัดไป →' : 'ดูผลคะแนน 🏁') + '</button>';
+    } else {
+      footerBtn = '<button class="btn btn-primary" ' + (allFilled ? '' : 'disabled') + ' onclick="App.wbCheck()">ตรวจสะพาน 🔍</button>';
+    }
+
+    return '<div class="page-content" style="padding-bottom:20px;">' +
+      '<div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">' +
+        '<button onclick="App.navigate(\'dashboard\')" style="background:none; border:none; font-size:22px; color:var(--clay-text-light); font-weight:800; cursor:pointer;">&#x2715;</button>' +
+        '<div class="progress-bar-container" style="margin:0; flex:1;"><div class="progress-bar-fill" style="width:' + progressPct + '%; background:linear-gradient(90deg,#C084FC,#5BA4F5);"></div></div>' +
+        '<span style="font-size:13px; font-weight:700; color:var(--clay-text-light);">' + (wb.puzzleIndex + 1) + '/' + this.wordBridgePuzzles.length + '</span>' +
+      '</div>' +
+      // start tile
+      '<div style="background:linear-gradient(135deg,#4ECB71,#3DB87A); border-radius:16px; padding:14px; text-align:center; font-weight:800; font-size:15px; color:white; box-shadow:0 5px 0 rgba(53,170,87,0.3); margin-bottom:6px;">🟢 ' + p.start + '</div>' +
+      '<div style="text-align:center; color:var(--clay-purple); font-size:16px;">↓</div>' +
+      // slots
+      '<div style="display:flex; flex-direction:column; gap:4px; margin-bottom:6px;">' + slotsHtml + '</div>' +
+      '<div style="text-align:center; color:var(--clay-purple); font-size:16px;">↓</div>' +
+      // end tile
+      '<div style="background:linear-gradient(135deg,#FF8C42,#F57C00); border-radius:16px; padding:14px; text-align:center; font-weight:800; font-size:15px; color:white; box-shadow:0 5px 0 rgba(200,120,40,0.3); margin-bottom:16px;">🟠 ' + p.end + '</div>' +
+      // pool
+      '<div style="font-size:13px; font-weight:700; color:var(--clay-text-light); margin-bottom:8px;">แตะคำศัพท์มาเรียงเป็นสะพาน:</div>' +
+      '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">' + poolHtml + '</div>' +
+      footerBtn +
+    '</div>';
   },
 
   adminSaveQuizBuilder: function() {
