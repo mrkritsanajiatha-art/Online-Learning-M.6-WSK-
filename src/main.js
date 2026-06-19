@@ -57,8 +57,8 @@ var App = {
       readiness: 0, recommendation: { weakness: '-', module: 1 }
     },
     leaderboard: [],
-    quiz: { questions: [], currentIndex: 0, score: 0, moduleId: 1 },
-    flashcards: { cards: [], currentIndex: 0, moduleId: 1 },
+    quiz: { questions: [], currentIndex: 0, score: 0, moduleId: 1, submitted: false, awarded: 0, alreadyDone: false },
+    flashcards: { cards: [], currentIndex: 0, moduleId: 1, submitted: false, awarded: 0, alreadyDone: false },
     admin: { tables: [], currentTable: '', headers: [], data: [], editingRow: -1 },
     dataLoaded: false,
     bonusScore: { total: 0, history: [] },
@@ -180,6 +180,7 @@ var App = {
       this.state.quiz.moduleId = 'Daily';
       this.state.quiz.currentIndex = 0;
       this.state.quiz.score = 0;
+      this.state.quiz.submitted = false; this.state.quiz.awarded = 0; this.state.quiz.alreadyDone = false;
       google.script.run.withSuccessHandler(function(res) {
         if (res.success) self.state.quiz.questions = res.data;
         self.render();
@@ -194,6 +195,7 @@ var App = {
       this.state.quiz.quizType = qType;
       this.state.quiz.currentIndex = 0;
       this.state.quiz.score = 0;
+      this.state.quiz.submitted = false; this.state.quiz.awarded = 0; this.state.quiz.alreadyDone = false;
       google.script.run.withSuccessHandler(function(res) {
         if (res.success) self.state.quiz.questions = res.data;
         self.render();
@@ -206,6 +208,7 @@ var App = {
       var fmId = params || 1;
       this.state.flashcards.moduleId = fmId;
       this.state.flashcards.currentIndex = 0;
+      this.state.flashcards.submitted = false; this.state.flashcards.awarded = 0; this.state.flashcards.alreadyDone = false;
       google.script.run.withSuccessHandler(function(res) {
         if (res.success) self.state.flashcards.cards = res.data;
         self.render();
@@ -629,7 +632,11 @@ var App = {
         '<p style="font-size:14px; color:var(--duo-text-light); text-align:center;">' + msg + '</p>' +
         '<div class="card" style="width:100%; text-align:center; margin: 20px 0;">' +
           '<p style="font-size:18px; font-weight:800; color:var(--duo-text); margin:0 0 8px 0;">คะแนน: ' + qState.score + ' / ' + qState.questions.length + '</p>' +
-          '<div style="font-size:22px; font-weight:800; color:var(--bear-orange);">+' + (qState.score * 10) + ' XP</div>' +
+          (!qState.submitted
+            ? '<div style="font-size:15px; font-weight:800; color:var(--clay-text-light);">กำลังบันทึก... ⏳</div>'
+            : (qState.alreadyDone
+                ? '<div style="font-size:18px; font-weight:800; color:var(--clay-text-light);">+0 XP</div><div style="font-size:12px; color:var(--clay-purple-shadow); font-weight:700; margin-top:4px;">✓ เคยรับ XP จากชุดนี้แล้ว</div>'
+                : '<div style="font-size:22px; font-weight:800; color:var(--bear-orange);">+' + qState.awarded + ' XP</div>')) +
           extraNote +
         '</div>' +
         nextModBtn +
@@ -705,9 +712,13 @@ var App = {
       return '<div class="page-content" style="display:flex; flex-direction:column; justify-content:center; align-items:center;">' +
         '<div class="mascot-bounce" style="font-size:80px; margin-bottom:16px;">' + this.bear + '</div>' +
         '<h2 class="text-title" style="color:var(--duo-blue-shadow);">ท่องศัพท์ครบแล้ว!</h2>' +
-        '<p style="font-size:14px; color:var(--duo-text-light);">เก่งมาก! พี่หมีน้อยให้ XP เป็นรางวัล!</p>' +
+        '<p style="font-size:14px; color:var(--duo-text-light);">เก่งมาก! ทบทวนคำศัพท์ได้ทุกเมื่อเลยนะ!</p>' +
         '<div class="card" style="width:100%; text-align:center; margin: 20px 0;">' +
-          '<div style="font-size:22px; font-weight:800; color:var(--bear-orange);">+20 XP</div>' +
+          (!fState.submitted
+            ? '<div style="font-size:15px; font-weight:800; color:var(--clay-text-light);">กำลังบันทึก... ⏳</div>'
+            : (fState.alreadyDone
+                ? '<div style="font-size:18px; font-weight:800; color:var(--clay-text-light);">+0 XP</div><div style="font-size:12px; color:var(--clay-blue-shadow); font-weight:700; margin-top:4px;">✓ เคยรับ XP จากชุดคำศัพท์นี้แล้ว · ทบทวนได้ไม่จำกัด</div>'
+                : '<div style="font-size:22px; font-weight:800; color:var(--bear-orange);">+' + fState.awarded + ' XP</div>')) +
         '</div>' +
         '<button class="btn btn-primary" onclick="App.navigate(\'lessons\')">กลับหน้าบทเรียน</button>' +
       '</div>';
@@ -1270,25 +1281,43 @@ var App = {
   },
 
   nextQuizQuestion: function() {
+    var self = this;
     this.state.quiz.currentIndex++;
     if (this.state.quiz.currentIndex >= this.state.quiz.questions.length) {
-      var self = this; setTimeout(function() { self.celebrate(60); }, 200);
       var isDailyQuest = this.state.quiz.moduleId === 'Daily';
       var effectiveType = isDailyQuest ? 'Daily' : (this.state.quiz.quizType || 'Quiz');
       var effectiveRef = isDailyQuest ? null : Number(this.state.quiz.moduleId);
-      google.script.run.submitQuizScore(
-        this.state.user.UserID, effectiveType, effectiveRef,
-        this.state.quiz.score, this.state.quiz.questions.length, 0
-      );
+      var potentialXp = this.state.quiz.score * 10;
+      this.state.quiz.submitted = false;
+      google.script.run.withSuccessHandler(function(res) {
+        var dup = res && res.alreadyDone;
+        self.state.quiz.alreadyDone = !!dup;
+        self.state.quiz.awarded = dup ? 0 : potentialXp;
+        self.state.quiz.submitted = true;
+        if (!dup) self.celebrate(60);
+        self.render();
+      }).withFailureHandler(function() {
+        self.state.quiz.submitted = true; self.state.quiz.awarded = potentialXp; self.render();
+      }).submitQuizScore(this.state.user.UserID, effectiveType, effectiveRef, this.state.quiz.score, this.state.quiz.questions.length, 0);
     }
     this.render();
   },
 
   nextFlashcard: function() {
+    var self = this;
     this.state.flashcards.currentIndex++;
     if (this.state.flashcards.currentIndex >= this.state.flashcards.cards.length) {
-      var self = this; setTimeout(function() { self.celebrate(50); }, 200);
-      google.script.run.submitQuizScore(this.state.user.UserID, 'Flashcards', this.state.flashcards.moduleId, 2, 2, 0);
+      this.state.flashcards.submitted = false;
+      google.script.run.withSuccessHandler(function(res) {
+        var dup = res && res.alreadyDone;
+        self.state.flashcards.alreadyDone = !!dup;
+        self.state.flashcards.awarded = dup ? 0 : 20;
+        self.state.flashcards.submitted = true;
+        if (!dup) self.celebrate(50);
+        self.render();
+      }).withFailureHandler(function() {
+        self.state.flashcards.submitted = true; self.state.flashcards.awarded = 20; self.render();
+      }).submitQuizScore(this.state.user.UserID, 'Flashcards', Number(this.state.flashcards.moduleId), 2, 2, 0);
     }
     this.render();
   },

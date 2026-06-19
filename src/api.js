@@ -131,32 +131,48 @@ export async function getFlashcards(moduleId) {
   return { success: true, data: data?.map(f => ({ vocab: f.vocabulary, pronun: f.pronunciation, meaning: f.meaning, example: f.example })) || [] };
 }
 
+// Thailand calendar date (UTC+7) as YYYY-MM-DD — used so "once per day" follows local day
+function bangkokDate(dateLike) {
+  const t = (dateLike ? new Date(dateLike) : new Date()).getTime();
+  return new Date(t + 7 * 3600 * 1000).toISOString().split('T')[0];
+}
+
 export async function submitQuizScore(userId, quizType, referenceId, score, maxScore, timeSpent) {
-  // Prevent duplicate XP: Daily → once per day; module quizzes → once ever per type+module
+  const uid = String(userId).trim();
+
+  // ---- Anti-leak: award XP only on the first successful completion ----
+  // Bonus is admin-controlled (capped elsewhere) and never grants XP here.
+  if (quizType === 'Bonus') return { success: true, alreadyDone: false };
+
   if (quizType === 'Daily') {
-    const today = new Date().toISOString().split('T')[0];
-    const { data: existing } = await supabase.from('scores')
-      .select('id').eq('user_id', userId).eq('quiz_type', 'Daily')
-      .gte('created_at', today + 'T00:00:00.000Z').lte('created_at', today + 'T23:59:59.999Z');
-    if (existing && existing.length > 0) return { success: true, alreadyDone: true };
-  } else if (quizType !== 'Bonus' && quizType !== 'Flashcards') {
-    // Module quiz (PreTest / Activity / PostTest / Quiz) — check by type + module
-    let q = supabase.from('scores').select('id').eq('user_id', userId).eq('quiz_type', quizType);
+    // Daily Quest → once per (Thailand) day
+    const today = bangkokDate();
+    const { data } = await supabase.from('scores')
+      .select('created_at').eq('user_id', uid).eq('quiz_type', 'Daily')
+      .order('created_at', { ascending: false }).limit(1);
+    if (data && data[0] && bangkokDate(data[0].created_at) === today) {
+      return { success: true, alreadyDone: true };
+    }
+  } else {
+    // All other learning activities (PreTest / Activity / PostTest / Quiz / Flashcards)
+    // → once ever per (type + reference_id)
+    let q = supabase.from('scores').select('id').eq('user_id', uid).eq('quiz_type', quizType);
     if (referenceId !== null && referenceId !== undefined) q = q.eq('reference_id', referenceId);
+    else q = q.is('reference_id', null);
     const { data: existing } = await q;
     if (existing && existing.length > 0) return { success: true, alreadyDone: true };
   }
 
   await supabase.from('scores').insert([{
-    user_id: userId, quiz_type: quizType,
+    user_id: uid, quiz_type: quizType,
     reference_id: (referenceId !== null && referenceId !== undefined) ? referenceId : null,
     score, max_score: maxScore, time_spent: timeSpent || 0
   }]);
-  const { data: user } = await supabase.from('users').select('xp').eq('id', userId).single();
+  const { data: user } = await supabase.from('users').select('xp').eq('id', uid).single();
   if (user) {
-    await supabase.from('users').update({ xp: user.xp + (score * 10) }).eq('id', userId);
+    await supabase.from('users').update({ xp: user.xp + (score * 10) }).eq('id', uid);
   }
-  return { success: true };
+  return { success: true, alreadyDone: false };
 }
 
 export async function uploadProfileImage(userId, base64Str) {
