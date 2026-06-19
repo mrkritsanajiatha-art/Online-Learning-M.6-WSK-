@@ -400,3 +400,146 @@
     font-size: 12px;
     font-weight: 700;
   }
+
+  /* ============================================================
+     ENGAGEMENT / GAMIFICATION ANIMATIONS (ม.6)
+     ทฤษฎี: goal-gradient (progress shimmer), variable reward
+     (confetti/pop), juicy feedback (bounce/wiggle), endowed progress
+     ============================================================ */
+
+  /* ---- Page & card entrance: ลื่นไหล ดึงความสนใจ ---- */
+  @keyframes fadeSlideUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes popIn {
+    0%   { opacity: 0; transform: scale(0.85); }
+    60%  { opacity: 1; transform: scale(1.04); }
+    100% { transform: scale(1); }
+  }
+
+  /* เนื้อหาแต่ละหน้าค่อยๆ โผล่แบบ stagger */
+  .page-content > * { animation: fadeSlideUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .page-content > *:nth-child(1) { animation-delay: 0.02s; }
+  .page-content > *:nth-child(2) { animation-delay: 0.08s; }
+  .page-content > *:nth-child(3) { animation-delay: 0.14s; }
+  .page-content > *:nth-child(4) { animation-delay: 0.20s; }
+  .page-content > *:nth-child(5) { animation-delay: 0.26s; }
+  .page-content > *:nth-child(6) { animation-delay: 0.32s; }
+  .page-content > *:nth-child(7) { animation-delay: 0.38s; }
+  .page-content > *:nth-child(n+8) { animation-delay: 0.42s; }
+
+  /* ---- Stat cards: ลอยขึ้นลงเบาๆ (ดุ๊กดิ้ง) ---- */
+  @keyframes floaty {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-5px); }
+  }
+  .stat-card { animation: floaty 3.5s ease-in-out infinite; }
+  .stat-card:nth-child(2) { animation-delay: 0.5s; }
+  .stat-card:nth-child(3) { animation-delay: 1s; }
+  .stat-card > div:first-child { display: inline-block; animation: wiggle 4s ease-in-out infinite; }
+
+  /* ---- Wiggle สำหรับไอคอน/อิโมจิ ---- */
+  @keyframes wiggle {
+    0%, 88%, 100% { transform: rotate(0deg); }
+    91% { transform: rotate(-12deg); }
+    94% { transform: rotate(10deg); }
+    97% { transform: rotate(-6deg); }
+  }
+
+  /* ---- Action cards: เด้งดึ๋งตอนแตะ + เงาเรืองตอน hover ---- */
+  .action-card { transition: transform 0.18s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.18s; }
+  @media (hover: hover) {
+    .action-card:hover { transform: translateY(-4px) scale(1.02); }
+    .module-card:hover { transform: translateY(-4px) scale(1.02); }
+    .btn-primary:hover, .btn-secondary:hover { transform: translateY(-2px); }
+    .quiz-option:hover { transform: translateX(4px); }
+  }
+
+  /* ---- ปุ่มหลัก: แสงวิ่งผ่าน (reward shine) ---- */
+  .btn-primary { position: relative; overflow: hidden; }
+  .btn-primary::after {
+    content: '';
+    position: absolute;
+    top: 0; left: -120%;
+    width: 60%; height: 100%;
+    background: linear-gradient(120deg, transparent, rgba(255,255,255,0.45), transparent);
+    transform: skewX(-20deg);
+    animation: shine 3.2s ease-in-out infinite;
+  }
+  @keyframes shine {
+    0%, 60% { left: -120%; }
+    100% { left: 130%; }
+  }
+
+  /* ---- Progress bar: แถบแสงเลื่อน (goal-gradient) ---- */
+  .progress-bar-fill { position: relative; overflow: hidden; }
+  .progress-bar-fill::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent);
+    background-size: 200% 100%;
+    animation: progressShimmer 2s linear infinite;
+  }
+  @keyframes progressShimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* ---- คำตอบถูก: เด้งดีใจ + ผิด: สั่น ---- */
+  .quiz-option.correct { animation: popIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both; }
+  .quiz-option.incorrect { animation: shake 0.4s ease both; }
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    20% { transform: translateX(-7px); }
+    40% { transform: translateX(7px); }
+    60% { transform: translateX(-5px); }
+    80% { transform: translateX(5px); }
+  }
+
+  /* ---- Bottom nav: ไอคอนเด้งตอนเลือก ---- */
+  .nav-item.active .nav-icon-wrap { animation: popIn 0.4s cubic-bezier(0.34,1.56,0.64,1); }
+  .nav-item.active .nav-icon { animation: wiggle 3s ease-in-out infinite; }
+
+  /* ---- Stars/รางวัล: ส่องประกาย ---- */
+  @keyframes sparkle {
+    0%, 100% { transform: scale(1); filter: brightness(1); }
+    50% { transform: scale(1.15); filter: brightness(1.3); }
+  }
+
+  /* ============================================================
+     CONFETTI (variable reward feedback)
+     ============================================================ */
+  .confetti-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 9999;
+  }
+  .confetti-piece {
+    position: absolute;
+    top: -16px;
+    width: 10px;
+    height: 14px;
+    border-radius: 2px;
+    opacity: 0.95;
+    animation: confettiFall linear forwards;
+  }
+  @keyframes confettiFall {
+    0%   { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(110vh) rotate(720deg); opacity: 0.9; }
+  }
+
+  /* ============================================================
+     ACCESSIBILITY: ลดการเคลื่อนไหวสำหรับผู้ที่ตั้งค่าไว้
+     ============================================================ */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+    .page-content > * { opacity: 1 !important; transform: none !important; }
+  }

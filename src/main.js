@@ -285,6 +285,31 @@ var App = {
     else if (r === 'adminScanner') this.initQRScanner();
   },
 
+  // ===== CONFETTI (variable reward feedback) =====
+  celebrate: function(amount) {
+    // respect reduced motion
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var host = document.querySelector('.app-container') || document.body;
+    var layer = document.createElement('div');
+    layer.className = 'confetti-layer';
+    var colors = ['#FF8C42', '#C084FC', '#4ECB71', '#5BA4F5', '#FFD166', '#FF6B6B'];
+    var n = amount || 36;
+    for (var i = 0; i < n; i++) {
+      var piece = document.createElement('div');
+      piece.className = 'confetti-piece';
+      piece.style.left = Math.random() * 100 + '%';
+      piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+      piece.style.animationDuration = (1.4 + Math.random() * 1.2) + 's';
+      piece.style.animationDelay = (Math.random() * 0.3) + 's';
+      if (Math.random() > 0.5) piece.style.borderRadius = '50%';
+      piece.style.width = (7 + Math.random() * 7) + 'px';
+      piece.style.height = (9 + Math.random() * 8) + 'px';
+      layer.appendChild(piece);
+    }
+    host.appendChild(layer);
+    setTimeout(function() { if (layer.parentNode) layer.parentNode.removeChild(layer); }, 3200);
+  },
+
   /* ===== VIEWS ===== */
 
   viewLogin: function() {
@@ -1226,6 +1251,7 @@ var App = {
     var nextBtn = document.getElementById('quiz-next-btn');
     if (isCorrect) {
       qState.score++;
+      this.celebrate(18);
       btnElem.classList.add('correct');
       feedbackEl.innerHTML = '<div style="display:flex; align-items:center; gap:8px;"><span style="font-size:24px;">' + this.bear + '</span><div><h3 style="margin:0; color:var(--duo-green-shadow); font-size:16px;">ถูกต้อง!</h3><p style="margin:4px 0 0 0; font-size:13px; color:var(--duo-green-shadow);">' + q.explanation + '</p></div></div>';
       footerEl.style.backgroundColor = '#d7ffb8';
@@ -1246,6 +1272,7 @@ var App = {
   nextQuizQuestion: function() {
     this.state.quiz.currentIndex++;
     if (this.state.quiz.currentIndex >= this.state.quiz.questions.length) {
+      var self = this; setTimeout(function() { self.celebrate(60); }, 200);
       var isDailyQuest = this.state.quiz.moduleId === 'Daily';
       var effectiveType = isDailyQuest ? 'Daily' : (this.state.quiz.quizType || 'Quiz');
       var effectiveRef = isDailyQuest ? null : Number(this.state.quiz.moduleId);
@@ -1260,6 +1287,7 @@ var App = {
   nextFlashcard: function() {
     this.state.flashcards.currentIndex++;
     if (this.state.flashcards.currentIndex >= this.state.flashcards.cards.length) {
+      var self = this; setTimeout(function() { self.celebrate(50); }, 200);
       google.script.run.submitQuizScore(this.state.user.UserID, 'Flashcards', this.state.flashcards.moduleId, 2, 2, 0);
     }
     this.render();
@@ -1589,6 +1617,7 @@ var App = {
     } else {
       // finished — compute EXP and submit (one-time)
       wb.finished = true;
+      var self2 = this; setTimeout(function() { self2.celebrate(70); }, 200);
       var exp = Math.round((wb.correctTotal / wb.totalSlots) * 100);
       if (exp > 100) exp = 100;
       var self = this;
