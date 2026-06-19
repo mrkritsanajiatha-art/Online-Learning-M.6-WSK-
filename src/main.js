@@ -349,7 +349,7 @@ var App = {
     else if (r === 'guide') { html = this.viewGuide() + this.bottomNav('profile'); }
     else if (r === 'bonusQR') { html = this.viewBonusQR() + this.bottomNav('bonus'); }
     else if (r === 'wordBridge') { html = this.viewWordBridge() + this.bottomNav('home'); }
-    else if (r === 'community') { html = this.viewCommunity() + this.bottomNav('home'); }
+    else if (r === 'community') { html = this.viewCommunity() + this.bottomNav('community'); }
     else if (r === 'admin') { html = this.viewAdmin(); }
     else if (r === 'adminScanner') { html = this.viewAdminScanner(); }
     else if (r === 'adminDB') { html = this.viewAdminDB(); }
@@ -1574,19 +1574,21 @@ var App = {
   /* ===== BOTTOM NAV ===== */
 
   bottomNav: function(activeTab) {
+    // Icon-only navigation (Facebook style) — 5 tabs
     var tabs = [
-      { id:'home',    icon:'&#x1F3E0;', label:'หน้าหลัก', route:'dashboard' },
-      { id:'lessons', icon:'&#x1F4DA;', label:'บทเรียน',  route:'lessons' },
-      { id:'bonus',   icon:'&#x1F3AB;', label:'QR คะแนน', route:'bonusQR' },
-      { id:'profile', icon:'&#x1F43E;', label:'โปรไฟล์',  route:'profile' }
+      { id:'home',      icon:'&#x1F3E0;', label:'หน้าหลัก',  route:'dashboard' },
+      { id:'lessons',   icon:'&#x1F4DA;', label:'บทเรียน',   route:'lessons' },
+      { id:'community', icon:'&#x1F31F;', label:'ชุมชน',      route:'community' },
+      { id:'bonus',     icon:'&#x1F3AB;', label:'QR คะแนน',  route:'bonusQR' },
+      { id:'profile',   icon:'&#x1F43E;', label:'โปรไฟล์',   route:'profile' }
     ];
     var navHtml = '';
     for (var i = 0; i < tabs.length; i++) {
       var tab = tabs[i];
       var cls = activeTab === tab.id ? 'nav-item active' : 'nav-item';
-      navHtml += '<div class="' + cls + '" onclick="App.navigate(\'' + tab.route + '\')">' +
+      navHtml += '<div class="' + cls + '" title="' + tab.label + '" onclick="App.navigate(\'' + tab.route + '\')">' +
         '<div class="nav-icon-wrap"><div class="nav-icon">' + tab.icon + '</div></div>' +
-        '<div class="nav-label">' + tab.label + '</div>' +
+        '<div class="nav-dot"></div>' +
       '</div>';
     }
     return '<div class="bottom-nav">' + navHtml + '</div>';

@@ -236,28 +236,31 @@
     align-items: center;
     color: var(--clay-text-light);
     cursor: pointer;
-    font-size: 11px;
-    font-weight: 700;
-    width: 72px;
-    padding: 8px 0;
+    flex: 1;
+    padding: 6px 0;
     border-radius: 16px;
     transition: all 0.2s;
   }
   .nav-item:active { transform: scale(0.88); }
-  .nav-item.active { color: var(--bear-orange); }
   .nav-item.active .nav-icon-wrap {
     background: linear-gradient(145deg, #FFF3E0, #FFE0CC);
     box-shadow: 0 4px 0 rgba(200,140,80,0.2), 0 6px 12px rgba(200,140,80,0.12);
+    transform: translateY(-2px);
   }
   .nav-icon-wrap {
-    width: 44px; height: 44px;
-    border-radius: 14px;
+    width: 46px; height: 46px;
+    border-radius: 15px;
     display: flex; align-items: center; justify-content: center;
-    margin-bottom: 2px;
     transition: all 0.2s;
   }
-  .nav-icon { font-size: 22px; }
-  .nav-label { font-size: 10px; }
+  /* icon-only: dim inactive icons, pop the active one */
+  .nav-icon { font-size: 26px; filter: grayscale(0.35); opacity: 0.6; transition: all 0.2s; }
+  .nav-item.active .nav-icon { filter: none; opacity: 1; }
+  .nav-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    margin-top: 4px; background: transparent; transition: all 0.2s;
+  }
+  .nav-item.active .nav-dot { background: var(--bear-orange); }
 
   /* ===== TYPOGRAPHY ===== */
   .text-center { text-align: center; }
