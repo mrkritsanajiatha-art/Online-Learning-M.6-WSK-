@@ -140,6 +140,11 @@ var App = {
     }
 
     if (route === 'dashboard') {
+      // Always refresh bonus score for the home page
+      google.script.run.withSuccessHandler(function(res) {
+        if (res.success) self.state.bonusScore = { total: res.total, history: res.history };
+        if (self.state.currentRoute === 'dashboard') self.render();
+      }).withFailureHandler(function() {}).getBonusScore(this.state.user.UserID);
       if (!this.state.dataLoaded) {
         // First load: fetch everything in one call
         google.script.run.withSuccessHandler(function(res) {
@@ -357,6 +362,15 @@ var App = {
           '<div style="font-weight:700; font-size:14px; color:var(--clay-green-shadow);">' + d.level + '</div>' +
           '<div style="font-size:11px; color:var(--clay-text-light); font-weight:600;">Rank</div>' +
         '</div>' +
+      '</div>' +
+      // Bonus score (คะแนนพิเศษ)
+      '<div class="card action-card" style="background:linear-gradient(145deg,#F8F3FF,#EEE0FF); box-shadow:0 6px 0 rgba(160,80,200,0.2),0 10px 20px rgba(160,80,200,0.10); margin-bottom:16px; cursor:pointer; padding:16px;" onclick="App.navigate(\'bonusQR\')">' +
+        '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">' +
+          '<div style="font-weight:800; font-size:15px; color:var(--clay-purple-shadow);">⭐ คะแนนพิเศษ</div>' +
+          '<div style="font-weight:800; font-size:18px; color:var(--clay-purple-shadow);">' + this.state.bonusScore.total + '<span style="font-size:13px; color:var(--clay-text-light);">/100</span></div>' +
+        '</div>' +
+        '<div class="progress-bar-container" style="margin:0; height:12px;"><div class="progress-bar-fill" style="width:' + this.state.bonusScore.total + '%; height:100%; border-radius:10px; background:linear-gradient(90deg,#4ECB71,#C084FC);"></div></div>' +
+        '<div style="font-size:11px; color:var(--clay-text-light); margin-top:6px; text-align:right;">แตะเพื่อดู QR รับคะแนนจากคุณครู 🎫</div>' +
       '</div>' +
       // Quick Actions
       '<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">' +
