@@ -57,6 +57,9 @@ var App = {
       readiness: 0, recommendation: { weakness: '-', module: 1 }
     },
     leaderboard: [],
+    leaderboardFilter: '',
+    leaderboardClasses: [],
+    completedModules: [],
     quiz: { questions: [], currentIndex: 0, score: 0, moduleId: 1, submitted: false, awarded: 0, alreadyDone: false },
     flashcards: { cards: [], currentIndex: 0, moduleId: 1, submitted: false, awarded: 0, alreadyDone: false },
     admin: { tables: [], currentTable: '', headers: [], data: [], editingRow: -1 },
@@ -163,6 +166,11 @@ var App = {
         }).withFailureHandler(function(e) { self.render(); }).getDashboardData(self.state.user.UserID);
       }
     } else if (route === 'lessons') {
+      // Refresh unlock progress every time
+      google.script.run.withSuccessHandler(function(res) {
+        if (res.success) self.state.completedModules = res.data;
+        if (self.state.currentRoute === 'lessons') self.render();
+      }).withFailureHandler(function() {}).getCompletedModules(this.state.user.UserID);
       if (!this.state.modules) {
         google.script.run.withSuccessHandler(function(res) {
           self.state.modules = res;
@@ -173,9 +181,9 @@ var App = {
       }
     } else if (route === 'leaderboard') {
       google.script.run.withSuccessHandler(function(res) {
-        if (res.success) self.state.leaderboard = res.data;
+        if (res.success) { self.state.leaderboard = res.data; self.state.leaderboardClasses = res.classes || []; }
         self.render();
-      }).withFailureHandler(function(e) { self.render(); }).getLeaderboard();
+      }).withFailureHandler(function(e) { self.render(); }).getLeaderboard(self.state.leaderboardFilter || null);
     } else if (route === 'dailyQuest') {
       this.state.quiz.moduleId = 'Daily';
       this.state.quiz.currentIndex = 0;
@@ -486,19 +494,41 @@ var App = {
     var modulesHtml = '';
 
     if (mods && mods.length > 0) {
+      var completed = this.state.completedModules || [];
       for (var i = 0; i < mods.length; i++) {
         var m = mods[i];
         var idx = i % 4;
-        modulesHtml += '<div class="card module-card" style="background:' + bgColors[idx] + '; box-shadow:0 6px 0 ' + shadowColors[idx].replace('var(--clay-green-shadow)','rgba(53,170,87,0.3)').replace('var(--clay-blue-shadow)','rgba(61,135,224,0.3)').replace('var(--clay-red-shadow)','rgba(224,72,72,0.3)').replace('var(--bear-brown)','rgba(124,79,42,0.3)') + ',0 10px 20px rgba(100,60,160,0.10); cursor:pointer;" onclick="App.showModuleDetail(' + m.id + ', ' + i + ')">' +
-          '<div style="display:flex; align-items:center; gap:16px;">' +
-            '<div style="width:56px; height:56px; border-radius:18px; background:white; box-shadow:0 4px 0 rgba(0,0,0,0.08); display:flex; align-items:center; justify-content:center; font-size:28px; flex-shrink:0;">' + icons[idx] + '</div>' +
-            '<div style="flex:1;">' +
-              '<div style="font-weight:800; font-size:16px; color:var(--clay-text);">Unit ' + m.id + ': ' + m.title + '</div>' +
-              '<div style="margin-top:4px; font-size:12px; color:var(--clay-text-light);">' + (m.desc || '') + '</div>' +
+        // Progressive unlock: first unit open; others unlock when previous unit's Post-Test is done
+        var prevDone = i === 0 || completed.indexOf(mods[i - 1].id) >= 0;
+        var isDone = completed.indexOf(m.id) >= 0;
+        var unitNo = i + 1; // display starts at Unit 1, not the DB id
+        var statusIcon = isDone
+          ? '<div style="width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,#4ECB71,#35AA57); box-shadow:0 3px 0 rgba(53,170,87,0.3); display:flex; align-items:center; justify-content:center; font-size:16px; color:white;">✓</div>'
+          : '<div style="width:32px; height:32px; border-radius:50%; background:white; box-shadow:0 3px 0 rgba(0,0,0,0.08); display:flex; align-items:center; justify-content:center; font-size:14px; color:var(--clay-text-light);">›</div>';
+
+        if (!prevDone) {
+          // LOCKED unit
+          modulesHtml += '<div class="card module-card" style="background:linear-gradient(145deg,#EFEAF7,#E2DCEF); box-shadow:0 6px 0 rgba(150,130,180,0.2),0 10px 20px rgba(100,60,160,0.06); cursor:not-allowed; opacity:0.75;" onclick="App.lockedUnitHint(' + unitNo + ')">' +
+            '<div style="display:flex; align-items:center; gap:16px;">' +
+              '<div style="width:56px; height:56px; border-radius:18px; background:rgba(255,255,255,0.7); display:flex; align-items:center; justify-content:center; font-size:26px; flex-shrink:0;">🔒</div>' +
+              '<div style="flex:1;">' +
+                '<div style="font-weight:800; font-size:16px; color:var(--clay-text-light);">Unit ' + unitNo + ': ' + m.title + '</div>' +
+                '<div style="margin-top:4px; font-size:12px; color:var(--clay-text-light);">เรียน Unit ' + (unitNo - 1) + ' ให้จบก่อน (ทำ Post-Test) เพื่อปลดล็อก 🔑</div>' +
+              '</div>' +
             '</div>' +
-            '<div style="width:32px; height:32px; border-radius:50%; background:white; box-shadow:0 3px 0 rgba(0,0,0,0.08); display:flex; align-items:center; justify-content:center; font-size:14px; color:var(--clay-text-light);">›</div>' +
-          '</div>' +
-        '</div>';
+          '</div>';
+        } else {
+          modulesHtml += '<div class="card module-card" style="background:' + bgColors[idx] + '; box-shadow:0 6px 0 ' + shadowColors[idx].replace('var(--clay-green-shadow)','rgba(53,170,87,0.3)').replace('var(--clay-blue-shadow)','rgba(61,135,224,0.3)').replace('var(--clay-red-shadow)','rgba(224,72,72,0.3)').replace('var(--bear-brown)','rgba(124,79,42,0.3)') + ',0 10px 20px rgba(100,60,160,0.10); cursor:pointer;" onclick="App.showModuleDetail(' + m.id + ', ' + i + ')">' +
+            '<div style="display:flex; align-items:center; gap:16px;">' +
+              '<div style="width:56px; height:56px; border-radius:18px; background:white; box-shadow:0 4px 0 rgba(0,0,0,0.08); display:flex; align-items:center; justify-content:center; font-size:28px; flex-shrink:0;">' + icons[idx] + '</div>' +
+              '<div style="flex:1;">' +
+                '<div style="font-weight:800; font-size:16px; color:var(--clay-text);">Unit ' + unitNo + ': ' + m.title + (isDone ? ' <span style="font-size:11px; color:var(--clay-green-shadow);">เรียนจบแล้ว</span>' : '') + '</div>' +
+                '<div style="margin-top:4px; font-size:12px; color:var(--clay-text-light);">' + (m.desc || '') + '</div>' +
+              '</div>' +
+              statusIcon +
+            '</div>' +
+          '</div>';
+        }
       }
     } else {
       modulesHtml = '<div class="loader"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลดบทเรียน...</div></div>';
@@ -521,6 +551,10 @@ var App = {
     this.state.currentModuleIdx = idx || 0;
     this.state.currentRoute = 'moduleDetail';
     this.render();
+  },
+
+  lockedUnitHint: function(unitNo) {
+    alert('🔒 Unit ' + unitNo + ' ยังล็อกอยู่\nเรียน Unit ' + (unitNo - 1) + ' ให้จบก่อน (ทำ Post-Test ให้เสร็จ) แล้วจะปลดล็อกอัตโนมัติ');
   },
 
   viewModuleDetail: function() {
@@ -547,7 +581,7 @@ var App = {
       '<button onclick="App.navigate(\'lessons\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
       '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:24px; padding:20px; margin-bottom:16px; text-align:center; box-shadow:0 8px 0 rgba(160,80,200,0.2),0 14px 28px rgba(160,80,200,0.12);">' +
         '<div style="font-size:56px; margin-bottom:8px;">' + this.bear + '</div>' +
-        '<h2 style="margin:0 0 6px 0; color:white; font-size:20px; font-weight:800;">Unit ' + mid + ': ' + title + '</h2>' +
+        '<h2 style="margin:0 0 6px 0; color:white; font-size:20px; font-weight:800;">Unit ' + (idx + 1) + ': ' + title + '</h2>' +
         '<p style="margin:0; font-size:13px; color:rgba(255,255,255,0.85);">' + desc + '</p>' +
       '</div>' +
       // Learning path steps
@@ -752,37 +786,53 @@ var App = {
     '</div>';
   },
 
+  setLeaderboardFilter: function(val) {
+    this.state.leaderboardFilter = val || '';
+    this.navigate('leaderboard');
+  },
+
   viewLeaderboard: function() {
     var lb = this.state.leaderboard;
+    var myId = this.state.user ? this.state.user.UserID : null;
     var listHtml = '';
     for (var i = 0; i < lb.length; i++) {
       var s = lb[i];
       var medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '<span style="font-weight:800; font-size:15px; color:var(--clay-text-light);">' + (i + 1) + '</span>';
       var av = s.profileImage ? '<img src="' + s.profileImage + '" style="width:44px;height:44px;border-radius:50%;object-fit:cover;box-shadow:0 3px 0 rgba(0,0,0,0.1);">' : '<div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:22px;box-shadow:0 3px 0 rgba(150,100,200,0.2);">👤</div>';
-      var isMe = this.state.user && s.name.indexOf(this.state.user.FirstName) >= 0;
+      var isMe = myId && s.id === myId;
       var itemStyle = isMe
-        ? 'background:linear-gradient(145deg,#FFF3E0,#FFE8CC); border-radius:20px; box-shadow:0 5px 0 rgba(200,140,80,0.2),0 8px 16px rgba(200,140,80,0.10); padding:12px 14px; margin-bottom:8px;'
+        ? 'background:linear-gradient(145deg,#FFF3E0,#FFE8CC); border-radius:20px; box-shadow:0 5px 0 rgba(200,140,80,0.2),0 8px 16px rgba(200,140,80,0.10); padding:12px 14px; margin-bottom:8px; border:2px solid var(--bear-orange);'
         : 'background:var(--clay-white); border-radius:18px; box-shadow:0 4px 0 rgba(150,100,200,0.12),0 6px 12px rgba(150,100,200,0.08); padding:10px 14px; margin-bottom:8px;';
       listHtml += '<div style="display:flex; justify-content:space-between; align-items:center; ' + itemStyle + '">' +
-        '<div style="display:flex; align-items:center; gap:12px;">' +
-          '<div style="width:28px; text-align:center; font-size:20px;">' + medal + '</div>' + av +
-          '<div><div style="font-weight:700; font-size:14px; color:var(--clay-text);">' + s.name + '</div>' +
-            '<div style="font-size:12px; color:var(--clay-text-light);">' + s.className + '</div></div>' +
+        '<div style="display:flex; align-items:center; gap:12px; min-width:0;">' +
+          '<div style="width:28px; text-align:center; font-size:20px; flex-shrink:0;">' + medal + '</div>' + av +
+          '<div style="min-width:0;"><div style="font-weight:700; font-size:14px; color:var(--clay-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + s.name + (isMe ? ' <span style="color:var(--bear-orange); font-size:11px;">(คุณ)</span>' : '') + '</div>' +
+            '<div style="font-size:12px; color:var(--clay-text-light);">' + (s.className || '-') + '</div></div>' +
         '</div>' +
-        '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:12px; padding:6px 12px; font-weight:800; color:white; font-size:13px; box-shadow:0 3px 0 rgba(160,80,200,0.2);">' + s.xp + ' XP</div>' +
+        '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:12px; padding:6px 12px; font-weight:800; color:white; font-size:13px; box-shadow:0 3px 0 rgba(160,80,200,0.2); flex-shrink:0;">' + s.xp + ' XP</div>' +
       '</div>';
     }
-    if (!listHtml) listHtml = '<p class="text-center" style="font-weight:bold; color:var(--clay-text-light);">ยังไม่มีข้อมูล</p>';
+    if (!listHtml) listHtml = '<p class="text-center" style="font-weight:bold; color:var(--clay-text-light); padding:20px 0;">ยังไม่มีข้อมูล</p>';
+
+    // Filter dropdown
+    var cur = this.state.leaderboardFilter || '';
+    var optionsHtml = '<option value=""' + (cur === '' ? ' selected' : '') + '>🌐 ทั้งระดับ (ทุกห้อง)</option>';
+    var classes = this.state.leaderboardClasses || [];
+    for (var c = 0; c < classes.length; c++) {
+      optionsHtml += '<option value="' + classes[c] + '"' + (cur === classes[c] ? ' selected' : '') + '>🏫 ' + classes[c] + '</option>';
+    }
 
     return '<div class="page-content" style="padding:0;">' +
       '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:0 0 28px 28px; padding:20px; box-shadow:0 8px 0 rgba(160,80,200,0.2),0 14px 28px rgba(160,80,200,0.15); margin-bottom:16px;">' +
-        '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">' +
           '<div style="display:flex; align-items:center; gap:10px;">' +
             '<div style="font-size:32px; filter:drop-shadow(0 4px 0 rgba(0,0,0,0.15));">' + this.bear + '</div>' +
-            '<div style="font-size:20px; font-weight:800; color:white;">🏆 Leaderboard</div>' +
+            '<div><div style="font-size:20px; font-weight:800; color:white;">🏆 Leaderboard</div>' +
+            '<div style="font-size:12px; color:rgba(255,255,255,0.85);">' + lb.length + ' คน' + (cur ? ' · ' + cur : ' · ทั้งระดับ') + '</div></div>' +
           '</div>' +
           '<button onclick="App.navigate(\'dashboard\')" style="background:rgba(255,255,255,0.25); border:none; width:36px; height:36px; border-radius:50%; font-size:18px; cursor:pointer; color:white; display:flex; align-items:center; justify-content:center;">✕</button>' +
         '</div>' +
+        '<select onchange="App.setLeaderboardFilter(this.value)" style="width:100%; padding:12px 16px; border:none; border-radius:16px; font-family:var(--font-main); font-weight:700; font-size:14px; color:var(--clay-text); background:rgba(255,255,255,0.95); box-shadow:inset 0 2px 6px rgba(0,0,0,0.08); -webkit-appearance:none; appearance:none; cursor:pointer;">' + optionsHtml + '</select>' +
       '</div>' +
       '<div style="padding:0 16px;">' + listHtml + '</div>' +
     '</div>';

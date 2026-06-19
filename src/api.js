@@ -64,9 +64,19 @@ export async function getModules() {
   return data?.map(m => ({ id: m.id, title: m.title, desc: m.description })) || [];
 }
 
-export async function getLeaderboard() {
-  const { data } = await supabase.from('users').select('first_name, last_name, class_name, xp, profile_image').order('xp', { ascending: false }).limit(10);
-  return { success: true, data: data?.map(u => ({ name: `${u.first_name} ${u.last_name}`, className: u.class_name, xp: u.xp, profileImage: u.profile_image })) || [] };
+export async function getLeaderboard(className) {
+  // All students, ranked by XP. Optional class filter. Admins excluded.
+  const { data } = await supabase.from('users')
+    .select('id, first_name, last_name, class_name, xp, profile_image, role')
+    .order('xp', { ascending: false });
+  const students = (data || []).filter(u => (u.role || 'Student') !== 'Admin');
+  const classes = [...new Set(students.map(u => u.class_name).filter(Boolean))].sort();
+  const filtered = className ? students.filter(u => u.class_name === className) : students;
+  return {
+    success: true,
+    classes,
+    data: filtered.map(u => ({ id: u.id, name: `${u.first_name} ${u.last_name}`, className: u.class_name, xp: u.xp, profileImage: u.profile_image }))
+  };
 }
 
 export async function getDailyQuest() {
@@ -124,6 +134,16 @@ export async function getQuizQuestions(moduleId, quizType) {
       pattern: q.pattern || null
     })) || []
   };
+}
+
+export async function getCompletedModules(userId) {
+  // A unit is "completed" once its Post-Test has been finished (recorded in scores)
+  const { data } = await supabase.from('scores')
+    .select('reference_id')
+    .eq('user_id', String(userId).trim())
+    .eq('quiz_type', 'PostTest');
+  const ids = [...new Set((data || []).map(r => r.reference_id).filter(v => v != null))];
+  return { success: true, data: ids };
 }
 
 export async function getFlashcards(moduleId) {
