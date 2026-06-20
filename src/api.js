@@ -142,6 +142,65 @@ export async function getQuizQuestions(moduleId, quizType) {
   };
 }
 
+// Monday (Thailand) of the current week as YYYY-MM-DD
+function bangkokMonday() {
+  const now = new Date(Date.now() + 7 * 3600 * 1000);
+  const day = now.getUTCDay();           // 0=Sun..6=Sat
+  const diff = (day === 0 ? 6 : day - 1); // days since Monday
+  now.setUTCDate(now.getUTCDate() - diff);
+  return now.toISOString().split('T')[0];
+}
+
+function weekProgress(rows, goalType, weekStart) {
+  const inWeek = (rows || []).filter(r => bangkokDate(r.created_at) >= weekStart);
+  if (goalType === 'lessons') {
+    return new Set(inWeek.filter(r => r.quiz_type === 'PostTest').map(r => r.reference_id)).size;
+  }
+  if (goalType === 'vocab') {
+    return inWeek.filter(r => r.quiz_type === 'Flashcards').length;
+  }
+  // xp
+  let xp = 0;
+  inWeek.forEach(r => {
+    if (r.quiz_type === 'Bonus') return;
+    xp += (r.quiz_type === 'WordBridge') ? (r.score || 0) : (r.score || 0) * 10;
+  });
+  return xp;
+}
+
+export async function getWeeklyGoal(userId) {
+  const uid = String(userId).trim();
+  const weekStart = bangkokMonday();
+  const { data: goals } = await supabase.from('weekly_goals')
+    .select('*').eq('user_id', uid).eq('week_start', weekStart).order('created_at', { ascending: false }).limit(1);
+  const goal = goals && goals[0] ? goals[0] : null;
+  if (!goal) return { success: true, weekStart, goal: null };
+
+  const { data: rows } = await supabase.from('scores').select('quiz_type, reference_id, score, created_at').eq('user_id', uid);
+  const progress = weekProgress(rows, goal.goal_type, weekStart);
+  const completed = progress >= goal.target;
+  if (completed !== goal.completed || progress !== goal.progress) {
+    await supabase.from('weekly_goals').update({ progress, completed }).eq('id', goal.id);
+  }
+  return { success: true, weekStart, goal: { id: goal.id, goalType: goal.goal_type, target: goal.target, progress, completed, justCompleted: completed && !goal.completed } };
+}
+
+export async function setWeeklyGoal(userId, goalType, target) {
+  const uid = String(userId).trim();
+  const weekStart = bangkokMonday();
+  const t = Math.max(1, parseInt(target, 10) || 0);
+  if (['lessons', 'xp', 'vocab'].indexOf(goalType) < 0) return { success: false, message: 'ประเภทเป้าหมายไม่ถูกต้อง' };
+  // one active goal per week — replace existing
+  await supabase.from('weekly_goals').delete().eq('user_id', uid).eq('week_start', weekStart);
+  const { data: rows } = await supabase.from('scores').select('quiz_type, reference_id, score, created_at').eq('user_id', uid);
+  const progress = weekProgress(rows, goalType, weekStart);
+  const { error } = await supabase.from('weekly_goals').insert([{
+    user_id: uid, week_start: weekStart, goal_type: goalType, target: t, progress, completed: progress >= t
+  }]);
+  if (error) return { success: false, message: error.message };
+  return { success: true };
+}
+
 export async function getCommunityData() {
   // Derived entirely from existing data — no extra tables needed.
   const { data: users } = await supabase.from('users')

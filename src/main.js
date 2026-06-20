@@ -61,6 +61,8 @@ var App = {
     leaderboardClasses: [],
     completedModules: [],
     streakInfo: null,
+    weeklyGoal: { loaded: false, goal: null },
+    wgPick: { type: 'lessons', target: 3 },
     community: { titles: [], feed: [], loaded: false },
     cropper: null,
     cropperOpen: false,
@@ -210,6 +212,14 @@ var App = {
         if (res.success) self.state.bonusScore = { total: res.total, history: res.history };
         if (self.state.currentRoute === 'dashboard') self.render();
       }).withFailureHandler(function() {}).getBonusScore(this.state.user.UserID);
+      // Weekly goal
+      google.script.run.withSuccessHandler(function(res) {
+        if (res && res.success) {
+          self.state.weeklyGoal = { loaded: true, goal: res.goal };
+          if (res.goal && res.goal.justCompleted) { self.celebrate(50); self.toast('🎉 ทำเป้าหมายสัปดาห์สำเร็จ! รับ Badge'); }
+        }
+        if (self.state.currentRoute === 'dashboard') self.render();
+      }).withFailureHandler(function() {}).getWeeklyGoal(this.state.user.UserID);
       if (!this.state.dataLoaded) {
         // First load: fetch everything in one call
         google.script.run.withSuccessHandler(function(res) {
@@ -297,6 +307,10 @@ var App = {
         if (res.success) self.state.bonusScore = { total: res.total, history: res.history };
         self.render();
       }).withFailureHandler(function() { self.render(); }).getBonusScore(self.state.user.UserID);
+    } else if (route === 'weeklyGoal') {
+      var ex = this.state.weeklyGoal.goal;
+      this.state.wgGoalEdit = ex ? { type: ex.goalType, target: ex.target } : Object.assign({}, this.state.wgPick);
+      this.render();
     } else if (route === 'community') {
       this.state.community.loaded = false;
       this.render();
@@ -350,6 +364,7 @@ var App = {
     else if (r === 'bonusQR') { html = this.viewBonusQR() + this.bottomNav('bonus'); }
     else if (r === 'wordBridge') { html = this.viewWordBridge() + this.bottomNav('home'); }
     else if (r === 'community') { html = this.viewCommunity() + this.bottomNav('community'); }
+    else if (r === 'weeklyGoal') { html = this.viewWeeklyGoal() + this.bottomNav('home'); }
     else if (r === 'admin') { html = this.viewAdmin(); }
     else if (r === 'adminScanner') { html = this.viewAdminScanner(); }
     else if (r === 'adminDB') { html = this.viewAdminDB(); }
@@ -481,6 +496,8 @@ var App = {
         '<div class="progress-bar-container" style="margin:0; height:12px;"><div class="progress-bar-fill" style="width:' + this.state.bonusScore.total + '%; height:100%; border-radius:10px; background:linear-gradient(90deg,#4ECB71,#C084FC);"></div></div>' +
         '<div style="font-size:11px; color:var(--clay-text-light); margin-top:6px; text-align:right;">แตะเพื่อดู QR รับคะแนนจากคุณครู 🎫</div>' +
       '</div>' +
+      // Weekly goal
+      this.dashWeeklyGoalCard() +
       // Quick Actions
       '<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">' +
         '<div class="card action-card" style="background:linear-gradient(145deg,#FFF3E0,#FFE8CC); box-shadow:0 6px 0 rgba(200,140,80,0.2),0 10px 20px rgba(200,140,80,0.10); text-align:center; padding:20px 12px;" onclick="App.navigate(\'lessons\')">' +
@@ -539,6 +556,90 @@ var App = {
         '</div>' +
       '</div>' +
     '</div>';
+  },
+
+  goalMeta: { lessons: { emoji:'📚', label:'เรียนบทเรียน', unit:'บท' }, xp: { emoji:'⚡', label:'สะสม XP', unit:'XP' }, vocab: { emoji:'🔤', label:'ท่องคำศัพท์', unit:'ครั้ง' } },
+
+  dashWeeklyGoalCard: function() {
+    var wg = this.state.weeklyGoal;
+    if (!wg.loaded) return '';
+    if (!wg.goal) {
+      return '<div class="card action-card" style="background:linear-gradient(145deg,#FFF9D0,#FFE9A0); box-shadow:0 6px 0 rgba(180,150,40,0.2),0 10px 20px rgba(180,150,40,0.10); margin-bottom:16px; cursor:pointer;" onclick="App.navigate(\'weeklyGoal\')">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<div style="font-size:38px;">🎯</div>' +
+          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:#8a6d00;">ตั้งเป้าหมายสัปดาห์นี้</div>' +
+          '<div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">ตั้งเป้าแล้วทำสำเร็จรับ Badge พิเศษ! 🏅</div></div>' +
+          '<div style="width:36px; height:36px; border-radius:50%; background:white; box-shadow:0 4px 0 rgba(180,150,40,0.2); display:flex; align-items:center; justify-content:center; font-size:16px; color:#8a6d00;">＋</div>' +
+        '</div>' +
+      '</div>';
+    }
+    var g = wg.goal, m = this.goalMeta[g.goalType] || this.goalMeta.lessons;
+    var pct = Math.min(100, Math.round((g.progress / g.target) * 100));
+    return '<div class="card action-card" style="background:linear-gradient(145deg,#FFF9D0,#FFE9A0); box-shadow:0 6px 0 rgba(180,150,40,0.2),0 10px 20px rgba(180,150,40,0.10); margin-bottom:16px; cursor:pointer;" onclick="App.navigate(\'weeklyGoal\')">' +
+      '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">' +
+        '<div style="font-weight:800; font-size:14px; color:#8a6d00;">🎯 เป้าหมายสัปดาห์: ' + m.emoji + ' ' + m.label + '</div>' +
+        '<div style="font-weight:800; font-size:13px; color:#8a6d00;">' + g.progress + '/' + g.target + ' ' + m.unit + '</div>' +
+      '</div>' +
+      '<div class="progress-bar-container" style="margin:0; height:12px;"><div class="progress-bar-fill" style="width:' + pct + '%; height:100%; border-radius:10px; background:linear-gradient(90deg,#FFD166,#FF8C42);"></div></div>' +
+      (g.completed
+        ? '<div style="font-size:12px; font-weight:800; color:var(--clay-green-shadow); margin-top:6px;">🏅 สำเร็จแล้ว! เก่งมาก</div>'
+        : '<div style="font-size:11px; color:var(--clay-text-light); margin-top:6px; text-align:right;">อีก ' + (g.target - g.progress) + ' ' + m.unit + ' ก็ถึงเป้า สู้ๆ! 💪</div>') +
+    '</div>';
+  },
+
+  viewWeeklyGoal: function() {
+    var pick = this.state.wgGoalEdit || this.state.wgPick;
+    var self = this;
+    var types = ['lessons','xp','vocab'];
+    var presets = { lessons:[2,3,5], xp:[300,500,1000], vocab:[5,10,20] };
+    var typeCards = types.map(function(t){
+      var m = self.goalMeta[t];
+      var sel = pick.type === t;
+      return '<div onclick="App.wgSetType(\'' + t + '\')" style="flex:1; text-align:center; padding:14px 6px; border-radius:16px; cursor:pointer; ' +
+        (sel ? 'background:linear-gradient(135deg,#FFD166,#FF8C42); color:white; box-shadow:0 4px 0 rgba(200,140,40,0.3);' : 'background:var(--clay-white); color:var(--clay-text); box-shadow:0 4px 0 rgba(150,100,200,0.12);') + '">' +
+        '<div style="font-size:26px;">' + m.emoji + '</div>' +
+        '<div style="font-size:12px; font-weight:800; margin-top:4px;">' + m.label + '</div>' +
+      '</div>';
+    }).join('');
+    var pr = presets[pick.type] || [];
+    var presetBtns = pr.map(function(v){
+      var sel = pick.target === v;
+      return '<div onclick="App.wgSetTarget(' + v + ')" style="flex:1; text-align:center; padding:12px 0; border-radius:14px; cursor:pointer; font-weight:800; font-size:16px; ' +
+        (sel ? 'background:linear-gradient(135deg,#FF8C42,#C084FC); color:white;' : 'background:var(--clay-bg); color:var(--clay-text);') + '">' + v + '</div>';
+    }).join('');
+    var m = this.goalMeta[pick.type];
+
+    return '<div class="page-content">' +
+      '<button onclick="App.navigate(\'dashboard\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<h2 class="text-title" style="color:var(--bear-brown); margin-top:0;">🎯 เป้าหมายรายสัปดาห์</h2>' +
+      '<p style="font-size:13px; color:var(--clay-text-light); margin-top:0;">ตั้งเป้าของสัปดาห์นี้ ระบบจะนับความคืบหน้าให้อัตโนมัติ ทำสำเร็จรับ Badge! 🏅</p>' +
+      '<div class="card">' +
+        '<div style="font-weight:800; font-size:14px; color:var(--clay-text); margin-bottom:10px;">1. เลือกประเภท</div>' +
+        '<div style="display:flex; gap:10px;">' + typeCards + '</div>' +
+      '</div>' +
+      '<div class="card">' +
+        '<div style="font-weight:800; font-size:14px; color:var(--clay-text); margin-bottom:10px;">2. ตั้งจำนวนเป้าหมาย (' + m.label + ')</div>' +
+        '<div style="display:flex; gap:8px; margin-bottom:12px;">' + presetBtns + '</div>' +
+        '<input id="wg-target" type="number" min="1" class="input-field" style="margin-bottom:0; text-align:center; font-size:20px; font-weight:800;" value="' + pick.target + '" oninput="App.wgSetTarget(parseInt(this.value)||1, true)">' +
+        '<div style="text-align:center; font-size:12px; color:var(--clay-text-light); margin-top:8px;">เป้าหมาย: <b>' + pick.target + ' ' + m.unit + '</b> ภายในสัปดาห์นี้</div>' +
+      '</div>' +
+      '<button class="btn btn-primary" onclick="App.saveWeeklyGoal()">💾 ตั้งเป้าหมายนี้</button>' +
+      (this.state.weeklyGoal.goal ? '<button class="btn btn-outline" onclick="App.navigate(\'dashboard\')">ยกเลิก</button>' : '') +
+    '</div>';
+  },
+
+  wgSetType: function(t) { var p = this.state.wgGoalEdit || Object.assign({}, this.state.wgPick); p.type = t; var def = { lessons:3, xp:500, vocab:10 }; p.target = def[t]; this.state.wgGoalEdit = p; this.render(); },
+  wgSetTarget: function(v, noRender) { var p = this.state.wgGoalEdit || Object.assign({}, this.state.wgPick); p.target = Math.max(1, v || 1); this.state.wgGoalEdit = p; if (!noRender) this.render(); },
+
+  saveWeeklyGoal: function() {
+    var self = this;
+    var p = this.state.wgGoalEdit || this.state.wgPick;
+    var inp = document.getElementById('wg-target');
+    var target = inp ? Math.max(1, parseInt(inp.value) || 1) : p.target;
+    google.script.run.withSuccessHandler(function(res) {
+      if (res && res.success) { self.state.wgGoalEdit = null; self.state.dataLoaded = false; self.toast('🎯 ตั้งเป้าหมายแล้ว!'); self.navigate('dashboard'); }
+      else { alert((res && res.message) || 'บันทึกไม่สำเร็จ'); }
+    }).withFailureHandler(function(e){ alert('Error: ' + e.message); }).setWeeklyGoal(this.state.user.UserID, p.type, target);
   },
 
   timeAgo: function(iso) {
@@ -654,8 +755,8 @@ var App = {
       for (var i = 0; i < mods.length; i++) {
         var m = mods[i];
         var idx = i % 4;
-        // Progressive unlock: first unit open; others unlock when previous unit's Post-Test is done
-        var prevDone = i === 0 || completed.indexOf(mods[i - 1].id) >= 0;
+        // All units are open (progressive lock disabled per request)
+        var prevDone = true;
         var isDone = completed.indexOf(m.id) >= 0;
         var unitNo = i + 1; // display starts at Unit 1, not the DB id
         var statusIcon = isDone
