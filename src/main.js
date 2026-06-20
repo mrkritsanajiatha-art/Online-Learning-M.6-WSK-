@@ -61,6 +61,8 @@ var App = {
     leaderboardClasses: [],
     completedModules: [],
     streakInfo: null,
+    activeStory: null,
+    storyKind: 'text',
     weeklyGoal: { loaded: false, goal: null },
     wgPick: { type: 'lessons', target: 3 },
     community: { titles: [], feed: [], loaded: false },
@@ -307,6 +309,12 @@ var App = {
         if (res.success) self.state.bonusScore = { total: res.total, history: res.history };
         self.render();
       }).withFailureHandler(function() { self.render(); }).getBonusScore(self.state.user.UserID);
+    } else if (route === 'storyCompose') {
+      this.state.storyDraft = ''; this.state.storyKind = 'text';
+      this.render();
+    } else if (route === 'showcaseCompose') {
+      this.state.showcaseCat = 'essay';
+      this.render();
     } else if (route === 'weeklyGoal') {
       var ex = this.state.weeklyGoal.goal;
       this.state.wgGoalEdit = ex ? { type: ex.goalType, target: ex.target } : Object.assign({}, this.state.wgPick);
@@ -315,7 +323,7 @@ var App = {
       this.state.community.loaded = false;
       this.render();
       google.script.run.withSuccessHandler(function(res) {
-        if (res && res.success) self.state.community = { titles: res.titles, feed: res.feed, loaded: true };
+        if (res && res.success) self.state.community = { titles: res.titles, feed: res.feed, stories: res.stories || [], showcase: res.showcase || [], loaded: true };
         else self.state.community.loaded = true;
         if (self.state.currentRoute === 'community') self.render();
       }).withFailureHandler(function() { self.state.community.loaded = true; self.render(); }).getCommunityData();
@@ -364,6 +372,9 @@ var App = {
     else if (r === 'bonusQR') { html = this.viewBonusQR() + this.bottomNav('bonus'); }
     else if (r === 'wordBridge') { html = this.viewWordBridge() + this.bottomNav('home'); }
     else if (r === 'community') { html = this.viewCommunity() + this.bottomNav('community'); }
+    else if (r === 'storyCompose') { html = this.viewStoryCompose() + this.bottomNav('community'); }
+    else if (r === 'storyView') { html = this.viewStoryView(); }
+    else if (r === 'showcaseCompose') { html = this.viewShowcaseCompose() + this.bottomNav('community'); }
     else if (r === 'weeklyGoal') { html = this.viewWeeklyGoal() + this.bottomNav('home'); }
     else if (r === 'admin') { html = this.viewAdmin(); }
     else if (r === 'adminScanner') { html = this.viewAdminScanner(); }
@@ -697,10 +708,62 @@ var App = {
       }
     }
 
+    // Stories row (24h) — first bubble = create
+    var stories = c.stories || [];
+    var storyBubbles = '<div onclick="App.navigate(\'storyCompose\')" style="flex:0 0 auto; width:66px; text-align:center; cursor:pointer;">' +
+      '<div style="width:62px; height:62px; border-radius:50%; background:linear-gradient(135deg,#FFD166,#FF8C42); display:flex; align-items:center; justify-content:center; font-size:28px; color:white; box-shadow:0 4px 0 rgba(200,140,40,0.3);">＋</div>' +
+      '<div style="font-size:10px; color:var(--clay-text-light); margin-top:4px;">สร้าง</div>' +
+    '</div>';
+    for (var si = 0; si < stories.length; si++) {
+      var s = stories[si];
+      var sav = s.img ? '<img src="' + s.img + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">' : '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:26px;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);">👤</div>';
+      var firstName = (s.name || '-').split(' ')[0];
+      storyBubbles += '<div onclick="App.openStory(' + s.id + ')" style="flex:0 0 auto; width:66px; text-align:center; cursor:pointer;">' +
+        '<div style="width:62px; height:62px; border-radius:50%; padding:3px; background:linear-gradient(135deg,#C084FC,#FF8C42); box-shadow:0 4px 0 rgba(160,80,200,0.2);"><div style="width:100%;height:100%;border-radius:50%;overflow:hidden;border:2px solid white;">' + sav + '</div></div>' +
+        '<div style="font-size:10px; color:var(--clay-text); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + firstName + '</div>' +
+      '</div>';
+    }
+
+    // Showcase
+    var sc = c.showcase || [];
+    var isAdmin = this.state.user && this.state.user.Role === 'Admin';
+    var catMeta = { essay:{e:'📝',l:'เรียงความ'}, vocab:{e:'🔤',l:'คำศัพท์'}, speaking:{e:'🎤',l:'พูด'}, improvement:{e:'📈',l:'พัฒนาการ'} };
+    var showHtml = '';
+    if (sc.length === 0) {
+      showHtml = '<p class="text-center" style="color:var(--clay-text-light); font-weight:700; padding:14px 0;">ยังไม่มีผลงาน — มาเป็นคนแรกกัน! 🌟</p>';
+    } else {
+      for (var x = 0; x < sc.length; x++) {
+        var w = sc[x]; var cm = catMeta[w.category] || { e:'🏅', l:w.category };
+        var wav = w.img ? '<img src="' + w.img + '" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;">' : '<div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">👤</div>';
+        var mineW = myId && w.userId === myId;
+        showHtml += '<div style="background:var(--clay-white); border-radius:16px; padding:14px; margin-bottom:8px; box-shadow:0 4px 0 rgba(150,100,200,0.10),0 6px 12px rgba(150,100,200,0.06);' + (w.pinned ? 'border:2px solid var(--bear-orange);' : '') + '">' +
+          (w.pinned ? '<div style="font-size:11px; font-weight:800; color:var(--bear-orange); margin-bottom:6px;">📌 ครูปักหมุด</div>' : '') +
+          '<div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">' + wav +
+            '<div style="flex:1; min-width:0;"><div style="font-weight:800; font-size:14px; color:var(--clay-text);">' + cm.e + ' ' + this.esc(w.title) + '</div>' +
+            '<div style="font-size:11px; color:var(--clay-text-light);">' + cm.l + ' · ' + w.name + '</div></div>' +
+          '</div>' +
+          (w.content ? '<div style="font-size:13px; color:var(--clay-text); line-height:1.6; white-space:pre-wrap;">' + this.esc(w.content) + '</div>' : '') +
+          (w.media ? '<a href="' + this.esc(w.media) + '" target="_blank" rel="noopener" style="font-size:12px; color:var(--clay-blue); font-weight:700; display:inline-block; margin-top:6px;">🔗 ดูไฟล์/คลิป</a>' : '') +
+          (isAdmin ? '<div style="margin-top:8px;"><button onclick="App.togglePin(' + w.id + ',' + (w.pinned?'false':'true') + ')" style="background:var(--clay-bg); border:none; border-radius:10px; padding:6px 12px; font-size:12px; font-weight:800; color:var(--clay-purple-shadow); cursor:pointer;">' + (w.pinned ? '📌 ยกเลิกปักหมุด' : '📌 ปักหมุด') + '</button></div>' : '') +
+          (mineW && !isAdmin ? '<div style="margin-top:8px;"><button onclick="App.removeShowcase(' + w.id + ')" style="background:none; border:none; font-size:11px; color:var(--clay-red); cursor:pointer;">ลบผลงาน</button></div>' : '') +
+        '</div>';
+      }
+    }
+
     return '<div class="page-content">' + this.communityHeader() +
+      // Stories
+      '<div style="display:flex; gap:10px; overflow-x:auto; padding-bottom:8px; margin-bottom:16px; -webkit-overflow-scrolling:touch;">' + storyBubbles + '</div>' +
+      // Titles
       '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin:4px 0 10px;">🏅 ตำแหน่งพิเศษประจำระดับ</div>' +
       '<div style="display:flex; gap:10px; overflow-x:auto; padding-bottom:8px; margin-bottom:16px; -webkit-overflow-scrolling:touch;">' + titlesHtml + '</div>' +
-      '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin:4px 0 10px;">📣 ความเคลื่อนไหวล่าสุด</div>' +
+      // Showcase
+      '<div style="display:flex; justify-content:space-between; align-items:center; margin:4px 0 10px;">' +
+        '<div style="font-weight:800; font-size:15px; color:var(--clay-text);">🌟 ผลงานเด่น</div>' +
+        '<button onclick="App.navigate(\'showcaseCompose\')" style="background:linear-gradient(135deg,#FF8C42,#C084FC); border:none; border-radius:12px; padding:6px 14px; font-size:12px; font-weight:800; color:white; cursor:pointer;">＋ ส่งผลงาน</button>' +
+      '</div>' +
+      showHtml +
+      // Feed
+      '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin:16px 0 10px;">📣 ความเคลื่อนไหวล่าสุด</div>' +
       feedHtml +
     '</div>';
   },
@@ -712,6 +775,174 @@ var App = {
       '<div style="font-size:12px; color:rgba(255,255,255,0.9);">มาเชียร์กันให้เก่งขึ้นทั้งระดับ! 🎉</div></div>' +
       '<button onclick="App.navigate(\'dashboard\')" style="background:rgba(255,255,255,0.25); border:none; width:34px; height:34px; border-radius:50%; font-size:16px; cursor:pointer; color:white;">✕</button>' +
     '</div>';
+  },
+
+  /* ===== STORY / MOMENTS ===== */
+
+  storyTemplates: [
+    { kind:'lesson',      emoji:'📚', label:'เรียนจบบทเรียน', text:'วันนี้เรียนจบ Unit ... 📚' },
+    { kind:'streak',      emoji:'🔥', label:'Streak',         text:'วันนี้ Streak ... วันแล้ว! 🔥' },
+    { kind:'xp',          emoji:'⭐', label:'ได้ XP',          text:'วันนี้ได้รับ ... XP ⭐' },
+    { kind:'vocab',       emoji:'🔤', label:'ศัพท์ใหม่',       text:'ศัพท์ใหม่ที่ได้วันนี้: ...' },
+    { kind:'goal',        emoji:'🎯', label:'เป้าหมายวันนี้',  text:'เป้าหมายวันนี้ของฉันคือ ...' },
+    { kind:'text',        emoji:'✍️', label:'เขียนเอง',        text:'' }
+  ],
+
+  viewStoryCompose: function() {
+    var self = this;
+    var tplBtns = this.storyTemplates.map(function(t){
+      var sel = self.state.storyKind === t.kind;
+      return '<div onclick="App.pickStoryTemplate(\'' + t.kind + '\')" style="flex:0 0 auto; padding:10px 14px; border-radius:14px; cursor:pointer; font-size:13px; font-weight:800; ' +
+        (sel ? 'background:linear-gradient(135deg,#FF8C42,#C084FC); color:white;' : 'background:var(--clay-white); color:var(--clay-text); box-shadow:0 3px 0 rgba(150,100,200,0.12);') + '">' + t.emoji + ' ' + t.label + '</div>';
+    }).join('');
+    return '<div class="page-content">' +
+      '<button onclick="App.navigate(\'community\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<h2 class="text-title" style="color:var(--bear-brown); margin-top:0;">📸 สร้างสตอรี่</h2>' +
+      '<p style="font-size:12px; color:var(--clay-text-light); margin-top:0;">โพสต์จะแสดง 24 ชั่วโมงแล้วหายไปอัตโนมัติ</p>' +
+      '<div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:8px; margin-bottom:12px;">' + tplBtns + '</div>' +
+      '<div class="card">' +
+        '<textarea id="story-text" class="input-field" style="margin-bottom:0; min-height:120px; resize:vertical; font-size:16px;" maxlength="300" placeholder="วันนี้เป็นยังไงบ้าง? แชร์ให้เพื่อนๆ ฟัง!">' + this.esc(this.state.storyDraft || '') + '</textarea>' +
+      '</div>' +
+      '<button class="btn btn-primary" onclick="App.submitStory()">🚀 โพสต์สตอรี่</button>' +
+      '<button class="btn btn-outline" onclick="App.navigate(\'community\')">ยกเลิก</button>' +
+    '</div>';
+  },
+
+  pickStoryTemplate: function(kind) {
+    var t = this.storyTemplates.find(function(x){ return x.kind === kind; });
+    this.state.storyKind = kind;
+    var ta = document.getElementById('story-text');
+    this.state.storyDraft = (ta ? ta.value : '') ;
+    if (t && t.text) this.state.storyDraft = t.text;
+    this.render();
+    var ta2 = document.getElementById('story-text'); if (ta2) ta2.focus();
+  },
+
+  submitStory: function() {
+    var self = this;
+    var ta = document.getElementById('story-text');
+    var content = ta ? ta.value.trim() : '';
+    if (!content) { alert('กรุณาใส่ข้อความ'); return; }
+    google.script.run.withSuccessHandler(function(res){
+      if (res && res.success) { self.state.storyDraft=''; self.state.storyKind='text'; self.celebrate(20); self.toast('📸 โพสต์สตอรี่แล้ว!'); self.navigate('community'); }
+      else alert((res&&res.message)||'โพสต์ไม่สำเร็จ');
+    }).withFailureHandler(function(e){ alert('Error: '+e.message); }).postStory(this.state.user.UserID, this.state.storyKind, content);
+  },
+
+  openStory: function(id) {
+    var self = this;
+    this.state.activeStory = null;
+    this.state.currentRoute = 'storyView';
+    google.script.run.withSuccessHandler(function(res){
+      if (res && res.success) { self.state.activeStory = res; self.render(); }
+      else { alert((res&&res.message)||'ไม่พบสตอรี่'); self.navigate('community'); }
+    }).withFailureHandler(function(){ self.navigate('community'); }).getStory(id, this.state.user.UserID);
+    this.render();
+  },
+
+  viewStoryView: function() {
+    var a = this.state.activeStory;
+    if (!a) return '<div class="loader" style="background:#1a1a2e; height:100%;"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังเปิดสตอรี่...</div></div>';
+    var s = a.story;
+    var emojis = [['heart','❤️'],['clap','👏'],['fire','🔥'],['muscle','💪']];
+    var av = s.img ? '<img src="' + s.img + '" style="width:44px;height:44px;border-radius:50%;object-fit:cover;">' : '<div style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:22px;">👤</div>';
+    var rxBtns = emojis.map(function(e){
+      var key=e[0], ic=e[1]; var cnt=a.counts[key]||0; var on=a.mine[key];
+      return '<button onclick="App.doReact(' + s.id + ',\'' + key + '\')" style="flex:1; background:' + (on?'rgba(255,255,255,0.95)':'rgba(255,255,255,0.15)') + '; border:none; border-radius:16px; padding:12px 0; cursor:pointer; color:' + (on?'#3D2B5C':'white') + '; font-weight:800;">' +
+        '<div style="font-size:24px;">' + ic + '</div>' + (cnt>0?'<div style="font-size:12px; margin-top:2px;">' + cnt + '</div>':'') +
+      '</button>';
+    }).join('');
+    var isOwner = this.state.user && s.ownerId === this.state.user.UserID;
+    return '<div style="position:absolute; inset:0; background:linear-gradient(160deg,#3D2B5C,#1a1a2e); display:flex; flex-direction:column; z-index:9000;">' +
+      '<div style="padding:16px; display:flex; align-items:center; gap:12px;">' + av +
+        '<div style="flex:1;"><div style="color:white; font-weight:800; font-size:15px;">' + s.name + '</div>' +
+        '<div style="color:rgba(255,255,255,0.7); font-size:12px;">' + (s.cls||'') + ' · ' + this.timeAgo(s.at) + '</div></div>' +
+        (isOwner ? '<button onclick="App.removeStory(' + s.id + ')" style="background:rgba(255,255,255,0.15); border:none; color:white; border-radius:10px; padding:6px 10px; font-size:12px; cursor:pointer;">ลบ</button>' : '') +
+        '<button onclick="App.navigate(\'community\')" style="background:rgba(255,255,255,0.2); border:none; width:34px; height:34px; border-radius:50%; color:white; font-size:16px; cursor:pointer;">✕</button>' +
+      '</div>' +
+      '<div style="flex:1; display:flex; align-items:center; justify-content:center; padding:24px; text-align:center;">' +
+        '<div style="color:white; font-size:22px; font-weight:700; line-height:1.6; white-space:pre-wrap;">' + this.esc(s.content) + '</div>' +
+      '</div>' +
+      '<div style="padding:16px; display:flex; gap:10px;">' + rxBtns + '</div>' +
+    '</div>';
+  },
+
+  doReact: function(storyId, emoji) {
+    var self = this;
+    var a = this.state.activeStory; if (!a) return;
+    // optimistic toggle
+    var on = a.mine[emoji];
+    a.mine[emoji] = !on;
+    a.counts[emoji] = (a.counts[emoji]||0) + (on ? -1 : 1);
+    if (a.counts[emoji] < 0) a.counts[emoji] = 0;
+    this.render();
+    google.script.run.withFailureHandler(function(){}).reactStory(storyId, this.state.user.UserID, emoji);
+  },
+
+  removeStory: function(id) {
+    var self = this;
+    if (!confirm('ลบสตอรี่นี้?')) return;
+    google.script.run.withSuccessHandler(function(){ self.navigate('community'); }).withFailureHandler(function(){ self.navigate('community'); }).deleteStory(id, this.state.user.UserID);
+  },
+
+  /* ===== SHOWCASE ===== */
+
+  viewShowcaseCompose: function() {
+    var self = this;
+    var cats = [['essay','📝','เรียงความ'],['vocab','🔤','คำศัพท์'],['speaking','🎤','คลิปพูด'],['improvement','📈','พัฒนาการ']];
+    var cur = this.state.showcaseCat || 'essay';
+    var catBtns = cats.map(function(c){
+      var sel = cur === c[0];
+      return '<div onclick="App.setShowcaseCat(\'' + c[0] + '\')" style="flex:1; text-align:center; padding:12px 4px; border-radius:14px; cursor:pointer; ' +
+        (sel?'background:linear-gradient(135deg,#FF8C42,#C084FC); color:white;':'background:var(--clay-white); color:var(--clay-text); box-shadow:0 3px 0 rgba(150,100,200,0.12);') + '">' +
+        '<div style="font-size:22px;">' + c[1] + '</div><div style="font-size:11px; font-weight:800; margin-top:3px;">' + c[2] + '</div></div>';
+    }).join('');
+    return '<div class="page-content">' +
+      '<button onclick="App.navigate(\'community\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<h2 class="text-title" style="color:var(--bear-brown); margin-top:0;">🌟 ส่งผลงาน</h2>' +
+      '<div class="card">' +
+        '<div style="font-weight:800; font-size:14px; color:var(--clay-text); margin-bottom:10px;">ประเภทผลงาน</div>' +
+        '<div style="display:flex; gap:8px;">' + catBtns + '</div>' +
+      '</div>' +
+      '<div class="card">' +
+        this.fieldLabel('ชื่อผลงาน') +
+        '<input id="sc-title" class="input-field" placeholder="เช่น เรียงความ My Dream">' +
+        this.fieldLabel('รายละเอียด / เนื้อหา') +
+        '<textarea id="sc-content" class="input-field" style="min-height:100px; resize:vertical;" placeholder="วางเนื้อหา หรือเล่าเกี่ยวกับผลงาน"></textarea>' +
+        this.fieldLabel('ลิงก์ไฟล์/คลิป (ถ้ามี)') +
+        '<input id="sc-media" class="input-field" style="margin-bottom:0;" placeholder="เช่น ลิงก์ Google Drive / YouTube">' +
+      '</div>' +
+      '<button class="btn btn-primary" onclick="App.submitShowcase()">🚀 ส่งผลงาน</button>' +
+      '<button class="btn btn-outline" onclick="App.navigate(\'community\')">ยกเลิก</button>' +
+    '</div>';
+  },
+
+  setShowcaseCat: function(c) { this.state.showcaseCat = c; this.render(); },
+
+  submitShowcase: function() {
+    var self = this;
+    var title = (document.getElementById('sc-title').value || '').trim();
+    if (!title) { alert('กรุณาใส่ชื่อผลงาน'); return; }
+    var content = document.getElementById('sc-content').value || '';
+    var media = document.getElementById('sc-media').value || '';
+    google.script.run.withSuccessHandler(function(res){
+      if (res && res.success) { self.state.showcaseCat='essay'; self.celebrate(30); self.toast('🌟 ส่งผลงานแล้ว!'); self.state.community.loaded=false; self.navigate('community'); }
+      else alert((res&&res.message)||'ส่งไม่สำเร็จ');
+    }).withFailureHandler(function(e){ alert('Error: '+e.message); }).postShowcase(this.state.user.UserID, this.state.showcaseCat||'essay', title, content, media);
+  },
+
+  togglePin: function(id, pin) {
+    var self = this;
+    google.script.run.withSuccessHandler(function(res){
+      if (res && res.success) { self.state.community.loaded=false; self.navigate('community'); }
+      else alert((res&&res.message)||'ไม่สำเร็จ');
+    }).withFailureHandler(function(e){ alert('Error: '+e.message); }).adminPinShowcase(id, pin);
+  },
+
+  removeShowcase: function(id) {
+    var self = this;
+    if (!confirm('ลบผลงานนี้?')) return;
+    google.script.run.withSuccessHandler(function(){ self.state.community.loaded=false; self.navigate('community'); }).withFailureHandler(function(){}).deleteShowcase(id, this.state.user.UserID);
   },
 
   viewGuide: function() {

@@ -265,7 +265,75 @@ export async function getCommunityData() {
     return { name: u.name, cls: u.cls, img: u.img, emoji: emoji, text: text, at: r.created_at };
   }).filter(Boolean);
 
-  return { success: true, titles: titles, feed: feed };
+  // Active stories (not expired) + reaction counts
+  const nowIso = new Date().toISOString();
+  const { data: stories } = await supabase.from('stories').select('*').gt('expires_at', nowIso).order('created_at', { ascending: false });
+  const sIds = (stories || []).map(s => s.id);
+  let reacts = [];
+  if (sIds.length) { const r = await supabase.from('reactions').select('story_id').in('story_id', sIds); reacts = r.data || []; }
+  const rc = {}; reacts.forEach(r => { rc[r.story_id] = (rc[r.story_id] || 0) + 1; });
+  const storyOut = (stories || []).map(s => { const u = info[s.user_id]; return { id: s.id, userId: s.user_id, name: u ? u.name : '-', img: u ? u.img : '', kind: s.kind, content: s.content, at: s.created_at, reactions: rc[s.id] || 0 }; });
+
+  // Showcase (pinned first)
+  const { data: showcase } = await supabase.from('showcase').select('*').order('pinned', { ascending: false }).order('created_at', { ascending: false }).limit(30);
+  const showOut = (showcase || []).map(s => { const u = info[s.user_id]; return { id: s.id, userId: s.user_id, name: u ? u.name : '-', img: u ? u.img : '', category: s.category, title: s.title, content: s.content, media: s.media_url, pinned: s.pinned, at: s.created_at }; });
+
+  return { success: true, titles: titles, feed: feed, stories: storyOut, showcase: showOut };
+}
+
+export async function postStory(userId, kind, content) {
+  const c = (content || '').trim().slice(0, 300);
+  if (!c) return { success: false, message: 'กรุณาใส่ข้อความ' };
+  const { error } = await supabase.from('stories').insert([{ user_id: String(userId).trim(), kind: kind || 'text', content: c }]);
+  if (error) return { success: false, message: error.message };
+  return { success: true };
+}
+
+export async function getStory(storyId, userId) {
+  const uid = String(userId).trim();
+  const { data: s } = await supabase.from('stories').select('*').eq('id', storyId).single();
+  if (!s) return { success: false, message: 'สตอรี่หมดอายุหรือถูกลบแล้ว' };
+  const { data: u } = await supabase.from('users').select('first_name, last_name, profile_image, class_name').eq('id', s.user_id).single();
+  const { data: rx } = await supabase.from('reactions').select('emoji, user_id').eq('story_id', storyId);
+  const counts = {}; const mine = {};
+  (rx || []).forEach(r => { counts[r.emoji] = (counts[r.emoji] || 0) + 1; if (r.user_id === uid) mine[r.emoji] = true; });
+  return { success: true, story: { id: s.id, ownerId: s.user_id, name: u ? (u.first_name + ' ' + u.last_name) : '-', cls: u ? u.class_name : '', img: u ? u.profile_image : '', kind: s.kind, content: s.content, at: s.created_at }, counts, mine };
+}
+
+export async function reactStory(storyId, userId, emoji) {
+  const uid = String(userId).trim();
+  const { data: ex } = await supabase.from('reactions').select('id').eq('story_id', storyId).eq('user_id', uid).eq('emoji', emoji);
+  if (ex && ex.length) { await supabase.from('reactions').delete().eq('id', ex[0].id); return { success: true, active: false }; }
+  const { error } = await supabase.from('reactions').insert([{ story_id: storyId, user_id: uid, emoji: emoji }]);
+  if (error) return { success: false, message: error.message };
+  return { success: true, active: true };
+}
+
+export async function deleteStory(storyId, userId) {
+  await supabase.from('stories').delete().eq('id', storyId).eq('user_id', String(userId).trim());
+  return { success: true };
+}
+
+export async function postShowcase(userId, category, title, content, mediaUrl) {
+  const t = (title || '').trim().slice(0, 160);
+  if (!t) return { success: false, message: 'กรุณาใส่ชื่อผลงาน' };
+  const { error } = await supabase.from('showcase').insert([{
+    user_id: String(userId).trim(), category: category || 'essay', title: t,
+    content: (content || '').trim().slice(0, 2000), media_url: (mediaUrl || '').trim() || null
+  }]);
+  if (error) return { success: false, message: error.message };
+  return { success: true };
+}
+
+export async function adminPinShowcase(id, pinned) {
+  const { error } = await supabase.from('showcase').update({ pinned: !!pinned }).eq('id', id);
+  if (error) return { success: false, message: error.message };
+  return { success: true };
+}
+
+export async function deleteShowcase(id, userId) {
+  await supabase.from('showcase').delete().eq('id', id).eq('user_id', String(userId).trim());
+  return { success: true };
 }
 
 export async function getCompletedModules(userId) {
