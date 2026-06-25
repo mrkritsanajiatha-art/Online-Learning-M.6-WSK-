@@ -2072,10 +2072,10 @@ var App = {
   /* ===== BOTTOM NAV ===== */
 
   bottomNav: function(activeTab) {
-    // Icon-only navigation (Facebook style) — Feed lives as a card on Home, not a tab
     var tabs = [
       { id:'home',      icon:'&#x1F3E0;', label:'หน้าหลัก',  route:'dashboard' },
       { id:'lessons',   icon:'&#x1F4DA;', label:'บทเรียน',   route:'lessons' },
+      { id:'feed',      icon:'&#x1F4F0;', label:'Feed',       route:'feed' },
       { id:'bonus',     icon:'&#x1F3AB;', label:'QR คะแนน',  route:'bonusQR' },
       { id:'profile',   icon:'&#x1F43E;', label:'โปรไฟล์',   route:'profile' }
     ];
