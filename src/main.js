@@ -2089,7 +2089,7 @@ var App = {
         if (!dup) self.celebrate(60);
         self.render();
       }).withFailureHandler(function() {
-        self.state.quiz.submitted = true; self.state.quiz.awarded = potentialXp; self.render();
+        self.state.quiz.submitted = true; self.state.quiz.awarded = 0; self.render();
       }).submitQuizScore(this.state.user.UserID, effectiveType, effectiveRef, this.state.quiz.score, this.state.quiz.questions.length, 0);
     }
     this.render();
@@ -2108,7 +2108,7 @@ var App = {
         if (!dup) self.celebrate(50);
         self.render();
       }).withFailureHandler(function() {
-        self.state.flashcards.submitted = true; self.state.flashcards.awarded = 20; self.render();
+        self.state.flashcards.submitted = true; self.state.flashcards.awarded = 0; self.render();
       }).submitQuizScore(this.state.user.UserID, 'Flashcards', Number(this.state.flashcards.moduleId), 2, 2, 0);
     }
     this.render();

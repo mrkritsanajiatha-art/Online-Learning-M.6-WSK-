@@ -388,10 +388,7 @@ export async function submitQuizScore(userId, quizType, referenceId, score, maxS
     reference_id: (referenceId !== null && referenceId !== undefined) ? referenceId : null,
     score, max_score: maxScore, time_spent: timeSpent || 0
   }]);
-  const { data: user } = await supabase.from('users').select('xp').eq('id', uid).single();
-  if (user) {
-    await supabase.from('users').update({ xp: user.xp + (score * 10) }).eq('id', uid);
-  }
+  await supabase.rpc('add_xp', { p_uid: uid, p_amount: score * 10 });
   return { success: true, alreadyDone: false };
 }
 
@@ -449,9 +446,9 @@ export async function recordLogin(userId) {
   const bonus = Math.min(50, newStreak * 10); // day1=10 … day5+=50 per day
   await supabase.from('users').update({
     last_login: new Date().toISOString(),
-    streak: newStreak,
-    xp: (u.xp || 0) + bonus
+    streak: newStreak
   }).eq('id', uid);
+  if (bonus > 0) await supabase.rpc('add_xp', { p_uid: uid, p_amount: bonus });
   return { success: true, streak: newStreak, bonus, already: false };
 }
 
@@ -544,8 +541,7 @@ export async function submitGameScore(userId, gameKey, exp) {
     user_id: uid, quiz_type: gameKey, reference_id: null, score: award, max_score: 100, time_spent: 0
   }]);
   if (error) return { success: false, message: error.message };
-  const { data: user } = await supabase.from('users').select('xp').eq('id', uid).single();
-  if (user) await supabase.from('users').update({ xp: user.xp + award }).eq('id', uid);
+  if (award > 0) await supabase.rpc('add_xp', { p_uid: uid, p_amount: award });
   return { success: true, alreadyDone: false, awarded: award };
 }
 
