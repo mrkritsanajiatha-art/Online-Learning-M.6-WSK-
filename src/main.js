@@ -401,6 +401,7 @@ var App = {
     if (r === 'bonusQR') this.initBonusQR();
     else if (r === 'adminScanner') this.initQRScanner();
     else if (r === 'profileEdit' && this.state.cropperOpen) this.initCropper();
+    if (r === 'profile' || r === 'userProfile') this.initVinyl();
   },
 
   // ===== CONFETTI (variable reward feedback) =====
@@ -1366,34 +1367,77 @@ var App = {
   vinylHtml: function(youtubeUrl) {
     var vid = this.extractYouTubeId(youtubeUrl);
     if (!vid) return '';
-    var src = 'https://www.youtube.com/embed/' + vid + '?autoplay=1&mute=1&loop=1&playlist=' + vid + '&controls=0&playsinline=1';
+    // Real (visible) YouTube player sits UNDER the spinning disc so the browser
+    // allows muted autoplay. The disc artwork (opaque) covers the video.
     return '<div style="background:linear-gradient(145deg,#1a1a2e,#2d2d44); border-radius:24px; padding:18px 20px; margin-bottom:16px; box-shadow:0 8px 0 rgba(0,0,0,0.3),0 12px 24px rgba(0,0,0,0.2); display:flex; align-items:center; gap:18px; position:relative; overflow:hidden;">' +
       '<div style="position:absolute; inset:0; background:repeating-linear-gradient(45deg,rgba(255,255,255,0.01) 0px,rgba(255,255,255,0.01) 1px,transparent 1px,transparent 8px); pointer-events:none;"></div>' +
-      '<div style="position:relative; width:90px; height:90px; flex-shrink:0;">' +
-        '<div id="vinyl-disc" style="width:90px; height:90px; border-radius:50%; background:repeating-conic-gradient(#111 0deg 12deg, #222 12deg 24deg); animation:vinylSpin 3s linear infinite; box-shadow:0 4px 12px rgba(0,0,0,0.5); cursor:pointer;" onclick="App.vinylUnmute()">' +
+      '<div style="position:relative; width:90px; height:90px; flex-shrink:0; z-index:1;">' +
+        // the actual player (covered by the disc above it)
+        '<div style="position:absolute; inset:0; border-radius:50%; overflow:hidden; background:#000;"><div id="yt-player" data-vid="' + vid + '" style="width:90px; height:90px;"></div></div>' +
+        // spinning vinyl artwork on top
+        '<div id="vinyl-disc" onclick="App.vinylUnmute()" style="position:absolute; inset:0; border-radius:50%; background:repeating-conic-gradient(#111 0deg 12deg, #222 12deg 24deg); animation:vinylSpin 3s linear infinite; box-shadow:0 4px 12px rgba(0,0,0,0.5); cursor:pointer; z-index:2;">' +
           '<div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,#FF8C42,#C084FC);">' +
             '<div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:8px; height:8px; border-radius:50%; background:#1a1a2e;"></div>' +
           '</div>' +
         '</div>' +
       '</div>' +
-      '<div style="flex:1; min-width:0;">' +
+      '<div style="flex:1; min-width:0; z-index:1;">' +
         '<div style="color:white; font-weight:800; font-size:14px; margin-bottom:4px;">🎵 เพลงประจำโปรไฟล์</div>' +
         '<div style="color:rgba(255,255,255,0.6); font-size:12px; margin-bottom:12px;">เล่นอัตโนมัติ (ปิดเสียง)</div>' +
         '<button id="vinyl-mute-btn" onclick="App.vinylUnmute()" style="background:rgba(255,255,255,0.15); border:2px solid rgba(255,255,255,0.3); border-radius:10px; padding:6px 16px; color:white; font-size:12px; font-weight:800; cursor:pointer; font-family:var(--font-main);">🔇 แตะเพื่อเปิดเสียง</button>' +
       '</div>' +
-      '<iframe id="vinyl-iframe" src="' + src + '" style="position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; left:0; top:0;" allow="autoplay; encrypted-media" frameborder="0"></iframe>' +
     '</div>';
   },
 
+  initVinyl: function() {
+    var el = document.getElementById('yt-player');
+    if (!el) { this.ytPlayer = null; return; }
+    var vid = el.getAttribute('data-vid');
+    if (!vid) return;
+    var self = this;
+    var make = function() {
+      try { if (self.ytPlayer && self.ytPlayer.destroy) self.ytPlayer.destroy(); } catch (_) {}
+      self.ytPlayer = new YT.Player('yt-player', {
+        width: '90', height: '90', videoId: vid,
+        playerVars: { autoplay: 1, mute: 1, loop: 1, playlist: vid, controls: 0, playsinline: 1, modestbranding: 1, rel: 0, disablekb: 1, fs: 0 },
+        events: {
+          onReady: function(e) { try { e.target.mute(); e.target.playVideo(); } catch (_) {} },
+          onStateChange: function(e) { if (e.data === YT.PlayerState.ENDED) { try { e.target.seekTo(0); e.target.playVideo(); } catch (_) {} } }
+        }
+      });
+    };
+    if (window.YT && window.YT.Player) { make(); return; }
+    // Load the IFrame API once, then build the player when ready
+    if (!document.getElementById('yt-iframe-api')) {
+      var tag = document.createElement('script');
+      tag.id = 'yt-iframe-api';
+      tag.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(tag);
+    }
+    var tries = 0;
+    var iv = setInterval(function() {
+      tries++;
+      if (window.YT && window.YT.Player) { clearInterval(iv); if (document.getElementById('yt-player')) make(); }
+      else if (tries > 60) { clearInterval(iv); }
+    }, 150);
+  },
+
   vinylUnmute: function() {
-    var iframe = document.getElementById('vinyl-iframe');
     var btn = document.getElementById('vinyl-mute-btn');
-    if (!iframe) return;
-    var m = iframe.src.match(/embed\/([A-Za-z0-9_-]{11})/);
-    if (!m) return;
-    var vid = m[1];
-    iframe.src = 'https://www.youtube.com/embed/' + vid + '?autoplay=1&mute=0&loop=1&playlist=' + vid + '&controls=0&playsinline=1';
-    if (btn) { btn.textContent = '🔊 กำลังเล่น'; btn.style.background = 'rgba(255,140,66,0.3)'; btn.style.borderColor = '#FF8C42'; }
+    var p = this.ytPlayer;
+    if (!p) return;
+    try {
+      if (p.isMuted && !p.isMuted()) {
+        // already unmuted → toggle back to muted
+        p.mute();
+        if (btn) { btn.textContent = '🔇 แตะเพื่อเปิดเสียง'; btn.style.background = 'rgba(255,255,255,0.15)'; btn.style.borderColor = 'rgba(255,255,255,0.3)'; }
+        return;
+      }
+      p.unMute();
+      p.setVolume(70);
+      p.playVideo();
+      if (btn) { btn.textContent = '🔊 กำลังเล่น'; btn.style.background = 'rgba(255,140,66,0.3)'; btn.style.borderColor = '#FF8C42'; }
+    } catch (_) {}
   },
 
   /* ===== FRIEND PROFILE VIEW ===== */
