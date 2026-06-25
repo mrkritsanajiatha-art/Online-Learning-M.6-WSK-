@@ -70,6 +70,11 @@ var App = {
     postAnonymous: false,
     myPosts: null,
     viewingUser: null,
+    openComments: {},
+    postComments: {},
+    commentDraft: {},
+    storyIds: [],
+    storyIdx: 0,
     cropper: null,
     cropperOpen: false,
     editAvatar: null,
@@ -327,6 +332,7 @@ var App = {
   render: function() {
     var el = document.getElementById('app');
     if (!el) return;
+    var self = this;
     var html = '';
     var r = this.state.currentRoute;
 
@@ -356,8 +362,14 @@ var App = {
     else if (r === 'adminQuizBuilder') { html = this.viewAdminQuizBuilder(); }
     else { html = '<div class="loader">Page not found</div>'; }
 
-    el.innerHTML = html;
-    this.postRender();
+    el.style.transition = 'opacity 0.10s ease';
+    el.style.opacity = '0';
+    var finalHtml = html;
+    setTimeout(function() {
+      el.innerHTML = finalHtml;
+      el.style.opacity = '1';
+      self.postRender();
+    }, 80);
   },
 
   postRender: function() {
@@ -657,6 +669,7 @@ var App = {
   // A single post card (shared by Feed + profile walls)
   postCard: function(p, opts) {
     opts = opts || {};
+    var self = this;
     var clickable = !p.anonymous && p.userId;
     var av = p.anonymous
       ? '<div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#2d2d44,#1a1a2e);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">👻</div>'
@@ -665,6 +678,59 @@ var App = {
       ? '<div onclick="App.navigate(\'userProfile\',\'' + p.userId + '\')" style="cursor:pointer;">' + av + '</div>'
       : av;
     var canDelete = opts.canDelete || p.mine;
+    var showReactions = opts.showReactions !== false;
+
+    // Reaction bar (only in Feed, not profile walls)
+    var rxHtml = '';
+    if (showReactions) {
+      var rxEmojis = [['❤️','heart'],['👍','thumbs'],['🔥','fire'],['😂','laugh']];
+      var rxBtns = rxEmojis.map(function(e) {
+        var ic = e[0], key = e[1];
+        var cnt = (p.reactions && p.reactions[key]) || 0;
+        var on = p.myReactions && p.myReactions[key];
+        return '<button onclick="App.reactPost(' + p.id + ',\'' + key + '\')" style="display:inline-flex; align-items:center; gap:4px; border:none; border-radius:20px; padding:5px 10px; font-size:13px; cursor:pointer; font-weight:700; background:' + (on ? 'linear-gradient(135deg,#EDE9F7,#DDD4EF)' : 'transparent') + '; color:' + (on ? 'var(--clay-purple-shadow)' : 'var(--clay-text-light)') + ';">' +
+          ic + (cnt > 0 ? '<span>' + cnt + '</span>' : '') +
+        '</button>';
+      }).join('');
+      var cmtCnt = p.commentCount || 0;
+      rxHtml = '<div style="display:flex; align-items:center; margin-top:10px; padding-top:8px; border-top:1px solid rgba(150,100,200,0.08);">' +
+        '<div style="display:flex; gap:2px; flex:1;">' + rxBtns + '</div>' +
+        '<button onclick="App.toggleComments(' + p.id + ')" style="display:inline-flex; align-items:center; gap:5px; border:none; background:transparent; color:var(--clay-text-light); font-size:13px; font-weight:700; cursor:pointer; padding:5px 8px;">' +
+          '💬 ' + (cmtCnt > 0 ? cmtCnt : '') + ' ความเห็น' +
+        '</button>' +
+      '</div>';
+
+      // Comments section (when open)
+      if (this.state.openComments[p.id]) {
+        var cached = this.state.postComments[p.id];
+        var cmtListHtml = '';
+        if (!cached) {
+          cmtListHtml = '<div style="padding:8px 0; color:var(--clay-text-light); font-size:12px; text-align:center;">กำลังโหลด...</div>';
+        } else if (cached.length === 0) {
+          cmtListHtml = '<div style="padding:8px 0; color:var(--clay-text-light); font-size:12px; text-align:center;">ยังไม่มีความเห็น</div>';
+        } else {
+          cmtListHtml = cached.map(function(c) {
+            var cav = c.img ? '<img src="' + c.img + '" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;">' : '<div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;">👤</div>';
+            return '<div style="display:flex; align-items:flex-start; gap:8px; margin-bottom:8px;">' + cav +
+              '<div style="flex:1; background:var(--clay-bg); border-radius:12px; padding:7px 10px;">' +
+                '<div style="font-size:11px; font-weight:800; color:var(--clay-text); margin-bottom:2px;">' + self.esc(c.name) + '</div>' +
+                '<div style="font-size:13px; color:var(--clay-text); line-height:1.4;">' + self.esc(c.content) + '</div>' +
+                '<div style="font-size:10px; color:var(--clay-text-light); margin-top:3px;">' + self.timeAgo(c.at) + '</div>' +
+              '</div>' +
+            '</div>';
+          }).join('');
+        }
+        var draftVal = this.state.commentDraft[p.id] || '';
+        rxHtml += '<div style="margin-top:10px; padding-top:8px; border-top:1px solid rgba(150,100,200,0.08);">' +
+          cmtListHtml +
+          '<div style="display:flex; gap:8px; margin-top:8px; align-items:center;">' +
+            '<textarea id="cmt-' + p.id + '" class="input-field" rows="1" maxlength="500" placeholder="เขียนความเห็น..." style="flex:1; font-size:13px; min-height:38px; padding:8px 12px; resize:none;">' + self.esc(draftVal) + '</textarea>' +
+            '<button onclick="App.submitComment(' + p.id + ')" style="background:linear-gradient(135deg,#FF8C42,#C084FC); border:none; border-radius:12px; padding:8px 14px; font-weight:800; font-size:13px; color:white; cursor:pointer; white-space:nowrap;">ส่ง</button>' +
+          '</div>' +
+        '</div>';
+      }
+    }
+
     return '<div style="background:var(--clay-white); border-radius:16px; padding:14px; margin-bottom:8px; box-shadow:0 4px 0 rgba(150,100,200,0.10),0 6px 12px rgba(150,100,200,0.06);">' +
       '<div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">' + avWrap +
         '<div style="flex:1; min-width:0;">' +
@@ -674,6 +740,7 @@ var App = {
         (canDelete ? '<button onclick="App.deletePost(' + p.id + ')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; line-height:1;">🗑️</button>' : '') +
       '</div>' +
       '<div style="font-size:14px; color:var(--clay-text); line-height:1.6; white-space:pre-wrap;">' + this.esc(p.content) + '</div>' +
+      rxHtml +
     '</div>';
   },
 
@@ -752,6 +819,68 @@ var App = {
       else if (r === 'userProfile' && self.state.viewingUser && self.state.viewingUser.user) self.navigate('userProfile', self.state.viewingUser.user.id);
       else { self.loadMyPosts(); self.render(); }
     }).withFailureHandler(function(){}).deletePost(id, this.state.user.UserID);
+  },
+
+  // Toggle emoji reaction on a post (optimistic update)
+  reactPost: function(postId, emoji) {
+    var self = this;
+    var posts = (this.state.feed && this.state.feed.posts) || [];
+    var post = null;
+    for (var i = 0; i < posts.length; i++) { if (posts[i].id === postId) { post = posts[i]; break; } }
+    if (!post) return;
+    if (!post.reactions) post.reactions = {};
+    if (!post.myReactions) post.myReactions = {};
+    var on = post.myReactions[emoji];
+    post.myReactions[emoji] = !on;
+    post.reactions[emoji] = Math.max(0, (post.reactions[emoji] || 0) + (on ? -1 : 1));
+    this.render();
+    google.script.run.withFailureHandler(function(){}).addPostReaction(postId, self.state.user.UserID, emoji);
+  },
+
+  // Toggle comment section open/closed for a post
+  toggleComments: function(postId) {
+    // Save any draft text already in the textarea
+    var ta = document.getElementById('cmt-' + postId);
+    if (ta) this.state.commentDraft[postId] = ta.value;
+    var wasOpen = !!this.state.openComments[postId];
+    this.state.openComments[postId] = !wasOpen;
+    if (!wasOpen && !this.state.postComments[postId]) {
+      this.loadPostComments(postId);
+    } else {
+      this.render();
+    }
+  },
+
+  // Fetch comments for a post and re-render
+  loadPostComments: function(postId) {
+    var self = this;
+    google.script.run.withSuccessHandler(function(res){
+      if (res && res.success) {
+        self.state.postComments[postId] = res.comments || [];
+        // Update commentCount in feed state
+        var posts = (self.state.feed && self.state.feed.posts) || [];
+        for (var i = 0; i < posts.length; i++) {
+          if (posts[i].id === postId) { posts[i].commentCount = (res.comments || []).length; break; }
+        }
+      }
+      self.render();
+    }).withFailureHandler(function(){ self.render(); }).getPostComments(postId);
+  },
+
+  // Submit a comment on a post
+  submitComment: function(postId) {
+    var self = this;
+    var ta = document.getElementById('cmt-' + postId);
+    var content = ta ? ta.value.trim() : (this.state.commentDraft[postId] || '').trim();
+    if (!content) return;
+    this.state.commentDraft[postId] = '';
+    google.script.run.withSuccessHandler(function(res){
+      if (res && res.success) {
+        delete self.state.postComments[postId]; // clear cache so it reloads
+        self.loadPostComments(postId);
+        self.toast('💬 ส่งความเห็นแล้ว!');
+      } else { alert((res && res.message) || 'ส่งความเห็นไม่สำเร็จ'); }
+    }).withFailureHandler(function(e){ alert('Error: ' + e.message); }).addPostComment(postId, this.state.user.UserID, content);
   },
 
   // Load the current user's own posts (for the profile wall)
@@ -835,6 +964,11 @@ var App = {
 
   openStory: function(id) {
     var self = this;
+    // Save ordered story IDs for prev/next navigation
+    var feedStories = (this.state.feed && this.state.feed.stories) || [];
+    this.state.storyIds = feedStories.map(function(s){ return s.id; });
+    var idx = this.state.storyIds.indexOf(id);
+    this.state.storyIdx = idx >= 0 ? idx : 0;
     this.state.activeStory = null;
     this.state.currentRoute = 'storyView';
     google.script.run.withSuccessHandler(function(res){
@@ -844,10 +978,30 @@ var App = {
     this.render();
   },
 
+  prevStory: function() {
+    var ids = this.state.storyIds;
+    var idx = this.state.storyIdx;
+    if (!ids.length || idx <= 0) return;
+    this.state.storyIdx = idx - 1;
+    this.openStory(ids[this.state.storyIdx]);
+  },
+
+  nextStory: function() {
+    var ids = this.state.storyIds;
+    var idx = this.state.storyIdx;
+    if (!ids.length || idx >= ids.length - 1) { this.navigate('feed'); return; }
+    this.state.storyIdx = idx + 1;
+    this.openStory(ids[this.state.storyIdx]);
+  },
+
   viewStoryView: function() {
     var a = this.state.activeStory;
     if (!a) return '<div class="loader" style="background:#1a1a2e; height:100%;"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังเปิดสตอรี่...</div></div>';
     var s = a.story;
+    var ids = this.state.storyIds;
+    var idx = this.state.storyIdx;
+    var hasPrev = idx > 0;
+    var hasNext = idx < ids.length - 1;
     var emojis = [['heart','❤️'],['clap','👏'],['fire','🔥'],['muscle','💪']];
     var av = s.anonymous ? '<div style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;font-size:26px;">👻</div>' : (s.img ? '<img src="' + s.img + '" style="width:44px;height:44px;border-radius:50%;object-fit:cover;">' : '<div style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:22px;">👤</div>');
     var rxBtns = emojis.map(function(e){
@@ -857,15 +1011,34 @@ var App = {
       '</button>';
     }).join('');
     var isOwner = this.state.user && s.ownerId === this.state.user.UserID;
+    // Progress dots
+    var dots = '';
+    if (ids.length > 1) {
+      dots = '<div style="display:flex; gap:4px; justify-content:center; padding:8px 0;">';
+      for (var di = 0; di < ids.length; di++) {
+        dots += '<div style="width:' + (di===idx?'20px':'6px') + '; height:6px; border-radius:3px; background:' + (di===idx?'white':'rgba(255,255,255,0.35)') + '; transition:all 0.2s;"></div>';
+      }
+      dots += '</div>';
+    }
     return '<div style="position:absolute; inset:0; background:linear-gradient(160deg,#3D2B5C,#1a1a2e); display:flex; flex-direction:column; z-index:9000;">' +
-      '<div style="padding:16px; display:flex; align-items:center; gap:12px;">' + av +
-        '<div style="flex:1;"><div style="color:white; font-weight:800; font-size:15px;">' + s.name + '</div>' +
-        '<div style="color:rgba(255,255,255,0.7); font-size:12px;">' + (s.cls||'') + ' · ' + this.timeAgo(s.at) + '</div></div>' +
+      dots +
+      '<div style="padding:12px 16px; display:flex; align-items:center; gap:12px;">' + av +
+        '<div style="flex:1;"><div style="color:white; font-weight:800; font-size:15px;">' + this.esc(s.name) + '</div>' +
+        '<div style="color:rgba(255,255,255,0.7); font-size:12px;">' + this.esc(s.cls||'') + ' · ' + this.timeAgo(s.at) + '</div></div>' +
         (isOwner ? '<button onclick="App.removeStory(' + s.id + ')" style="background:rgba(255,255,255,0.15); border:none; color:white; border-radius:10px; padding:6px 10px; font-size:12px; cursor:pointer;">ลบ</button>' : '') +
         '<button onclick="App.navigate(\'feed\')" style="background:rgba(255,255,255,0.2); border:none; width:34px; height:34px; border-radius:50%; color:white; font-size:16px; cursor:pointer;">✕</button>' +
       '</div>' +
-      '<div style="flex:1; display:flex; align-items:center; justify-content:center; padding:24px; text-align:center;">' +
-        '<div style="color:white; font-size:22px; font-weight:700; line-height:1.6; white-space:pre-wrap;">' + this.esc(s.content) + '</div>' +
+      // Content area with left/right tap zones
+      '<div style="flex:1; position:relative; display:flex; align-items:center; justify-content:center; padding:24px; text-align:center;">' +
+        '<div style="color:white; font-size:22px; font-weight:700; line-height:1.6; white-space:pre-wrap; z-index:1;">' + this.esc(s.content) + '</div>' +
+        // Left tap zone
+        (hasPrev ? '<div onclick="App.prevStory()" style="position:absolute; left:0; top:0; bottom:0; width:40%; cursor:pointer; z-index:2; display:flex; align-items:center; padding-left:10px;">' +
+          '<div style="background:rgba(255,255,255,0.12); border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; font-size:18px; color:white;">‹</div>' +
+        '</div>' : '') +
+        // Right tap zone
+        '<div onclick="App.' + (hasNext ? 'nextStory' : 'navigate(\'feed\')') + (hasNext ? '()' : '') + '" style="position:absolute; right:0; top:0; bottom:0; width:40%; cursor:pointer; z-index:2; display:flex; align-items:center; justify-content:flex-end; padding-right:10px;">' +
+          '<div style="background:rgba(255,255,255,0.12); border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; font-size:18px; color:white;">' + (hasNext ? '›' : '✕') + '</div>' +
+        '</div>' +
       '</div>' +
       '<div style="padding:16px; display:flex; gap:10px;">' + rxBtns + '</div>' +
     '</div>';
@@ -2072,19 +2245,29 @@ var App = {
   /* ===== BOTTOM NAV ===== */
 
   bottomNav: function(activeTab) {
+    var qrSvg = '<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">' +
+      '<rect x="1" y="1" width="9" height="9" rx="1.5"/><rect x="3" y="3" width="5" height="5" rx="0.5" fill="var(--clay-bg)"/><rect x="5" y="5" width="1" height="1" fill="currentColor"/>' +
+      '<rect x="14" y="1" width="9" height="9" rx="1.5"/><rect x="16" y="3" width="5" height="5" rx="0.5" fill="var(--clay-bg)"/><rect x="18" y="5" width="1" height="1" fill="currentColor"/>' +
+      '<rect x="1" y="14" width="9" height="9" rx="1.5"/><rect x="3" y="16" width="5" height="5" rx="0.5" fill="var(--clay-bg)"/><rect x="5" y="18" width="1" height="1" fill="currentColor"/>' +
+      '<rect x="14" y="14" width="2" height="2"/><rect x="18" y="14" width="2" height="2"/><rect x="22" y="14" width="1" height="2"/>' +
+      '<rect x="14" y="18" width="2" height="2"/><rect x="18" y="18" width="4" height="2"/><rect x="14" y="22" width="2" height="1"/><rect x="18" y="21" width="5" height="2"/>' +
+      '</svg>';
     var tabs = [
-      { id:'home',      icon:'&#x1F3E0;', label:'หน้าหลัก',  route:'dashboard' },
-      { id:'lessons',   icon:'&#x1F4DA;', label:'บทเรียน',   route:'lessons' },
-      { id:'feed',      icon:'&#x1F4F0;', label:'Feed',       route:'feed' },
-      { id:'bonus',     icon:'&#x1F3AB;', label:'QR คะแนน',  route:'bonusQR' },
-      { id:'profile',   icon:'&#x1F43E;', label:'โปรไฟล์',   route:'profile' }
+      { id:'home',    icon:'&#x1F3E0;', label:'หน้าหลัก', route:'dashboard' },
+      { id:'lessons', icon:'&#x1F4DA;', label:'บทเรียน',  route:'lessons' },
+      { id:'feed',    icon:'&#x1F4F0;', label:'Feed',      route:'feed' },
+      { id:'bonus',   icon: qrSvg,      label:'QR คะแนน', route:'bonusQR', isSvg: true },
+      { id:'profile', icon:'&#x1F43E;', label:'โปรไฟล์',  route:'profile' }
     ];
     var navHtml = '';
     for (var i = 0; i < tabs.length; i++) {
       var tab = tabs[i];
       var cls = activeTab === tab.id ? 'nav-item active' : 'nav-item';
+      var iconHtml = tab.isSvg
+        ? '<div class="nav-icon" style="display:flex;align-items:center;justify-content:center;">' + tab.icon + '</div>'
+        : '<div class="nav-icon">' + tab.icon + '</div>';
       navHtml += '<div class="' + cls + '" title="' + tab.label + '" onclick="App.navigate(\'' + tab.route + '\')">' +
-        '<div class="nav-icon-wrap"><div class="nav-icon">' + tab.icon + '</div></div>' +
+        '<div class="nav-icon-wrap">' + iconHtml + '</div>' +
         '<div class="nav-dot"></div>' +
       '</div>';
     }

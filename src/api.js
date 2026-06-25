@@ -574,7 +574,50 @@ export async function deletePost(postId, userId) {
   return { success: true };
 }
 
-// Combined feed: active stories (24h) + latest text posts, newest first.
+// Toggle reaction on a post (adds if absent, removes if present).
+export async function addPostReaction(postId, userId, emoji) {
+  const uid = String(userId).trim();
+  const { data: existing } = await supabase.from('post_reactions')
+    .select('id').eq('post_id', postId).eq('user_id', uid).eq('emoji', emoji).maybeSingle();
+  if (existing) {
+    await supabase.from('post_reactions').delete().eq('id', existing.id);
+    return { success: true, action: 'removed' };
+  }
+  await supabase.from('post_reactions').insert([{ post_id: postId, user_id: uid, emoji }]);
+  return { success: true, action: 'added' };
+}
+
+// Fetch comments for a post with user info.
+export async function getPostComments(postId) {
+  const { data: comments } = await supabase.from('post_comments')
+    .select('id, user_id, content, created_at')
+    .eq('post_id', postId).order('created_at', { ascending: true });
+  const ids = [...new Set((comments || []).map(c => c.user_id))];
+  const info = {};
+  if (ids.length) {
+    const { data: users } = await supabase.from('users')
+      .select('id, first_name, last_name, profile_image').in('id', ids);
+    (users || []).forEach(u => { info[u.id] = { name: (u.first_name + ' ' + u.last_name).trim(), img: u.profile_image || '' }; });
+  }
+  return { success: true, comments: (comments || []).map(c => ({
+    id: c.id, userId: c.user_id,
+    name: info[c.user_id] ? info[c.user_id].name : '-',
+    img: info[c.user_id] ? info[c.user_id].img : '',
+    content: c.content, at: c.created_at
+  })) };
+}
+
+// Add a comment to a post.
+export async function addPostComment(postId, userId, content) {
+  const c = (content || '').trim().slice(0, 500);
+  if (!c) return { success: false, message: 'กรุณาใส่ข้อความ' };
+  const { error } = await supabase.from('post_comments')
+    .insert([{ post_id: postId, user_id: String(userId).trim(), content: c }]);
+  if (error) return { success: false, message: error.message };
+  return { success: true };
+}
+
+// Combined feed: active stories (24h) + latest text posts with reaction/comment counts.
 export async function getFeedData(viewerId) {
   const vid = viewerId ? String(viewerId).trim() : null;
 
@@ -609,6 +652,34 @@ export async function getFeedData(viewerId) {
     return { id: s.id, userId: s.user_id, name: anon ? 'ไม่ระบุตัวตน' : (u ? u.name : '-'), img: anon ? '' : (u ? u.img : ''), kind: s.kind, content: s.content, at: s.created_at, reactions: rc[s.id] || 0, anonymous: anon };
   });
 
+  // post reactions + comment counts
+  const pIds = (posts || []).map(p => p.id);
+  let postRxRows = [], myRxRows = [], cmtRows = [];
+  if (pIds.length) {
+    const [rxRes, myRxRes, cmtRes] = await Promise.all([
+      supabase.from('post_reactions').select('post_id, emoji').in('post_id', pIds),
+      vid ? supabase.from('post_reactions').select('post_id, emoji').in('post_id', pIds).eq('user_id', vid) : Promise.resolve({ data: [] }),
+      supabase.from('post_comments').select('post_id').in('post_id', pIds)
+    ]);
+    postRxRows = rxRes.data || [];
+    myRxRows = myRxRes.data || [];
+    cmtRows = cmtRes.data || [];
+  }
+
+  // aggregate reactions per post
+  const rxCounts = {}; // { postId: { heart: 3, fire: 1 } }
+  postRxRows.forEach(r => {
+    if (!rxCounts[r.post_id]) rxCounts[r.post_id] = {};
+    rxCounts[r.post_id][r.emoji] = (rxCounts[r.post_id][r.emoji] || 0) + 1;
+  });
+  const myRx = {}; // { postId: { heart: true } }
+  myRxRows.forEach(r => {
+    if (!myRx[r.post_id]) myRx[r.post_id] = {};
+    myRx[r.post_id][r.emoji] = true;
+  });
+  const cmtCount = {}; // { postId: 5 }
+  cmtRows.forEach(r => { cmtCount[r.post_id] = (cmtCount[r.post_id] || 0) + 1; });
+
   const postOut = (posts || []).map(p => {
     const u = info[p.user_id]; const anon = !!p.anonymous;
     const isMine = vid && p.user_id === vid;
@@ -617,7 +688,10 @@ export async function getFeedData(viewerId) {
       name: anon ? 'ไม่ระบุตัวตน' : (u ? u.name : '-'),
       cls: anon ? '' : (u ? u.cls : ''),
       img: anon ? '' : (u ? u.img : ''),
-      content: p.content, at: p.created_at, anonymous: anon, mine: isMine
+      content: p.content, at: p.created_at, anonymous: anon, mine: isMine,
+      reactions: rxCounts[p.id] || {},
+      myReactions: myRx[p.id] || {},
+      commentCount: cmtCount[p.id] || 0
     };
   });
 
