@@ -557,6 +557,83 @@ export async function adminAddQuiz(moduleId, text, opt1, opt2, opt3, opt4, answe
   return { success: true };
 }
 
+/* ===== FEED POSTS (text, optional anonymous) ===== */
+
+export async function createPost(userId, content, anonymous) {
+  const c = (content || '').trim().slice(0, 1000);
+  if (!c) return { success: false, message: 'กรุณาใส่ข้อความ' };
+  const { error } = await supabase.from('posts').insert([{
+    user_id: String(userId).trim(), content: c, anonymous: !!anonymous
+  }]);
+  if (error) return { success: false, message: error.message };
+  return { success: true };
+}
+
+export async function deletePost(postId, userId) {
+  await supabase.from('posts').delete().eq('id', postId).eq('user_id', String(userId).trim());
+  return { success: true };
+}
+
+// Combined feed: active stories (24h) + latest text posts, newest first.
+export async function getFeedData(viewerId) {
+  const vid = viewerId ? String(viewerId).trim() : null;
+
+  // ----- text posts (latest 100) -----
+  const { data: posts } = await supabase.from('posts')
+    .select('id, user_id, content, anonymous, created_at')
+    .order('created_at', { ascending: false }).limit(100);
+
+  // ----- active stories -----
+  const nowIso = new Date().toISOString();
+  const { data: stories } = await supabase.from('stories')
+    .select('*').gt('expires_at', nowIso).order('created_at', { ascending: false });
+
+  // user info needed for both
+  const ids = new Set();
+  (posts || []).forEach(p => ids.add(p.user_id));
+  (stories || []).forEach(s => ids.add(s.user_id));
+  const info = {};
+  if (ids.size) {
+    const { data: users } = await supabase.from('users')
+      .select('id, first_name, last_name, class_name, profile_image').in('id', [...ids]);
+    (users || []).forEach(u => { info[u.id] = { name: (u.first_name + ' ' + u.last_name).trim(), cls: u.class_name || '', img: u.profile_image || '' }; });
+  }
+
+  // story reaction counts
+  const sIds = (stories || []).map(s => s.id);
+  let reacts = [];
+  if (sIds.length) { const r = await supabase.from('reactions').select('story_id').in('story_id', sIds); reacts = r.data || []; }
+  const rc = {}; reacts.forEach(r => { rc[r.story_id] = (rc[r.story_id] || 0) + 1; });
+  const storyOut = (stories || []).map(s => {
+    const u = info[s.user_id]; const anon = !!s.anonymous;
+    return { id: s.id, userId: s.user_id, name: anon ? 'ไม่ระบุตัวตน' : (u ? u.name : '-'), img: anon ? '' : (u ? u.img : ''), kind: s.kind, content: s.content, at: s.created_at, reactions: rc[s.id] || 0, anonymous: anon };
+  });
+
+  const postOut = (posts || []).map(p => {
+    const u = info[p.user_id]; const anon = !!p.anonymous;
+    const isMine = vid && p.user_id === vid;
+    return {
+      id: p.id, userId: anon ? null : p.user_id, ownerId: p.user_id,
+      name: anon ? 'ไม่ระบุตัวตน' : (u ? u.name : '-'),
+      cls: anon ? '' : (u ? u.cls : ''),
+      img: anon ? '' : (u ? u.img : ''),
+      content: p.content, at: p.created_at, anonymous: anon, mine: isMine
+    };
+  });
+
+  return { success: true, stories: storyOut, posts: postOut };
+}
+
+// Posts for one profile wall — anonymous posts are excluded (would reveal author).
+export async function getUserPosts(targetUserId) {
+  const uid = String(targetUserId).trim();
+  const { data: posts } = await supabase.from('posts')
+    .select('id, content, created_at')
+    .eq('user_id', uid).eq('anonymous', false)
+    .order('created_at', { ascending: false }).limit(50);
+  return { success: true, posts: (posts || []).map(p => ({ id: p.id, content: p.content, at: p.created_at })) };
+}
+
 export async function getUserProfile(targetUserId) {
   const uid = String(targetUserId).trim();
   const { data: u } = await supabase.from('users')
@@ -566,6 +643,11 @@ export async function getUserProfile(targetUserId) {
   const { data: scores } = await supabase.from('scores').select('quiz_type, reference_id').eq('user_id', uid);
   const completedModules = [...new Set((scores || []).filter(s => s.quiz_type === 'PostTest').map(s => s.reference_id))].length;
   const activities = (scores || []).length;
+  // public posts (non-anonymous) for the wall
+  const { data: posts } = await supabase.from('posts')
+    .select('id, content, created_at')
+    .eq('user_id', uid).eq('anonymous', false)
+    .order('created_at', { ascending: false }).limit(50);
   return {
     success: true,
     user: {
@@ -574,6 +656,7 @@ export async function getUserProfile(targetUserId) {
       youtubeUrl: u.youtube_url || '', nickname: u.nickname || '',
       motto: u.motto || '', dream: u.dream || '', bio: u.bio || '', targetGoal: u.target_goal || ''
     },
-    stats: { completedModules, activities }
+    stats: { completedModules, activities },
+    posts: (posts || []).map(p => ({ id: p.id, content: p.content, at: p.created_at }))
   };
 }

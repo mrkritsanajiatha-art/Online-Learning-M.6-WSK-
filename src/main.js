@@ -65,7 +65,11 @@ var App = {
     storyKind: 'text',
     weeklyGoal: { loaded: false, goal: null },
     wgPick: { type: 'lessons', target: 3 },
-    community: { titles: [], feed: [], loaded: false },
+    feed: { stories: [], posts: [], loaded: false },
+    postDraft: '',
+    postAnonymous: false,
+    myPosts: null,
+    viewingUser: null,
     cropper: null,
     cropperOpen: false,
     editAvatar: null,
@@ -78,45 +82,8 @@ var App = {
     scannerAnimFrame: null,
     scannedUser: null,
     scannedUserBonus: 0,
-    pendingBonusPoints: 10,
-    wordBridge: { puzzleIndex: 0, slots: [], pool: [], checked: false, correctTotal: 0, totalSlots: 0, finished: false, awarded: 0, alreadyDone: false, started: false }
+    pendingBonusPoints: 10
   },
-
-  // ===== WORD BRIDGE PUZZLES =====
-  // แต่ละโจทย์: เรียงคำศัพท์ให้ต่อกันเป็นเรื่องราว/ขั้นตอน จากต้นทาง -> ปลายทาง
-  // chain = ลำดับคำที่ถูกต้อง, decoys = คำลวง (จากคำศัพท์อื่น)
-  wordBridgePuzzles: [
-    {
-      start: '🌙 นอนดึก', end: '😷 ขาดเรียน',
-      chain: ['oversleep', 'under the weather', 'absent'],
-      decoys: ['priority', 'nail it'],
-      why: 'นอนดึก → oversleep (ตื่นสาย) → under the weather (รู้สึกไม่สบาย) → absent (ขาดเรียน)'
-    },
-    {
-      start: '🤔 เริ่มวางแผนชีวิต', end: '🎯 ลงมือทำ',
-      chain: ['consider / weigh', 'vision / aspiration', 'priority', 'objective / goal'],
-      decoys: ['eliminate', 'adapt / adaptable'],
-      why: 'พิจารณา (consider/weigh) → มีวิสัยทัศน์ (vision/aspiration) → จัดลำดับความสำคัญ (priority) → ตั้งเป้าหมาย (objective/goal)'
-    },
-    {
-      start: '📚 เตรียมแข่งสุนทรพจน์', end: '🏆 คว้าชัยชนะ',
-      chain: ['brush up on', 'common sense', 'adapt / adaptable', 'nail it'],
-      decoys: ['oversleep', 'recyclable'],
-      why: 'ทบทวน (brush up on) → ใช้สามัญสำนึก (common sense) → ปรับตัว (adapt) → ทำได้ยอดเยี่ยม (nail it)'
-    },
-    {
-      start: '🌍 ปัญหาขยะพลาสติก', end: '♻️ โลกสะอาดขึ้น',
-      chain: ['alternative', 'green packaging', 'recyclable', 'eliminate'],
-      decoys: ['by then', 'turn in / submit'],
-      why: 'หาทางเลือก (alternative) → บรรจุภัณฑ์รักษ์โลก (green packaging) → รีไซเคิลได้ (recyclable) → กำจัดขยะ (eliminate)'
-    },
-    {
-      start: '💭 คิดจะทำโปรเจกต์', end: '✅ ทำสำเร็จ',
-      chain: ['decide to + V', 'agree to + V', 'keep + V-ing', 'finish + V-ing'],
-      decoys: ['avoid + V-ing', 'under the weather'],
-      why: 'ตัดสินใจ (decide to) → ตกลงร่วมกัน (agree to) → ทำต่อเนื่อง (keep V-ing) → ทำเสร็จ (finish V-ing)'
-    }
-  ],
 
   bear: '&#x1F43B;',
   bearHappy: '&#x1F43B;',
@@ -312,31 +279,30 @@ var App = {
     } else if (route === 'storyCompose') {
       this.state.storyDraft = ''; this.state.storyKind = 'text'; this.state.storyAnonymous = false;
       this.render();
-    } else if (route === 'showcaseCompose') {
-      this.state.showcaseCat = 'essay';
-      this.render();
     } else if (route === 'weeklyGoal') {
       var ex = this.state.weeklyGoal.goal;
       this.state.wgGoalEdit = ex ? { type: ex.goalType, target: ex.target } : Object.assign({}, this.state.wgPick);
       this.render();
-    } else if (route === 'community') {
-      this.state.community.loaded = false;
+    } else if (route === 'feed') {
+      this.state.feed = { stories: [], posts: [], loaded: false };
+      this.state.postDraft = ''; this.state.postAnonymous = false;
       this.render();
       google.script.run.withSuccessHandler(function(res) {
-        if (res && res.success) self.state.community = { titles: res.titles, feed: res.feed, stories: res.stories || [], showcase: res.showcase || [], loaded: true };
-        else self.state.community.loaded = true;
-        if (self.state.currentRoute === 'community') self.render();
-      }).withFailureHandler(function() { self.state.community.loaded = true; self.render(); }).getCommunityData();
+        if (res && res.success) self.state.feed = { stories: res.stories || [], posts: res.posts || [], loaded: true };
+        else self.state.feed = { stories: [], posts: [], loaded: true };
+        if (self.state.currentRoute === 'feed') self.render();
+      }).withFailureHandler(function() { self.state.feed = { stories: [], posts: [], loaded: true }; self.render(); }).getFeedData(self.state.user.UserID);
     } else if (route === 'userProfile') {
       this.state.viewingUser = null;
       this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res && res.success) self.state.viewingUser = res;
         if (self.state.currentRoute === 'userProfile') self.render();
-      }).withFailureHandler(function() { self.navigate('community'); }).getUserProfile(params);
-    } else if (route === 'wordBridge') {
-      this.initWordBridge();
+      }).withFailureHandler(function() { self.navigate('feed'); }).getUserProfile(params);
+    } else if (route === 'profile') {
+      this.state.myPosts = null;
       this.render();
+      this.loadMyPosts();
     } else if (route === 'adminScanner') {
       this.state.scannedUser = null;
       this.render();
@@ -377,12 +343,10 @@ var App = {
     else if (r === 'leaderboard') { html = this.viewLeaderboard() + this.bottomNav('home'); }
     else if (r === 'guide') { html = this.viewGuide() + this.bottomNav('profile'); }
     else if (r === 'bonusQR') { html = this.viewBonusQR() + this.bottomNav('bonus'); }
-    else if (r === 'wordBridge') { html = this.viewWordBridge() + this.bottomNav('home'); }
-    else if (r === 'community') { html = this.viewCommunity() + this.bottomNav('community'); }
-    else if (r === 'storyCompose') { html = this.viewStoryCompose() + this.bottomNav('community'); }
+    else if (r === 'feed') { html = this.viewFeed() + this.bottomNav('feed'); }
+    else if (r === 'storyCompose') { html = this.viewStoryCompose() + this.bottomNav('feed'); }
     else if (r === 'storyView') { html = this.viewStoryView(); }
-    else if (r === 'userProfile') { html = this.viewUserProfile() + this.bottomNav('community'); }
-    else if (r === 'showcaseCompose') { html = this.viewShowcaseCompose() + this.bottomNav('community'); }
+    else if (r === 'userProfile') { html = this.viewUserProfile() + this.bottomNav('feed'); }
     else if (r === 'weeklyGoal') { html = this.viewWeeklyGoal() + this.bottomNav('home'); }
     else if (r === 'admin') { html = this.viewAdmin(); }
     else if (r === 'adminScanner') { html = this.viewAdminScanner(); }
@@ -553,24 +517,13 @@ var App = {
           '<div style="width:36px; height:36px; border-radius:50%; background:white; box-shadow:0 4px 0 rgba(60,130,220,0.2); display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--clay-blue);">▶</div>' +
         '</div>' +
       '</div>' +
-      // Word Bridge Game
-      '<div class="card action-card" style="background:linear-gradient(145deg,#FCE0FF,#EFD0FF); box-shadow:0 6px 0 rgba(160,80,200,0.2),0 10px 20px rgba(160,80,200,0.10); margin-top:12px; cursor:pointer;" onclick="App.navigate(\'wordBridge\')">' +
+      // Feed
+      '<div class="card action-card" style="background:linear-gradient(145deg,#E0F7FA,#C8EEF5); box-shadow:0 6px 0 rgba(60,170,200,0.2),0 10px 20px rgba(60,170,200,0.10); margin-top:12px; cursor:pointer;" onclick="App.navigate(\'feed\')">' +
         '<div style="display:flex; align-items:center; gap:12px;">' +
-          '<div style="font-size:40px;">🌉</div>' +
+          '<div style="font-size:40px;">📰</div>' +
           '<div style="flex:1;">' +
-            '<div style="font-weight:800; font-size:15px; color:var(--clay-purple-shadow);">🔗 เกมสะพานคำ (Word Bridge)</div>' +
-            '<div style="font-size:12px; color:var(--clay-text-light); margin-top:4px;">เรียงคำศัพท์เชื่อมต้นทางถึงปลายทาง รับ EXP สูงสุด 100!</div>' +
-          '</div>' +
-          '<div style="width:36px; height:36px; border-radius:50%; background:white; box-shadow:0 4px 0 rgba(160,80,200,0.2); display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--clay-purple);">▶</div>' +
-        '</div>' +
-      '</div>' +
-      // Community
-      '<div class="card action-card" style="background:linear-gradient(145deg,#E0F7FA,#C8EEF5); box-shadow:0 6px 0 rgba(60,170,200,0.2),0 10px 20px rgba(60,170,200,0.10); margin-top:12px; cursor:pointer;" onclick="App.navigate(\'community\')">' +
-        '<div style="display:flex; align-items:center; gap:12px;">' +
-          '<div style="font-size:40px;">🌟</div>' +
-          '<div style="flex:1;">' +
-            '<div style="font-weight:800; font-size:15px; color:#0E7C8B;">🌟 ชุมชนนักเรียน</div>' +
-            '<div style="font-size:12px; color:var(--clay-text-light); margin-top:4px;">ดูตำแหน่งพิเศษ + ความเคลื่อนไหวของเพื่อนๆ ทั้งระดับ</div>' +
+            '<div style="font-weight:800; font-size:15px; color:#0E7C8B;">📰 Feed เพื่อนๆ</div>' +
+            '<div style="font-size:12px; color:var(--clay-text-light); margin-top:4px;">โพสต์ข้อความ + ดูสตอรี่และความเคลื่อนไหวของเพื่อนทั้งระดับ</div>' +
           '</div>' +
           '<div style="width:36px; height:36px; border-radius:50%; background:white; box-shadow:0 4px 0 rgba(60,170,200,0.2); display:flex; align-items:center; justify-content:center; font-size:16px; color:#0E7C8B;">▶</div>' +
         '</div>' +
@@ -672,120 +625,141 @@ var App = {
     return new Date(iso).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
   },
 
-  viewCommunity: function() {
-    var c = this.state.community;
-    var myId = this.state.user ? this.state.user.UserID : null;
+  feedHeader: function() {
+    return '<div style="background:linear-gradient(135deg,#26C6DA,#5BA4F5); border-radius:24px; padding:18px 20px; margin-bottom:16px; box-shadow:0 8px 0 rgba(40,150,180,0.2),0 14px 28px rgba(40,150,180,0.15); display:flex; align-items:center; gap:12px;">' +
+      '<div style="font-size:36px; filter:drop-shadow(0 4px 0 rgba(0,0,0,0.12));">📰</div>' +
+      '<div style="flex:1;"><div style="font-size:18px; font-weight:800; color:white;">Feed เพื่อนๆ</div>' +
+      '<div style="font-size:12px; color:rgba(255,255,255,0.9);">โพสต์ข้อความ แชร์เรื่องราว เชียร์กันทั้งระดับ! 🎉</div></div>' +
+      '<button onclick="App.navigate(\'dashboard\')" style="background:rgba(255,255,255,0.25); border:none; width:34px; height:34px; border-radius:50%; font-size:16px; cursor:pointer; color:white;">✕</button>' +
+    '</div>';
+  },
 
-    if (!c.loaded) {
-      return '<div class="page-content">' + this.communityHeader() +
-        '<div class="loader" style="height:auto; padding:40px 0;"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลดชุมชน...</div></div>' +
-      '</div>';
-    }
-
-    // Special titles
-    var titlesHtml = '';
-    for (var i = 0; i < c.titles.length; i++) {
-      var t = c.titles[i];
-      var has = t.holderId;
-      var mine = myId && t.holderId === myId;
-      titlesHtml += '<div style="flex:0 0 auto; width:140px; background:' + (mine ? 'linear-gradient(145deg,#FFF3E0,#FFE0CC)' : 'var(--clay-white)') + '; border-radius:18px; padding:14px; box-shadow:0 5px 0 rgba(150,100,200,0.12),0 8px 16px rgba(150,100,200,0.08);' + (mine ? 'border:2px solid var(--bear-orange);' : '') + '">' +
-        '<div style="font-size:30px; text-align:center;">' + t.emoji + '</div>' +
-        '<div style="font-weight:800; font-size:12px; text-align:center; color:var(--clay-text); margin-top:4px;">' + t.label + '</div>' +
-        '<div style="font-size:10px; text-align:center; color:var(--clay-text-light); margin-bottom:6px;">' + t.desc + '</div>' +
-        (has
-          ? '<div style="font-size:11px; font-weight:800; text-align:center; color:var(--clay-purple-shadow); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + t.holderName + '</div><div style="font-size:10px; text-align:center; color:var(--bear-orange); font-weight:800;">' + t.value + ' ' + t.unit + (mine ? ' · คุณ! 🎉' : '') + '</div>'
-          : '<div style="font-size:10px; text-align:center; color:var(--clay-text-light);">ยังไม่มีเจ้าของ</div>') +
-      '</div>';
-    }
-
-    // Feed
-    var feedHtml = '';
-    if (c.feed.length === 0) {
-      feedHtml = '<p class="text-center" style="color:var(--clay-text-light); font-weight:700; padding:20px 0;">ยังไม่มีความเคลื่อนไหว</p>';
-    } else {
-      for (var f = 0; f < c.feed.length; f++) {
-        var it = c.feed[f];
-        var av = it.img ? '<img src="' + it.img + '" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0;">' : '<div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">👤</div>';
-        feedHtml += '<div style="display:flex; align-items:center; gap:12px; background:var(--clay-white); border-radius:16px; padding:12px 14px; margin-bottom:8px; box-shadow:0 4px 0 rgba(150,100,200,0.10),0 6px 12px rgba(150,100,200,0.06);">' +
-          '<div onclick="App.navigate(\'userProfile\',\'' + it.userId + '\')" style="flex-shrink:0; cursor:pointer;">' + av + '</div>' +
-          '<div style="flex:1; min-width:0;">' +
-            '<div style="font-size:13px; color:var(--clay-text);"><b>' + it.name + '</b> <span style="color:var(--clay-text-light); font-size:11px;">' + (it.cls || '') + '</span></div>' +
-            '<div style="font-size:13px; color:var(--clay-text); margin-top:2px;">' + it.emoji + ' ' + it.text + '</div>' +
-          '</div>' +
-          '<div style="font-size:10px; color:var(--clay-text-light); flex-shrink:0; text-align:right;">' + this.timeAgo(it.at) + '</div>' +
-        '</div>';
-      }
-    }
-
-    // Stories row (24h) — first bubble = create
-    var stories = c.stories || [];
-    var storyBubbles = '<div onclick="App.navigate(\'storyCompose\')" style="flex:0 0 auto; width:66px; text-align:center; cursor:pointer;">' +
+  // Build the Stories row (used by Feed). First bubble = create.
+  storyBubblesHtml: function(stories) {
+    var html = '<div onclick="App.navigate(\'storyCompose\')" style="flex:0 0 auto; width:66px; text-align:center; cursor:pointer;">' +
       '<div style="width:62px; height:62px; border-radius:50%; background:linear-gradient(135deg,#FFD166,#FF8C42); display:flex; align-items:center; justify-content:center; font-size:28px; color:white; box-shadow:0 4px 0 rgba(200,140,40,0.3);">＋</div>' +
       '<div style="font-size:10px; color:var(--clay-text-light); margin-top:4px;">สร้าง</div>' +
     '</div>';
-    for (var si = 0; si < stories.length; si++) {
+    for (var si = 0; si < (stories || []).length; si++) {
       var s = stories[si];
       var sav = s.anonymous
         ? '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:28px;background:linear-gradient(135deg,#2d2d44,#1a1a2e);">👻</div>'
         : (s.img ? '<img src="' + s.img + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">' : '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:26px;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);">👤</div>');
       var firstName = s.anonymous ? '???' : (s.name || '-').split(' ')[0];
-      storyBubbles += '<div onclick="App.openStory(' + s.id + ')" style="flex:0 0 auto; width:66px; text-align:center; cursor:pointer;">' +
+      html += '<div onclick="App.openStory(' + s.id + ')" style="flex:0 0 auto; width:66px; text-align:center; cursor:pointer;">' +
         '<div style="width:62px; height:62px; border-radius:50%; padding:3px; background:' + (s.anonymous ? 'linear-gradient(135deg,#555,#333)' : 'linear-gradient(135deg,#C084FC,#FF8C42)') + '; box-shadow:0 4px 0 rgba(160,80,200,0.2);"><div style="width:100%;height:100%;border-radius:50%;overflow:hidden;border:2px solid white;">' + sav + '</div></div>' +
         '<div style="font-size:10px; color:var(--clay-text); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + firstName + '</div>' +
       '</div>';
     }
+    return html;
+  },
 
-    // Showcase
-    var sc = c.showcase || [];
-    var isAdmin = this.state.user && this.state.user.Role === 'Admin';
-    var catMeta = { essay:{e:'📝',l:'เรียงความ'}, vocab:{e:'🔤',l:'คำศัพท์'}, speaking:{e:'🎤',l:'พูด'}, improvement:{e:'📈',l:'พัฒนาการ'} };
-    var showHtml = '';
-    if (sc.length === 0) {
-      showHtml = '<p class="text-center" style="color:var(--clay-text-light); font-weight:700; padding:14px 0;">ยังไม่มีผลงาน — มาเป็นคนแรกกัน! 🌟</p>';
-    } else {
-      for (var x = 0; x < sc.length; x++) {
-        var w = sc[x]; var cm = catMeta[w.category] || { e:'🏅', l:w.category };
-        var wav = w.img ? '<img src="' + w.img + '" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;">' : '<div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">👤</div>';
-        var mineW = myId && w.userId === myId;
-        showHtml += '<div style="background:var(--clay-white); border-radius:16px; padding:14px; margin-bottom:8px; box-shadow:0 4px 0 rgba(150,100,200,0.10),0 6px 12px rgba(150,100,200,0.06);' + (w.pinned ? 'border:2px solid var(--bear-orange);' : '') + '">' +
-          (w.pinned ? '<div style="font-size:11px; font-weight:800; color:var(--bear-orange); margin-bottom:6px;">📌 ครูปักหมุด</div>' : '') +
-          '<div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">' + wav +
-            '<div style="flex:1; min-width:0;"><div style="font-weight:800; font-size:14px; color:var(--clay-text);">' + cm.e + ' ' + this.esc(w.title) + '</div>' +
-            '<div style="font-size:11px; color:var(--clay-text-light);">' + cm.l + ' · ' + w.name + '</div></div>' +
-          '</div>' +
-          (w.content ? '<div style="font-size:13px; color:var(--clay-text); line-height:1.6; white-space:pre-wrap;">' + this.esc(w.content) + '</div>' : '') +
-          (w.media ? '<a href="' + this.esc(w.media) + '" target="_blank" rel="noopener" style="font-size:12px; color:var(--clay-blue); font-weight:700; display:inline-block; margin-top:6px;">🔗 ดูไฟล์/คลิป</a>' : '') +
-          (isAdmin ? '<div style="margin-top:8px;"><button onclick="App.togglePin(' + w.id + ',' + (w.pinned?'false':'true') + ')" style="background:var(--clay-bg); border:none; border-radius:10px; padding:6px 12px; font-size:12px; font-weight:800; color:var(--clay-purple-shadow); cursor:pointer;">' + (w.pinned ? '📌 ยกเลิกปักหมุด' : '📌 ปักหมุด') + '</button></div>' : '') +
-          (mineW && !isAdmin ? '<div style="margin-top:8px;"><button onclick="App.removeShowcase(' + w.id + ')" style="background:none; border:none; font-size:11px; color:var(--clay-red); cursor:pointer;">ลบผลงาน</button></div>' : '') +
-        '</div>';
-      }
-    }
-
-    return '<div class="page-content">' + this.communityHeader() +
-      // Stories
-      '<div style="display:flex; gap:10px; overflow-x:auto; padding-bottom:8px; margin-bottom:16px; -webkit-overflow-scrolling:touch;">' + storyBubbles + '</div>' +
-      // Titles
-      '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin:4px 0 10px;">🏅 ตำแหน่งพิเศษประจำระดับ</div>' +
-      '<div style="display:flex; gap:10px; overflow-x:auto; padding-bottom:8px; margin-bottom:16px; -webkit-overflow-scrolling:touch;">' + titlesHtml + '</div>' +
-      // Showcase
-      '<div style="display:flex; justify-content:space-between; align-items:center; margin:4px 0 10px;">' +
-        '<div style="font-weight:800; font-size:15px; color:var(--clay-text);">🌟 ผลงานเด่น</div>' +
-        '<button onclick="App.navigate(\'showcaseCompose\')" style="background:linear-gradient(135deg,#FF8C42,#C084FC); border:none; border-radius:12px; padding:6px 14px; font-size:12px; font-weight:800; color:white; cursor:pointer;">＋ ส่งผลงาน</button>' +
+  // A single post card (shared by Feed + profile walls)
+  postCard: function(p, opts) {
+    opts = opts || {};
+    var clickable = !p.anonymous && p.userId;
+    var av = p.anonymous
+      ? '<div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#2d2d44,#1a1a2e);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">👻</div>'
+      : (p.img ? '<img src="' + p.img + '" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0;">' : '<div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">👤</div>');
+    var avWrap = clickable
+      ? '<div onclick="App.navigate(\'userProfile\',\'' + p.userId + '\')" style="cursor:pointer;">' + av + '</div>'
+      : av;
+    var canDelete = opts.canDelete || p.mine;
+    return '<div style="background:var(--clay-white); border-radius:16px; padding:14px; margin-bottom:8px; box-shadow:0 4px 0 rgba(150,100,200,0.10),0 6px 12px rgba(150,100,200,0.06);">' +
+      '<div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">' + avWrap +
+        '<div style="flex:1; min-width:0;">' +
+          '<div style="font-weight:800; font-size:13px; color:var(--clay-text);">' + this.esc(p.name) + (p.anonymous ? ' <span style="font-size:10px; color:var(--clay-text-light);">👻 ไร้ตัวตน</span>' : '') + '</div>' +
+          '<div style="font-size:11px; color:var(--clay-text-light);">' + (p.cls ? this.esc(p.cls) + ' · ' : '') + this.timeAgo(p.at) + '</div>' +
+        '</div>' +
+        (canDelete ? '<button onclick="App.deletePost(' + p.id + ')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; line-height:1;">🗑️</button>' : '') +
       '</div>' +
-      showHtml +
-      // Feed
-      '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin:16px 0 10px;">📣 ความเคลื่อนไหวล่าสุด</div>' +
-      feedHtml +
+      '<div style="font-size:14px; color:var(--clay-text); line-height:1.6; white-space:pre-wrap;">' + this.esc(p.content) + '</div>' +
     '</div>';
   },
 
-  communityHeader: function() {
-    return '<div style="background:linear-gradient(135deg,#26C6DA,#5BA4F5); border-radius:24px; padding:18px 20px; margin-bottom:16px; box-shadow:0 8px 0 rgba(40,150,180,0.2),0 14px 28px rgba(40,150,180,0.15); display:flex; align-items:center; gap:12px;">' +
-      '<div style="font-size:36px; filter:drop-shadow(0 4px 0 rgba(0,0,0,0.12));">🌟</div>' +
-      '<div style="flex:1;"><div style="font-size:18px; font-weight:800; color:white;">ชุมชนนักเรียน</div>' +
-      '<div style="font-size:12px; color:rgba(255,255,255,0.9);">มาเชียร์กันให้เก่งขึ้นทั้งระดับ! 🎉</div></div>' +
-      '<button onclick="App.navigate(\'dashboard\')" style="background:rgba(255,255,255,0.25); border:none; width:34px; height:34px; border-radius:50%; font-size:16px; cursor:pointer; color:white;">✕</button>' +
+  // Compose box for a new text post (used on Feed + own profile)
+  postComposer: function() {
+    var anon = this.state.postAnonymous;
+    return '<div class="card">' +
+      '<textarea id="post-text" class="input-field" style="margin-bottom:10px; min-height:80px; resize:vertical; font-size:15px;" maxlength="1000" placeholder="โพสต์อะไรสักอย่าง... แชร์ให้เพื่อนๆ ใน Feed!">' + this.esc(this.state.postDraft || '') + '</textarea>' +
+      '<div style="display:flex; align-items:center; gap:10px;">' +
+        '<div onclick="App.togglePostAnon()" style="display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; flex:1;">' +
+          '<div style="width:40px; height:22px; border-radius:11px; background:' + (anon ? 'var(--clay-purple)' : 'var(--clay-bg)') + '; position:relative;">' +
+            '<div style="position:absolute; top:2px; ' + (anon ? 'right:2px' : 'left:2px') + '; width:18px; height:18px; border-radius:50%; background:white; box-shadow:0 2px 4px rgba(0,0,0,0.2);"></div>' +
+          '</div>' +
+          '<span style="font-size:12px; font-weight:700; color:' + (anon ? 'var(--clay-purple-shadow)' : 'var(--clay-text-light)') + ';">' + (anon ? '👻 ไร้ตัวตน' : '🙂 แสดงชื่อ') + '</span>' +
+        '</div>' +
+        '<button onclick="App.submitPost()" style="background:linear-gradient(135deg,#FF8C42,#C084FC); border:none; border-radius:12px; padding:10px 22px; font-family:var(--font-main); font-weight:800; font-size:14px; color:white; cursor:pointer; box-shadow:0 3px 0 rgba(160,80,200,0.2);">โพสต์ 🚀</button>' +
+      '</div>' +
     '</div>';
+  },
+
+  viewFeed: function() {
+    var fd = this.state.feed || { stories: [], posts: [], loaded: false };
+    if (!fd.loaded) {
+      return '<div class="page-content">' + this.feedHeader() +
+        '<div class="loader" style="height:auto; padding:40px 0;"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลด Feed...</div></div>' +
+      '</div>';
+    }
+    var self = this;
+    var posts = fd.posts || [];
+    var postsHtml = posts.length === 0
+      ? '<p class="text-center" style="color:var(--clay-text-light); font-weight:700; padding:20px 0;">ยังไม่มีโพสต์ — มาเป็นคนแรกกัน! ✍️</p>'
+      : posts.map(function(p){ return self.postCard(p); }).join('');
+
+    return '<div class="page-content">' + this.feedHeader() +
+      // Stories row
+      '<div style="display:flex; gap:10px; overflow-x:auto; padding-bottom:8px; margin-bottom:16px; -webkit-overflow-scrolling:touch;">' + this.storyBubblesHtml(fd.stories) + '</div>' +
+      // Composer
+      this.postComposer() +
+      // Posts feed
+      '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin:16px 0 10px;">📣 โพสต์ล่าสุด</div>' +
+      postsHtml +
+    '</div>';
+  },
+
+  togglePostAnon: function() {
+    this.state.postAnonymous = !this.state.postAnonymous;
+    var ta = document.getElementById('post-text');
+    if (ta) this.state.postDraft = ta.value;
+    this.render();
+  },
+
+  submitPost: function() {
+    var self = this;
+    var ta = document.getElementById('post-text');
+    var content = ta ? ta.value.trim() : '';
+    if (!content) { alert('กรุณาใส่ข้อความ'); return; }
+    var anon = !!this.state.postAnonymous;
+    var fromProfile = this.state.currentRoute === 'profile';
+    google.script.run.withSuccessHandler(function(res){
+      if (res && res.success) {
+        self.state.postDraft = ''; self.state.postAnonymous = false;
+        self.celebrate(16); self.toast(anon ? '👻 โพสต์แบบไร้ตัวตนแล้ว!' : '✅ โพสต์แล้ว!');
+        if (fromProfile) { self.loadMyPosts(); self.render(); }
+        else { self.navigate('feed'); }
+      } else alert((res && res.message) || 'โพสต์ไม่สำเร็จ');
+    }).withFailureHandler(function(e){ alert('Error: ' + e.message); }).createPost(this.state.user.UserID, content, anon);
+  },
+
+  deletePost: function(id) {
+    var self = this;
+    if (!confirm('ลบโพสต์นี้?')) return;
+    google.script.run.withSuccessHandler(function(){
+      // refresh whichever list we're viewing
+      var r = self.state.currentRoute;
+      if (r === 'feed') self.navigate('feed');
+      else if (r === 'userProfile' && self.state.viewingUser && self.state.viewingUser.user) self.navigate('userProfile', self.state.viewingUser.user.id);
+      else { self.loadMyPosts(); self.render(); }
+    }).withFailureHandler(function(){}).deletePost(id, this.state.user.UserID);
+  },
+
+  // Load the current user's own posts (for the profile wall)
+  loadMyPosts: function() {
+    var self = this;
+    google.script.run.withSuccessHandler(function(res){
+      if (res && res.success) { self.state.myPosts = res.posts || []; self.render(); }
+    }).withFailureHandler(function(){}).getUserPosts(this.state.user.UserID);
   },
 
   /* ===== STORY / MOMENTS ===== */
@@ -807,7 +781,7 @@ var App = {
         (sel ? 'background:linear-gradient(135deg,#FF8C42,#C084FC); color:white;' : 'background:var(--clay-white); color:var(--clay-text); box-shadow:0 3px 0 rgba(150,100,200,0.12);') + '">' + t.emoji + ' ' + t.label + '</div>';
     }).join('');
     return '<div class="page-content">' +
-      '<button onclick="App.navigate(\'community\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<button onclick="App.navigate(\'feed\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
       '<h2 class="text-title" style="color:var(--bear-brown); margin-top:0;">📸 สร้างสตอรี่</h2>' +
       '<p style="font-size:12px; color:var(--clay-text-light); margin-top:0;">โพสต์จะแสดง 24 ชั่วโมงแล้วหายไปอัตโนมัติ</p>' +
       '<div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:8px; margin-bottom:12px;">' + tplBtns + '</div>' +
@@ -826,7 +800,7 @@ var App = {
         '</div>' +
       '</div>' +
       '<button class="btn btn-primary" onclick="App.submitStory()">🚀 โพสต์สตอรี่</button>' +
-      '<button class="btn btn-outline" onclick="App.navigate(\'community\')">ยกเลิก</button>' +
+      '<button class="btn btn-outline" onclick="App.navigate(\'feed\')">ยกเลิก</button>' +
     '</div>';
   },
 
@@ -854,7 +828,7 @@ var App = {
     if (!content) { alert('กรุณาใส่ข้อความ'); return; }
     var anon = !!this.state.storyAnonymous;
     google.script.run.withSuccessHandler(function(res){
-      if (res && res.success) { self.state.storyDraft=''; self.state.storyKind='text'; self.state.storyAnonymous=false; self.celebrate(20); self.toast(anon ? '👻 โพสต์แบบไร้ตัวตนแล้ว!' : '📸 โพสต์สตอรี่แล้ว!'); self.navigate('community'); }
+      if (res && res.success) { self.state.storyDraft=''; self.state.storyKind='text'; self.state.storyAnonymous=false; self.celebrate(20); self.toast(anon ? '👻 โพสต์แบบไร้ตัวตนแล้ว!' : '📸 โพสต์สตอรี่แล้ว!'); self.navigate('feed'); }
       else alert((res&&res.message)||'โพสต์ไม่สำเร็จ');
     }).withFailureHandler(function(e){ alert('Error: '+e.message); }).postStory(this.state.user.UserID, this.state.storyKind, content, anon);
   },
@@ -865,8 +839,8 @@ var App = {
     this.state.currentRoute = 'storyView';
     google.script.run.withSuccessHandler(function(res){
       if (res && res.success) { self.state.activeStory = res; self.render(); }
-      else { alert((res&&res.message)||'ไม่พบสตอรี่'); self.navigate('community'); }
-    }).withFailureHandler(function(){ self.navigate('community'); }).getStory(id, this.state.user.UserID);
+      else { alert((res&&res.message)||'ไม่พบสตอรี่'); self.navigate('feed'); }
+    }).withFailureHandler(function(){ self.navigate('feed'); }).getStory(id, this.state.user.UserID);
     this.render();
   },
 
@@ -888,7 +862,7 @@ var App = {
         '<div style="flex:1;"><div style="color:white; font-weight:800; font-size:15px;">' + s.name + '</div>' +
         '<div style="color:rgba(255,255,255,0.7); font-size:12px;">' + (s.cls||'') + ' · ' + this.timeAgo(s.at) + '</div></div>' +
         (isOwner ? '<button onclick="App.removeStory(' + s.id + ')" style="background:rgba(255,255,255,0.15); border:none; color:white; border-radius:10px; padding:6px 10px; font-size:12px; cursor:pointer;">ลบ</button>' : '') +
-        '<button onclick="App.navigate(\'community\')" style="background:rgba(255,255,255,0.2); border:none; width:34px; height:34px; border-radius:50%; color:white; font-size:16px; cursor:pointer;">✕</button>' +
+        '<button onclick="App.navigate(\'feed\')" style="background:rgba(255,255,255,0.2); border:none; width:34px; height:34px; border-radius:50%; color:white; font-size:16px; cursor:pointer;">✕</button>' +
       '</div>' +
       '<div style="flex:1; display:flex; align-items:center; justify-content:center; padding:24px; text-align:center;">' +
         '<div style="color:white; font-size:22px; font-weight:700; line-height:1.6; white-space:pre-wrap;">' + this.esc(s.content) + '</div>' +
@@ -912,67 +886,7 @@ var App = {
   removeStory: function(id) {
     var self = this;
     if (!confirm('ลบสตอรี่นี้?')) return;
-    google.script.run.withSuccessHandler(function(){ self.navigate('community'); }).withFailureHandler(function(){ self.navigate('community'); }).deleteStory(id, this.state.user.UserID);
-  },
-
-  /* ===== SHOWCASE ===== */
-
-  viewShowcaseCompose: function() {
-    var self = this;
-    var cats = [['essay','📝','เรียงความ'],['vocab','🔤','คำศัพท์'],['speaking','🎤','คลิปพูด'],['improvement','📈','พัฒนาการ']];
-    var cur = this.state.showcaseCat || 'essay';
-    var catBtns = cats.map(function(c){
-      var sel = cur === c[0];
-      return '<div onclick="App.setShowcaseCat(\'' + c[0] + '\')" style="flex:1; text-align:center; padding:12px 4px; border-radius:14px; cursor:pointer; ' +
-        (sel?'background:linear-gradient(135deg,#FF8C42,#C084FC); color:white;':'background:var(--clay-white); color:var(--clay-text); box-shadow:0 3px 0 rgba(150,100,200,0.12);') + '">' +
-        '<div style="font-size:22px;">' + c[1] + '</div><div style="font-size:11px; font-weight:800; margin-top:3px;">' + c[2] + '</div></div>';
-    }).join('');
-    return '<div class="page-content">' +
-      '<button onclick="App.navigate(\'community\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
-      '<h2 class="text-title" style="color:var(--bear-brown); margin-top:0;">🌟 ส่งผลงาน</h2>' +
-      '<div class="card">' +
-        '<div style="font-weight:800; font-size:14px; color:var(--clay-text); margin-bottom:10px;">ประเภทผลงาน</div>' +
-        '<div style="display:flex; gap:8px;">' + catBtns + '</div>' +
-      '</div>' +
-      '<div class="card">' +
-        this.fieldLabel('ชื่อผลงาน') +
-        '<input id="sc-title" class="input-field" placeholder="เช่น เรียงความ My Dream">' +
-        this.fieldLabel('รายละเอียด / เนื้อหา') +
-        '<textarea id="sc-content" class="input-field" style="min-height:100px; resize:vertical;" placeholder="วางเนื้อหา หรือเล่าเกี่ยวกับผลงาน"></textarea>' +
-        this.fieldLabel('ลิงก์ไฟล์/คลิป (ถ้ามี)') +
-        '<input id="sc-media" class="input-field" style="margin-bottom:0;" placeholder="เช่น ลิงก์ Google Drive / YouTube">' +
-      '</div>' +
-      '<button class="btn btn-primary" onclick="App.submitShowcase()">🚀 ส่งผลงาน</button>' +
-      '<button class="btn btn-outline" onclick="App.navigate(\'community\')">ยกเลิก</button>' +
-    '</div>';
-  },
-
-  setShowcaseCat: function(c) { this.state.showcaseCat = c; this.render(); },
-
-  submitShowcase: function() {
-    var self = this;
-    var title = (document.getElementById('sc-title').value || '').trim();
-    if (!title) { alert('กรุณาใส่ชื่อผลงาน'); return; }
-    var content = document.getElementById('sc-content').value || '';
-    var media = document.getElementById('sc-media').value || '';
-    google.script.run.withSuccessHandler(function(res){
-      if (res && res.success) { self.state.showcaseCat='essay'; self.celebrate(30); self.toast('🌟 ส่งผลงานแล้ว!'); self.state.community.loaded=false; self.navigate('community'); }
-      else alert((res&&res.message)||'ส่งไม่สำเร็จ');
-    }).withFailureHandler(function(e){ alert('Error: '+e.message); }).postShowcase(this.state.user.UserID, this.state.showcaseCat||'essay', title, content, media);
-  },
-
-  togglePin: function(id, pin) {
-    var self = this;
-    google.script.run.withSuccessHandler(function(res){
-      if (res && res.success) { self.state.community.loaded=false; self.navigate('community'); }
-      else alert((res&&res.message)||'ไม่สำเร็จ');
-    }).withFailureHandler(function(e){ alert('Error: '+e.message); }).adminPinShowcase(id, pin);
-  },
-
-  removeShowcase: function(id) {
-    var self = this;
-    if (!confirm('ลบผลงานนี้?')) return;
-    google.script.run.withSuccessHandler(function(){ self.state.community.loaded=false; self.navigate('community'); }).withFailureHandler(function(){}).deleteShowcase(id, this.state.user.UserID);
+    google.script.run.withSuccessHandler(function(){ self.navigate('feed'); }).withFailureHandler(function(){ self.navigate('feed'); }).deleteStory(id, this.state.user.UserID);
   },
 
   viewGuide: function() {
@@ -1444,7 +1358,7 @@ var App = {
 
   viewUserProfile: function() {
     var data = this.state.viewingUser;
-    if (!data) return '<div class="loader"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลดโปรไฟล์...</div></div>' + this.bottomNav('community');
+    if (!data) return '<div class="loader"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลดโปรไฟล์...</div></div>' + this.bottomNav('feed');
     var u = data.user;
     var st = data.stats;
     var lv = this.levelInfo(u.xp);
@@ -1453,7 +1367,7 @@ var App = {
       : '<div style="display:flex;justify-content:center;align-items:center;width:100%;height:100%;font-size:44px;">' + this.bear + '</div>';
     var isMe = this.state.user && this.state.user.UserID === u.id;
     return '<div class="page-content">' +
-      '<button onclick="App.navigate(\'community\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<button onclick="App.navigate(\'feed\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
       '<div style="background:linear-gradient(135deg,#5BA4F5,#C084FC); border-radius:28px; padding:24px; margin-bottom:16px; text-align:center; box-shadow:0 8px 0 rgba(90,140,200,0.2),0 14px 28px rgba(90,140,200,0.15);">' +
         '<div style="position:relative; width:90px; height:90px; margin:0 auto 12px;">' +
           '<div style="width:90px; height:90px; border-radius:50%; overflow:hidden; border:4px solid white; box-shadow:0 4px 12px rgba(0,0,0,0.2);">' + avatar + '</div>' +
@@ -1501,7 +1415,24 @@ var App = {
             (u.bio ? '<div style="display:flex; gap:8px;"><span>📝</span><div style="font-size:13px; color:var(--clay-text-light); line-height:1.6;">' + this.esc(u.bio) + '</div></div>' : '') +
           '</div>'
         : '') +
+      // Posts wall
+      '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin:16px 0 10px;">📝 โพสต์ของ ' + this.esc(u.firstName) + '</div>' +
+      this.postsWallHtml(data.posts, { name: u.firstName, cls: u.className, img: u.profileImage, userId: u.id }, isMe) +
     '</div>';
+  },
+
+  // Render a list of a single user's wall posts (non-anonymous). `author` provides display info.
+  postsWallHtml: function(posts, author, canDelete) {
+    var self = this;
+    if (!posts || posts.length === 0) {
+      return '<p class="text-center" style="color:var(--clay-text-light); font-weight:700; padding:14px 0;">ยังไม่มีโพสต์</p>';
+    }
+    return posts.map(function(p){
+      return self.postCard({
+        id: p.id, content: p.content, at: p.at,
+        name: author.name, cls: author.cls, img: author.img, userId: null, anonymous: false
+      }, { canDelete: !!canDelete });
+    }).join('');
   },
 
   viewProfile: function() {
@@ -1538,6 +1469,12 @@ var App = {
         : '<div class="card" style="text-align:center; background:linear-gradient(145deg,#F8F3FF,#EEE8FF);"><div style="font-size:13px; color:var(--clay-text-light);">ยังไม่ได้กรอกข้อมูลแนะนำตัว 🐾<br>กด "แก้ไขโปรไฟล์" เพื่อเพิ่มความฝันและเป้าหมายของคุณ!</div></div>') +
       // Vinyl music player (if set)
       this.vinylHtml(u.YoutubeUrl) +
+      // My posts (composer + wall)
+      '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin:16px 0 10px;">📝 โพสต์ของฉัน</div>' +
+      this.postComposer() +
+      (this.state.myPosts === null
+        ? '<p class="text-center" style="color:var(--clay-text-light); font-weight:700; padding:14px 0;">กำลังโหลดโพสต์...</p>'
+        : this.postsWallHtml(this.state.myPosts, { name: (u.FirstName + ' ' + u.LastName), cls: u.Class, img: u.ProfileImage, userId: u.UserID }, true)) +
       // Level card
       '<div class="card">' +
         '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">' +
@@ -2135,11 +2072,10 @@ var App = {
   /* ===== BOTTOM NAV ===== */
 
   bottomNav: function(activeTab) {
-    // Icon-only navigation (Facebook style) — 5 tabs
+    // Icon-only navigation (Facebook style) — Feed lives as a card on Home, not a tab
     var tabs = [
       { id:'home',      icon:'&#x1F3E0;', label:'หน้าหลัก',  route:'dashboard' },
       { id:'lessons',   icon:'&#x1F4DA;', label:'บทเรียน',   route:'lessons' },
-      { id:'community', icon:'&#x1F31F;', label:'ชุมชน',      route:'community' },
       { id:'bonus',     icon:'&#x1F3AB;', label:'QR คะแนน',  route:'bonusQR' },
       { id:'profile',   icon:'&#x1F43E;', label:'โปรไฟล์',   route:'profile' }
     ];
@@ -2541,218 +2477,6 @@ var App = {
         if (st) st.innerText = '❌ Error: ' + e.message;
       })
       .adminGiveBonus(targetUser.id, pts, self.state.user ? self.state.user.UserID : 0);
-  },
-
-  /* ===== WORD BRIDGE GAME ===== */
-
-  initWordBridge: function() {
-    var wb = this.state.wordBridge;
-    // Reset progress and check if already played (one-time EXP)
-    wb.puzzleIndex = 0;
-    wb.checked = false;
-    wb.correctTotal = 0;
-    wb.finished = false;
-    wb.awarded = 0;
-    wb.started = false;
-    // total slots across all puzzles
-    var total = 0;
-    for (var i = 0; i < this.wordBridgePuzzles.length; i++) total += this.wordBridgePuzzles[i].chain.length;
-    wb.totalSlots = total;
-    this.wbLoadPuzzle(0);
-    // check completion status
-    var self = this;
-    google.script.run.withSuccessHandler(function(res) {
-      if (res && res.played) { self.state.wordBridge.alreadyDone = true; if (self.state.currentRoute === 'wordBridge') self.render(); }
-      else { self.state.wordBridge.alreadyDone = false; }
-    }).withFailureHandler(function(){}).getGameStatus(this.state.user.UserID, 'WordBridge');
-  },
-
-  wbLoadPuzzle: function(idx) {
-    var wb = this.state.wordBridge;
-    var p = this.wordBridgePuzzles[idx];
-    wb.checked = false;
-    wb.slots = new Array(p.chain.length).fill(null);
-    // pool = chain + decoys, shuffled
-    var pool = p.chain.concat(p.decoys || []);
-    for (var i = pool.length - 1; i > 0; i--) {
-      var j = Math.floor(Math.random() * (i + 1));
-      var t = pool[i]; pool[i] = pool[j]; pool[j] = t;
-    }
-    wb.pool = pool.map(function(w) { return { word: w, used: false }; });
-  },
-
-  wbPlaceWord: function(poolIdx) {
-    var wb = this.state.wordBridge;
-    if (wb.checked) return;
-    var item = wb.pool[poolIdx];
-    if (!item || item.used) return;
-    // find first empty slot
-    var empty = wb.slots.indexOf(null);
-    if (empty === -1) return;
-    wb.slots[empty] = poolIdx;
-    item.used = true;
-    this.render();
-  },
-
-  wbRemoveSlot: function(slotIdx) {
-    var wb = this.state.wordBridge;
-    if (wb.checked) return;
-    var poolIdx = wb.slots[slotIdx];
-    if (poolIdx === null || poolIdx === undefined) return;
-    wb.pool[poolIdx].used = false;
-    wb.slots[slotIdx] = null;
-    this.render();
-  },
-
-  wbCheck: function() {
-    var wb = this.state.wordBridge;
-    var p = this.wordBridgePuzzles[wb.puzzleIndex];
-    if (wb.slots.indexOf(null) !== -1) return; // not full
-    var correct = 0;
-    for (var i = 0; i < p.chain.length; i++) {
-      var placedWord = wb.pool[wb.slots[i]].word;
-      if (placedWord === p.chain[i]) correct++;
-    }
-    wb.correctTotal += correct;
-    wb.checked = true;
-    this.render();
-  },
-
-  wbNext: function() {
-    var wb = this.state.wordBridge;
-    if (wb.puzzleIndex < this.wordBridgePuzzles.length - 1) {
-      wb.puzzleIndex++;
-      this.wbLoadPuzzle(wb.puzzleIndex);
-      this.render();
-    } else {
-      // finished — compute EXP and submit (one-time)
-      wb.finished = true;
-      var self2 = this; setTimeout(function() { self2.celebrate(70); }, 200);
-      var exp = Math.round((wb.correctTotal / wb.totalSlots) * 100);
-      if (exp > 100) exp = 100;
-      var self = this;
-      google.script.run.withSuccessHandler(function(res) {
-        wb.awarded = res && !res.alreadyDone ? res.awarded : 0;
-        wb.alreadyDone = res ? res.alreadyDone : false;
-        self.render();
-      }).withFailureHandler(function() { self.render(); }).submitGameScore(this.state.user.UserID, 'WordBridge', exp);
-      this.render();
-    }
-  },
-
-  viewWordBridge: function() {
-    var wb = this.state.wordBridge;
-
-    // ----- Results screen -----
-    if (wb.finished) {
-      var exp = Math.round((wb.correctTotal / wb.totalSlots) * 100);
-      if (exp > 100) exp = 100;
-      var note = wb.alreadyDone
-        ? '<div style="font-size:12px; color:var(--clay-text-light); margin-top:8px;">* คุณเคยเล่นเกมนี้แล้ว จึงไม่ได้รับ EXP เพิ่ม (เล่นซ้ำเพื่อฝึกได้)</div>'
-        : '<div style="font-size:12px; color:var(--clay-text-light); margin-top:8px;">* ได้รับ EXP จากเกมนี้ครั้งแรกครั้งเดียว</div>';
-      return '<div class="page-content" style="display:flex; flex-direction:column; justify-content:center; align-items:center;">' +
-        '<div class="mascot-bounce" style="font-size:72px; margin-bottom:12px;">' + this.bear + '</div>' +
-        '<div style="font-size:34px; margin-bottom:6px;">🌉</div>' +
-        '<h2 class="text-title" style="color:var(--clay-purple-shadow);">สร้างสะพานครบแล้ว!</h2>' +
-        '<div class="card" style="width:100%; text-align:center; margin:16px 0;">' +
-          '<p style="font-size:18px; font-weight:800; color:var(--clay-text); margin:0 0 8px 0;">เชื่อมถูก: ' + wb.correctTotal + ' / ' + wb.totalSlots + '</p>' +
-          '<div style="font-size:26px; font-weight:800; color:var(--bear-orange);">' + (wb.awarded > 0 ? '+' + wb.awarded + ' EXP' : (exp + ' คะแนน')) + '</div>' +
-          note +
-        '</div>' +
-        '<button class="btn btn-primary" style="margin-bottom:8px;" onclick="App.navigate(\'wordBridge\')">เล่นอีกครั้ง 🔄</button>' +
-        '<button class="btn btn-outline" onclick="App.navigate(\'dashboard\')">กลับหน้าหลัก</button>' +
-      '</div>';
-    }
-
-    // ----- Intro screen -----
-    if (!wb.started) {
-      var doneBadge = wb.alreadyDone
-        ? '<div style="background:linear-gradient(135deg,#E8F5E9,#C8E6C9); border-radius:14px; padding:10px 14px; font-size:12px; font-weight:700; color:var(--clay-green-shadow); margin-bottom:14px;">✅ คุณเคยรับ EXP จากเกมนี้แล้ว — เล่นซ้ำเพื่อฝึกได้แต่ไม่ได้ EXP เพิ่ม</div>'
-        : '<div style="background:linear-gradient(135deg,#FFF3E0,#FFE8CC); border-radius:14px; padding:10px 14px; font-size:12px; font-weight:700; color:var(--bear-brown); margin-bottom:14px;">⚡ เล่นจบรับ EXP สูงสุด 100 (ครั้งแรกครั้งเดียว)</div>';
-      return '<div class="page-content">' +
-        '<button onclick="App.navigate(\'dashboard\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
-        '<div style="background:linear-gradient(135deg,#C084FC,#5BA4F5); border-radius:24px; padding:24px; margin-bottom:16px; text-align:center; box-shadow:0 8px 0 rgba(120,80,200,0.2),0 14px 28px rgba(120,80,200,0.12);">' +
-          '<div style="font-size:56px; margin-bottom:6px;">🌉</div>' +
-          '<h2 style="margin:0 0 6px 0; color:white; font-size:22px; font-weight:800;">เกมสะพานคำ</h2>' +
-          '<p style="margin:0; font-size:13px; color:rgba(255,255,255,0.9);">Word Bridge — เชื่อมคำด้วยคำศัพท์ของเรา</p>' +
-        '</div>' +
-        doneBadge +
-        '<div class="card">' +
-          '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin-bottom:10px;">📖 วิธีเล่น</div>' +
-          '<div style="font-size:13px; color:var(--clay-text-light); line-height:1.8;">' +
-            '1️⃣ แต่ละด่านมีคำ <b>ต้นทาง</b> และ <b>ปลายทาง</b><br>' +
-            '2️⃣ แตะคำศัพท์ด้านล่างมาเรียงเป็น <b>สะพาน</b> เชื่อมต้นทาง→ปลายทางให้เป็นเรื่องราว/ขั้นตอนที่ถูกต้อง<br>' +
-            '3️⃣ แตะช่องที่วางแล้วเพื่อเอาคำออก<br>' +
-            '4️⃣ กด <b>ตรวจสะพาน</b> ระบบจะนับช่องที่ถูก ยิ่งถูกมาก EXP ยิ่งสูง (สูงสุด 100)' +
-          '</div>' +
-        '</div>' +
-        '<button class="btn btn-primary" onclick="App.state.wordBridge.started=true; App.render();">เริ่มเล่น! 🚀</button>' +
-      '</div>';
-    }
-
-    // ----- Play screen -----
-    var p = this.wordBridgePuzzles[wb.puzzleIndex];
-    var progressPct = (wb.puzzleIndex / this.wordBridgePuzzles.length) * 100;
-
-    // slots
-    var slotsHtml = '';
-    for (var i = 0; i < wb.slots.length; i++) {
-      var poolIdx = wb.slots[i];
-      var filled = poolIdx !== null && poolIdx !== undefined;
-      var label = filled ? wb.pool[poolIdx].word : '?';
-      var slotStyle, txtColor;
-      if (wb.checked && filled) {
-        var ok = wb.pool[poolIdx].word === p.chain[i];
-        slotStyle = ok ? 'background:linear-gradient(145deg,#E8F5E9,#C8E6C9); border:2px solid var(--clay-green);' : 'background:linear-gradient(145deg,#FFE0E0,#FFD0D0); border:2px solid var(--clay-red);';
-        txtColor = ok ? 'var(--clay-green-shadow)' : 'var(--clay-red-shadow)';
-        label = (ok ? '✓ ' : '✗ ') + wb.pool[poolIdx].word;
-      } else if (filled) {
-        slotStyle = 'background:linear-gradient(145deg,#F8F3FF,#EEE8FF); border:2px solid var(--clay-purple);';
-        txtColor = 'var(--clay-purple-shadow)';
-      } else {
-        slotStyle = 'background:rgba(255,255,255,0.5); border:2px dashed var(--clay-text-light);';
-        txtColor = 'var(--clay-text-light)';
-      }
-      slotsHtml += '<div onclick="App.wbRemoveSlot(' + i + ')" style="' + slotStyle + ' border-radius:14px; padding:12px 10px; text-align:center; font-weight:800; font-size:13px; color:' + txtColor + '; cursor:pointer; min-height:20px; display:flex; align-items:center; justify-content:center;">' + label + '</div>';
-      if (i < wb.slots.length - 1) slotsHtml += '<div style="text-align:center; color:var(--clay-purple); font-size:16px;">↓</div>';
-    }
-
-    // pool
-    var poolHtml = '';
-    for (var k = 0; k < wb.pool.length; k++) {
-      var it = wb.pool[k];
-      var ps = it.used ? 'opacity:0.35; pointer-events:none; background:var(--clay-bg);' : 'background:white; box-shadow:0 4px 0 rgba(150,100,200,0.2);';
-      poolHtml += '<div onclick="App.wbPlaceWord(' + k + ')" style="' + ps + ' border-radius:14px; padding:10px 14px; font-weight:800; font-size:13px; color:var(--clay-text); cursor:pointer;">' + it.word + '</div>';
-    }
-
-    var allFilled = wb.slots.indexOf(null) === -1;
-    var footerBtn;
-    if (wb.checked) {
-      footerBtn = '<div id="wb-why" style="background:linear-gradient(145deg,#F0F8FF,#E3F2FD); border-radius:14px; padding:12px; font-size:12px; color:var(--clay-text); line-height:1.6; margin-bottom:10px; border-left:4px solid var(--clay-blue);"><b>เฉลย:</b> ' + p.why + '</div>' +
-        '<button class="btn btn-primary" onclick="App.wbNext()">' + (wb.puzzleIndex < this.wordBridgePuzzles.length - 1 ? 'ด่านถัดไป →' : 'ดูผลคะแนน 🏁') + '</button>';
-    } else {
-      footerBtn = '<button class="btn btn-primary" ' + (allFilled ? '' : 'disabled') + ' onclick="App.wbCheck()">ตรวจสะพาน 🔍</button>';
-    }
-
-    return '<div class="page-content" style="padding-bottom:20px;">' +
-      '<div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">' +
-        '<button onclick="App.navigate(\'dashboard\')" style="background:none; border:none; font-size:22px; color:var(--clay-text-light); font-weight:800; cursor:pointer;">&#x2715;</button>' +
-        '<div class="progress-bar-container" style="margin:0; flex:1;"><div class="progress-bar-fill" style="width:' + progressPct + '%; background:linear-gradient(90deg,#C084FC,#5BA4F5);"></div></div>' +
-        '<span style="font-size:13px; font-weight:700; color:var(--clay-text-light);">' + (wb.puzzleIndex + 1) + '/' + this.wordBridgePuzzles.length + '</span>' +
-      '</div>' +
-      // start tile
-      '<div style="background:linear-gradient(135deg,#4ECB71,#3DB87A); border-radius:16px; padding:14px; text-align:center; font-weight:800; font-size:15px; color:white; box-shadow:0 5px 0 rgba(53,170,87,0.3); margin-bottom:6px;">🟢 ' + p.start + '</div>' +
-      '<div style="text-align:center; color:var(--clay-purple); font-size:16px;">↓</div>' +
-      // slots
-      '<div style="display:flex; flex-direction:column; gap:4px; margin-bottom:6px;">' + slotsHtml + '</div>' +
-      '<div style="text-align:center; color:var(--clay-purple); font-size:16px;">↓</div>' +
-      // end tile
-      '<div style="background:linear-gradient(135deg,#FF8C42,#F57C00); border-radius:16px; padding:14px; text-align:center; font-weight:800; font-size:15px; color:white; box-shadow:0 5px 0 rgba(200,120,40,0.3); margin-bottom:16px;">🟠 ' + p.end + '</div>' +
-      // pool
-      '<div style="font-size:13px; font-weight:700; color:var(--clay-text-light); margin-bottom:8px;">แตะคำศัพท์มาเรียงเป็นสะพาน:</div>' +
-      '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">' + poolHtml + '</div>' +
-      footerBtn +
-    '</div>';
   },
 
   adminSaveQuizBuilder: function() {
