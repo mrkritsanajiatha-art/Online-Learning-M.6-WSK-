@@ -174,19 +174,13 @@ var App = {
     }
     this.state.currentRoute = route;
 
-    // Show loading
-    var el = document.getElementById('app');
-    if (el && route !== 'login' && route !== 'register') {
-      el.innerHTML = '<div class="loader"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลด...</div></div>' + this.bottomNav(route === 'dashboard' ? 'home' : route);
-    }
-
     if (route === 'dashboard') {
-      // Always refresh bonus score for the home page
+      // Render immediately with cached data (instant), then refresh in background
+      this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res.success) self.state.bonusScore = { total: res.total, history: res.history };
         if (self.state.currentRoute === 'dashboard') self.render();
       }).withFailureHandler(function() {}).getBonusScore(this.state.user.UserID);
-      // Weekly goal
       google.script.run.withSuccessHandler(function(res) {
         if (res && res.success) {
           self.state.weeklyGoal = { loaded: true, goal: res.goal };
@@ -195,24 +189,23 @@ var App = {
         if (self.state.currentRoute === 'dashboard') self.render();
       }).withFailureHandler(function() {}).getWeeklyGoal(this.state.user.UserID);
       if (!this.state.dataLoaded) {
-        // First load: fetch everything in one call
         google.script.run.withSuccessHandler(function(res) {
           if (res.success) {
             if (res.dashboard) self.state.dashboardData = res.dashboard;
             if (res.modules) self.state.modules = res.modules;
             self.state.dataLoaded = true;
           }
-          self.render();
-        }).withFailureHandler(function(e) { self.render(); }).getAppData(self.state.user.UserID);
+          if (self.state.currentRoute === 'dashboard') self.render();
+        }).withFailureHandler(function(e) { if (self.state.currentRoute === 'dashboard') self.render(); }).getAppData(self.state.user.UserID);
       } else {
-        // Subsequent loads: just refresh dashboard
         google.script.run.withSuccessHandler(function(res) {
           if (res.success) self.state.dashboardData = res.data;
-          self.render();
-        }).withFailureHandler(function(e) { self.render(); }).getDashboardData(self.state.user.UserID);
+          if (self.state.currentRoute === 'dashboard') self.render();
+        }).withFailureHandler(function() {}).getDashboardData(self.state.user.UserID);
       }
     } else if (route === 'lessons') {
-      // Refresh unlock progress every time
+      // Show cached modules immediately, refresh completion status in background
+      this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res.success) self.state.completedModules = res.data;
         if (self.state.currentRoute === 'lessons') self.render();
@@ -220,16 +213,16 @@ var App = {
       if (!this.state.modules) {
         google.script.run.withSuccessHandler(function(res) {
           self.state.modules = res;
-          self.render();
-        }).withFailureHandler(function(e) { self.render(); }).getModules();
-      } else {
-        this.render();
+          if (self.state.currentRoute === 'lessons') self.render();
+        }).withFailureHandler(function(e) { if (self.state.currentRoute === 'lessons') self.render(); }).getModules();
       }
     } else if (route === 'leaderboard') {
+      // Show stale leaderboard instantly, refresh in background
+      this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res.success) { self.state.leaderboard = res.data; self.state.leaderboardClasses = res.classes || []; }
-        self.render();
-      }).withFailureHandler(function(e) { self.render(); }).getLeaderboard(self.state.leaderboardFilter || null);
+        if (self.state.currentRoute === 'leaderboard') self.render();
+      }).withFailureHandler(function() {}).getLeaderboard(self.state.leaderboardFilter || null);
     } else if (route === 'dailyQuest') {
       this.state.quiz.moduleId = 'Daily';
       this.state.quiz.currentIndex = 0;
@@ -277,10 +270,12 @@ var App = {
     } else if (route === 'adminExport') {
       this.render();
     } else if (route === 'bonusQR') {
+      // Show cached score instantly, refresh in background
+      this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res.success) self.state.bonusScore = { total: res.total, history: res.history };
-        self.render();
-      }).withFailureHandler(function() { self.render(); }).getBonusScore(self.state.user.UserID);
+        if (self.state.currentRoute === 'bonusQR') self.render();
+      }).withFailureHandler(function() {}).getBonusScore(self.state.user.UserID);
     } else if (route === 'storyCompose') {
       this.state.storyDraft = ''; this.state.storyKind = 'text'; this.state.storyAnonymous = false;
       this.render();
@@ -289,23 +284,24 @@ var App = {
       this.state.wgGoalEdit = ex ? { type: ex.goalType, target: ex.target } : Object.assign({}, this.state.wgPick);
       this.render();
     } else if (route === 'feed') {
-      this.state.feed = { stories: [], posts: [], loaded: false };
+      // Keep stale feed visible immediately, refresh in background
       this.state.postDraft = ''; this.state.postAnonymous = false;
+      this.state.openComments = {}; this.state.postComments = {};
       this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res && res.success) self.state.feed = { stories: res.stories || [], posts: res.posts || [], loaded: true };
-        else self.state.feed = { stories: [], posts: [], loaded: true };
+        else self.state.feed = Object.assign(self.state.feed, { loaded: true });
         if (self.state.currentRoute === 'feed') self.render();
-      }).withFailureHandler(function() { self.state.feed = { stories: [], posts: [], loaded: true }; self.render(); }).getFeedData(self.state.user.UserID);
+      }).withFailureHandler(function() { self.state.feed = Object.assign(self.state.feed, { loaded: true }); if (self.state.currentRoute === 'feed') self.render(); }).getFeedData(self.state.user.UserID);
     } else if (route === 'userProfile') {
-      this.state.viewingUser = null;
+      // If same user already loaded keep old data, always re-fetch in background
       this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res && res.success) self.state.viewingUser = res;
         if (self.state.currentRoute === 'userProfile') self.render();
       }).withFailureHandler(function() { self.navigate('feed'); }).getUserProfile(params);
     } else if (route === 'profile') {
-      this.state.myPosts = null;
+      // Render immediately (shows cached myPosts), refresh in background
       this.render();
       this.loadMyPosts();
     } else if (route === 'adminScanner') {
@@ -362,14 +358,8 @@ var App = {
     else if (r === 'adminQuizBuilder') { html = this.viewAdminQuizBuilder(); }
     else { html = '<div class="loader">Page not found</div>'; }
 
-    el.style.transition = 'opacity 0.10s ease';
-    el.style.opacity = '0';
-    var finalHtml = html;
-    setTimeout(function() {
-      el.innerHTML = finalHtml;
-      el.style.opacity = '1';
-      self.postRender();
-    }, 80);
+    el.innerHTML = html;
+    this.postRender();
   },
 
   postRender: function() {
