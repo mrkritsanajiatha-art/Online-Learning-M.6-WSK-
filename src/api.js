@@ -14,7 +14,8 @@ function mapUser(data) {
     Dream: data.dream || '',
     TargetGoal: data.target_goal || '',
     Bio: data.bio || '',
-    TeamId: data.team_id || null
+    TeamId: data.team_id || null,
+    YoutubeUrl: data.youtube_url || ''
   };
 }
 
@@ -262,7 +263,7 @@ export async function getCommunityData() {
     else if (t === 'Daily') { emoji = '⭐'; text = 'ทำแบบฝึกประจำวัน'; }
     else if (t === 'WordBridge') { emoji = '🌉'; text = 'เล่นเกมสะพานคำจบ (+' + r.score + ' EXP)'; }
     else if (t === 'Bonus') { emoji = '🎫'; text = 'ได้รับคะแนนพิเศษจากครู (+' + r.score + ')'; }
-    return { name: u.name, cls: u.cls, img: u.img, emoji: emoji, text: text, at: r.created_at };
+    return { userId: r.user_id, name: u.name, cls: u.cls, img: u.img, emoji: emoji, text: text, at: r.created_at };
   }).filter(Boolean);
 
   // Active stories (not expired) + reaction counts
@@ -272,7 +273,11 @@ export async function getCommunityData() {
   let reacts = [];
   if (sIds.length) { const r = await supabase.from('reactions').select('story_id').in('story_id', sIds); reacts = r.data || []; }
   const rc = {}; reacts.forEach(r => { rc[r.story_id] = (rc[r.story_id] || 0) + 1; });
-  const storyOut = (stories || []).map(s => { const u = info[s.user_id]; return { id: s.id, userId: s.user_id, name: u ? u.name : '-', img: u ? u.img : '', kind: s.kind, content: s.content, at: s.created_at, reactions: rc[s.id] || 0 }; });
+  const storyOut = (stories || []).map(s => {
+    const u = info[s.user_id];
+    const anon = !!s.anonymous;
+    return { id: s.id, userId: s.user_id, name: anon ? 'ไม่ระบุตัวตน' : (u ? u.name : '-'), img: anon ? '' : (u ? u.img : ''), kind: s.kind, content: s.content, at: s.created_at, reactions: rc[s.id] || 0, anonymous: anon };
+  });
 
   // Showcase (pinned first)
   const { data: showcase } = await supabase.from('showcase').select('*').order('pinned', { ascending: false }).order('created_at', { ascending: false }).limit(30);
@@ -281,10 +286,10 @@ export async function getCommunityData() {
   return { success: true, titles: titles, feed: feed, stories: storyOut, showcase: showOut };
 }
 
-export async function postStory(userId, kind, content) {
+export async function postStory(userId, kind, content, anonymous) {
   const c = (content || '').trim().slice(0, 300);
   if (!c) return { success: false, message: 'กรุณาใส่ข้อความ' };
-  const { error } = await supabase.from('stories').insert([{ user_id: String(userId).trim(), kind: kind || 'text', content: c }]);
+  const { error } = await supabase.from('stories').insert([{ user_id: String(userId).trim(), kind: kind || 'text', content: c, anonymous: !!anonymous }]);
   if (error) return { success: false, message: error.message };
   return { success: true };
 }
@@ -297,7 +302,8 @@ export async function getStory(storyId, userId) {
   const { data: rx } = await supabase.from('reactions').select('emoji, user_id').eq('story_id', storyId);
   const counts = {}; const mine = {};
   (rx || []).forEach(r => { counts[r.emoji] = (counts[r.emoji] || 0) + 1; if (r.user_id === uid) mine[r.emoji] = true; });
-  return { success: true, story: { id: s.id, ownerId: s.user_id, name: u ? (u.first_name + ' ' + u.last_name) : '-', cls: u ? u.class_name : '', img: u ? u.profile_image : '', kind: s.kind, content: s.content, at: s.created_at }, counts, mine };
+  const anon = !!s.anonymous;
+  return { success: true, story: { id: s.id, ownerId: s.user_id, name: anon ? 'ไม่ระบุตัวตน' : (u ? (u.first_name + ' ' + u.last_name) : '-'), cls: anon ? '' : (u ? u.class_name : ''), img: anon ? '' : (u ? u.profile_image : ''), kind: s.kind, content: s.content, at: s.created_at, anonymous: anon }, counts, mine };
 }
 
 export async function reactStory(storyId, userId, emoji) {
@@ -424,7 +430,8 @@ export async function updateProfile(userId, f) {
     motto: s(f.motto, 120),
     dream: s(f.dream, 160),
     target_goal: s(f.targetGoal, 160),
-    bio: s(f.bio, 300)
+    bio: s(f.bio, 300),
+    youtube_url: (f.youtubeUrl || '').trim().slice(0, 500) || null
   };
   const { error } = await supabase.from('users').update(payload).eq('id', String(userId).trim());
   if (error) return { success: false, message: error.message };
@@ -548,4 +555,25 @@ export async function submitGameScore(userId, gameKey, exp) {
 export async function adminAddQuiz(moduleId, text, opt1, opt2, opt3, opt4, answer, explain) {
   await supabase.from('quiz_bank').insert([{ module_id: moduleId, question: text, choice_a: opt1, choice_b: opt2, choice_c: opt3, choice_d: opt4, correct_answer: answer, explanation: explain }]);
   return { success: true };
+}
+
+export async function getUserProfile(targetUserId) {
+  const uid = String(targetUserId).trim();
+  const { data: u } = await supabase.from('users')
+    .select('id, first_name, last_name, class_name, xp, streak, profile_image, youtube_url, nickname, motto, dream, bio, target_goal')
+    .eq('id', uid).single();
+  if (!u) return { success: false, message: 'ไม่พบผู้ใช้' };
+  const { data: scores } = await supabase.from('scores').select('quiz_type, reference_id').eq('user_id', uid);
+  const completedModules = [...new Set((scores || []).filter(s => s.quiz_type === 'PostTest').map(s => s.reference_id))].length;
+  const activities = (scores || []).length;
+  return {
+    success: true,
+    user: {
+      id: u.id, firstName: u.first_name, lastName: u.last_name, className: u.class_name,
+      xp: u.xp || 0, streak: u.streak || 0, profileImage: u.profile_image || '',
+      youtubeUrl: u.youtube_url || '', nickname: u.nickname || '',
+      motto: u.motto || '', dream: u.dream || '', bio: u.bio || '', targetGoal: u.target_goal || ''
+    },
+    stats: { completedModules, activities }
+  };
 }

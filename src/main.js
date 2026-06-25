@@ -310,7 +310,7 @@ var App = {
         self.render();
       }).withFailureHandler(function() { self.render(); }).getBonusScore(self.state.user.UserID);
     } else if (route === 'storyCompose') {
-      this.state.storyDraft = ''; this.state.storyKind = 'text';
+      this.state.storyDraft = ''; this.state.storyKind = 'text'; this.state.storyAnonymous = false;
       this.render();
     } else if (route === 'showcaseCompose') {
       this.state.showcaseCat = 'essay';
@@ -327,6 +327,13 @@ var App = {
         else self.state.community.loaded = true;
         if (self.state.currentRoute === 'community') self.render();
       }).withFailureHandler(function() { self.state.community.loaded = true; self.render(); }).getCommunityData();
+    } else if (route === 'userProfile') {
+      this.state.viewingUser = null;
+      this.render();
+      google.script.run.withSuccessHandler(function(res) {
+        if (res && res.success) self.state.viewingUser = res;
+        if (self.state.currentRoute === 'userProfile') self.render();
+      }).withFailureHandler(function() { self.navigate('community'); }).getUserProfile(params);
     } else if (route === 'wordBridge') {
       this.initWordBridge();
       this.render();
@@ -374,6 +381,7 @@ var App = {
     else if (r === 'community') { html = this.viewCommunity() + this.bottomNav('community'); }
     else if (r === 'storyCompose') { html = this.viewStoryCompose() + this.bottomNav('community'); }
     else if (r === 'storyView') { html = this.viewStoryView(); }
+    else if (r === 'userProfile') { html = this.viewUserProfile() + this.bottomNav('community'); }
     else if (r === 'showcaseCompose') { html = this.viewShowcaseCompose() + this.bottomNav('community'); }
     else if (r === 'weeklyGoal') { html = this.viewWeeklyGoal() + this.bottomNav('home'); }
     else if (r === 'admin') { html = this.viewAdmin(); }
@@ -698,7 +706,7 @@ var App = {
         var it = c.feed[f];
         var av = it.img ? '<img src="' + it.img + '" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0;">' : '<div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">👤</div>';
         feedHtml += '<div style="display:flex; align-items:center; gap:12px; background:var(--clay-white); border-radius:16px; padding:12px 14px; margin-bottom:8px; box-shadow:0 4px 0 rgba(150,100,200,0.10),0 6px 12px rgba(150,100,200,0.06);">' +
-          av +
+          '<div onclick="App.navigate(\'userProfile\',\'' + it.userId + '\')" style="flex-shrink:0; cursor:pointer;">' + av + '</div>' +
           '<div style="flex:1; min-width:0;">' +
             '<div style="font-size:13px; color:var(--clay-text);"><b>' + it.name + '</b> <span style="color:var(--clay-text-light); font-size:11px;">' + (it.cls || '') + '</span></div>' +
             '<div style="font-size:13px; color:var(--clay-text); margin-top:2px;">' + it.emoji + ' ' + it.text + '</div>' +
@@ -716,10 +724,12 @@ var App = {
     '</div>';
     for (var si = 0; si < stories.length; si++) {
       var s = stories[si];
-      var sav = s.img ? '<img src="' + s.img + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">' : '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:26px;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);">👤</div>';
-      var firstName = (s.name || '-').split(' ')[0];
+      var sav = s.anonymous
+        ? '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:28px;background:linear-gradient(135deg,#2d2d44,#1a1a2e);">👻</div>'
+        : (s.img ? '<img src="' + s.img + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">' : '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:26px;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);">👤</div>');
+      var firstName = s.anonymous ? '???' : (s.name || '-').split(' ')[0];
       storyBubbles += '<div onclick="App.openStory(' + s.id + ')" style="flex:0 0 auto; width:66px; text-align:center; cursor:pointer;">' +
-        '<div style="width:62px; height:62px; border-radius:50%; padding:3px; background:linear-gradient(135deg,#C084FC,#FF8C42); box-shadow:0 4px 0 rgba(160,80,200,0.2);"><div style="width:100%;height:100%;border-radius:50%;overflow:hidden;border:2px solid white;">' + sav + '</div></div>' +
+        '<div style="width:62px; height:62px; border-radius:50%; padding:3px; background:' + (s.anonymous ? 'linear-gradient(135deg,#555,#333)' : 'linear-gradient(135deg,#C084FC,#FF8C42)') + '; box-shadow:0 4px 0 rgba(160,80,200,0.2);"><div style="width:100%;height:100%;border-radius:50%;overflow:hidden;border:2px solid white;">' + sav + '</div></div>' +
         '<div style="font-size:10px; color:var(--clay-text); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + firstName + '</div>' +
       '</div>';
     }
@@ -803,9 +813,27 @@ var App = {
       '<div class="card">' +
         '<textarea id="story-text" class="input-field" style="margin-bottom:0; min-height:120px; resize:vertical; font-size:16px;" maxlength="300" placeholder="วันนี้เป็นยังไงบ้าง? แชร์ให้เพื่อนๆ ฟัง!">' + this.esc(this.state.storyDraft || '') + '</textarea>' +
       '</div>' +
+      // Anonymous toggle
+      '<div onclick="App.toggleStoryAnon()" style="display:flex; align-items:center; gap:12px; background:' + (this.state.storyAnonymous ? 'linear-gradient(145deg,#2d2d44,#1a1a2e)' : 'var(--clay-white)') + '; border-radius:18px; padding:14px 16px; margin-bottom:12px; box-shadow:0 4px 0 rgba(150,100,200,0.12); cursor:pointer; user-select:none;">' +
+        '<div style="font-size:26px;">' + (this.state.storyAnonymous ? '👻' : '🙂') + '</div>' +
+        '<div style="flex:1;">' +
+          '<div style="font-weight:800; font-size:14px; color:' + (this.state.storyAnonymous ? 'white' : 'var(--clay-text)') + ';">' + (this.state.storyAnonymous ? 'โพสต์แบบไร้ตัวตน' : 'โพสต์แบบปกติ') + '</div>' +
+          '<div style="font-size:11px; color:' + (this.state.storyAnonymous ? 'rgba(255,255,255,0.6)' : 'var(--clay-text-light)') + ';">' + (this.state.storyAnonymous ? 'ไม่เปิดเผยชื่อและรูปโปรไฟล์' : 'แสดงชื่อและรูปของคุณ') + '</div>' +
+        '</div>' +
+        '<div style="width:44px; height:24px; border-radius:12px; background:' + (this.state.storyAnonymous ? 'var(--clay-purple)' : 'var(--clay-bg)') + '; position:relative; transition:background 0.2s;">' +
+          '<div style="position:absolute; top:2px; ' + (this.state.storyAnonymous ? 'right:2px' : 'left:2px') + '; width:20px; height:20px; border-radius:50%; background:white; box-shadow:0 2px 4px rgba(0,0,0,0.2); transition:all 0.2s;"></div>' +
+        '</div>' +
+      '</div>' +
       '<button class="btn btn-primary" onclick="App.submitStory()">🚀 โพสต์สตอรี่</button>' +
       '<button class="btn btn-outline" onclick="App.navigate(\'community\')">ยกเลิก</button>' +
     '</div>';
+  },
+
+  toggleStoryAnon: function() {
+    this.state.storyAnonymous = !this.state.storyAnonymous;
+    var ta = document.getElementById('story-text');
+    if (ta) this.state.storyDraft = ta.value;
+    this.render();
   },
 
   pickStoryTemplate: function(kind) {
@@ -823,10 +851,11 @@ var App = {
     var ta = document.getElementById('story-text');
     var content = ta ? ta.value.trim() : '';
     if (!content) { alert('กรุณาใส่ข้อความ'); return; }
+    var anon = !!this.state.storyAnonymous;
     google.script.run.withSuccessHandler(function(res){
-      if (res && res.success) { self.state.storyDraft=''; self.state.storyKind='text'; self.celebrate(20); self.toast('📸 โพสต์สตอรี่แล้ว!'); self.navigate('community'); }
+      if (res && res.success) { self.state.storyDraft=''; self.state.storyKind='text'; self.state.storyAnonymous=false; self.celebrate(20); self.toast(anon ? '👻 โพสต์แบบไร้ตัวตนแล้ว!' : '📸 โพสต์สตอรี่แล้ว!'); self.navigate('community'); }
       else alert((res&&res.message)||'โพสต์ไม่สำเร็จ');
-    }).withFailureHandler(function(e){ alert('Error: '+e.message); }).postStory(this.state.user.UserID, this.state.storyKind, content);
+    }).withFailureHandler(function(e){ alert('Error: '+e.message); }).postStory(this.state.user.UserID, this.state.storyKind, content, anon);
   },
 
   openStory: function(id) {
@@ -845,7 +874,7 @@ var App = {
     if (!a) return '<div class="loader" style="background:#1a1a2e; height:100%;"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังเปิดสตอรี่...</div></div>';
     var s = a.story;
     var emojis = [['heart','❤️'],['clap','👏'],['fire','🔥'],['muscle','💪']];
-    var av = s.img ? '<img src="' + s.img + '" style="width:44px;height:44px;border-radius:50%;object-fit:cover;">' : '<div style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:22px;">👤</div>';
+    var av = s.anonymous ? '<div style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;font-size:26px;">👻</div>' : (s.img ? '<img src="' + s.img + '" style="width:44px;height:44px;border-radius:50%;object-fit:cover;">' : '<div style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:22px;">👤</div>');
     var rxBtns = emojis.map(function(e){
       var key=e[0], ic=e[1]; var cnt=a.counts[key]||0; var on=a.mine[key];
       return '<button onclick="App.doReact(' + s.id + ',\'' + key + '\')" style="flex:1; background:' + (on?'rgba(255,255,255,0.95)':'rgba(255,255,255,0.15)') + '; border:none; border-radius:16px; padding:12px 0; cursor:pointer; color:' + (on?'#3D2B5C':'white') + '; font-weight:800;">' +
@@ -1291,7 +1320,7 @@ var App = {
       var itemStyle = isMe
         ? 'background:linear-gradient(145deg,#FFF3E0,#FFE8CC); border-radius:20px; box-shadow:0 5px 0 rgba(200,140,80,0.2),0 8px 16px rgba(200,140,80,0.10); padding:12px 14px; margin-bottom:8px; border:2px solid var(--bear-orange);'
         : 'background:var(--clay-white); border-radius:18px; box-shadow:0 4px 0 rgba(150,100,200,0.12),0 6px 12px rgba(150,100,200,0.08); padding:10px 14px; margin-bottom:8px;';
-      listHtml += '<div style="display:flex; justify-content:space-between; align-items:center; ' + itemStyle + '">' +
+      listHtml += '<div onclick="App.navigate(\'userProfile\',\'' + s.id + '\')" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; ' + itemStyle + '">' +
         '<div style="display:flex; align-items:center; gap:12px; min-width:0;">' +
           '<div style="width:28px; text-align:center; font-size:20px; flex-shrink:0;">' + medal + '</div>' + av +
           '<div style="min-width:0;"><div style="font-weight:700; font-size:14px; color:var(--clay-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + s.name + (isMe ? ' <span style="color:var(--bear-orange); font-size:11px;">(คุณ)</span>' : '') + '</div>' +
@@ -1323,6 +1352,111 @@ var App = {
         '<select onchange="App.setLeaderboardFilter(this.value)" style="width:100%; padding:12px 16px; border:none; border-radius:16px; font-family:var(--font-main); font-weight:700; font-size:14px; color:var(--clay-text); background:rgba(255,255,255,0.95); box-shadow:inset 0 2px 6px rgba(0,0,0,0.08); -webkit-appearance:none; appearance:none; cursor:pointer;">' + optionsHtml + '</select>' +
       '</div>' +
       '<div style="padding:0 16px;">' + listHtml + '</div>' +
+    '</div>';
+  },
+
+  /* ===== YOUTUBE VINYL HELPER ===== */
+
+  extractYouTubeId: function(url) {
+    if (!url) return null;
+    var m = String(url).match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|v\/|shorts\/))([A-Za-z0-9_-]{11})/);
+    return m ? m[1] : null;
+  },
+
+  vinylHtml: function(youtubeUrl) {
+    var vid = this.extractYouTubeId(youtubeUrl);
+    if (!vid) return '';
+    var src = 'https://www.youtube.com/embed/' + vid + '?autoplay=1&mute=1&loop=1&playlist=' + vid + '&controls=0&playsinline=1';
+    return '<div style="background:linear-gradient(145deg,#1a1a2e,#2d2d44); border-radius:24px; padding:18px 20px; margin-bottom:16px; box-shadow:0 8px 0 rgba(0,0,0,0.3),0 12px 24px rgba(0,0,0,0.2); display:flex; align-items:center; gap:18px; position:relative; overflow:hidden;">' +
+      '<div style="position:absolute; inset:0; background:repeating-linear-gradient(45deg,rgba(255,255,255,0.01) 0px,rgba(255,255,255,0.01) 1px,transparent 1px,transparent 8px); pointer-events:none;"></div>' +
+      '<div style="position:relative; width:90px; height:90px; flex-shrink:0;">' +
+        '<div id="vinyl-disc" style="width:90px; height:90px; border-radius:50%; background:repeating-conic-gradient(#111 0deg 12deg, #222 12deg 24deg); animation:vinylSpin 3s linear infinite; box-shadow:0 4px 12px rgba(0,0,0,0.5); cursor:pointer;" onclick="App.vinylUnmute()">' +
+          '<div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,#FF8C42,#C084FC);">' +
+            '<div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:8px; height:8px; border-radius:50%; background:#1a1a2e;"></div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="flex:1; min-width:0;">' +
+        '<div style="color:white; font-weight:800; font-size:14px; margin-bottom:4px;">🎵 เพลงประจำโปรไฟล์</div>' +
+        '<div style="color:rgba(255,255,255,0.6); font-size:12px; margin-bottom:12px;">เล่นอัตโนมัติ (ปิดเสียง)</div>' +
+        '<button id="vinyl-mute-btn" onclick="App.vinylUnmute()" style="background:rgba(255,255,255,0.15); border:2px solid rgba(255,255,255,0.3); border-radius:10px; padding:6px 16px; color:white; font-size:12px; font-weight:800; cursor:pointer; font-family:var(--font-main);">🔇 แตะเพื่อเปิดเสียง</button>' +
+      '</div>' +
+      '<iframe id="vinyl-iframe" src="' + src + '" style="position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; left:0; top:0;" allow="autoplay; encrypted-media" frameborder="0"></iframe>' +
+    '</div>';
+  },
+
+  vinylUnmute: function() {
+    var iframe = document.getElementById('vinyl-iframe');
+    var btn = document.getElementById('vinyl-mute-btn');
+    if (!iframe) return;
+    var m = iframe.src.match(/embed\/([A-Za-z0-9_-]{11})/);
+    if (!m) return;
+    var vid = m[1];
+    iframe.src = 'https://www.youtube.com/embed/' + vid + '?autoplay=1&mute=0&loop=1&playlist=' + vid + '&controls=0&playsinline=1';
+    if (btn) { btn.textContent = '🔊 กำลังเล่น'; btn.style.background = 'rgba(255,140,66,0.3)'; btn.style.borderColor = '#FF8C42'; }
+  },
+
+  /* ===== FRIEND PROFILE VIEW ===== */
+
+  viewUserProfile: function() {
+    var data = this.state.viewingUser;
+    if (!data) return '<div class="loader"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลดโปรไฟล์...</div></div>' + this.bottomNav('community');
+    var u = data.user;
+    var st = data.stats;
+    var lv = this.levelInfo(u.xp);
+    var avatar = u.profileImage
+      ? '<img src="' + u.profileImage + '" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">'
+      : '<div style="display:flex;justify-content:center;align-items:center;width:100%;height:100%;font-size:44px;">' + this.bear + '</div>';
+    var isMe = this.state.user && this.state.user.UserID === u.id;
+    return '<div class="page-content">' +
+      '<button onclick="App.navigate(\'community\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<div style="background:linear-gradient(135deg,#5BA4F5,#C084FC); border-radius:28px; padding:24px; margin-bottom:16px; text-align:center; box-shadow:0 8px 0 rgba(90,140,200,0.2),0 14px 28px rgba(90,140,200,0.15);">' +
+        '<div style="position:relative; width:90px; height:90px; margin:0 auto 12px;">' +
+          '<div style="width:90px; height:90px; border-radius:50%; overflow:hidden; border:4px solid white; box-shadow:0 4px 12px rgba(0,0,0,0.2);">' + avatar + '</div>' +
+          '<div style="position:absolute; bottom:-2px; right:-2px; width:34px; height:34px; border-radius:50%; background:white; display:flex; align-items:center; justify-content:center; font-size:18px; box-shadow:0 3px 8px rgba(0,0,0,0.2);">' + lv.emoji + '</div>' +
+        '</div>' +
+        '<div style="font-weight:800; font-size:22px; color:white;">' + this.esc(u.firstName) + ' ' + this.esc(u.lastName) + (u.nickname ? ' <span style="font-size:15px; opacity:0.9;">(' + this.esc(u.nickname) + ')</span>' : '') + '</div>' +
+        '<div style="font-size:13px; color:rgba(255,255,255,0.85); margin-top:4px;">' + this.esc(u.className || '-') + '</div>' +
+        (u.motto ? '<div style="font-size:13px; color:white; margin-top:8px; font-style:italic;">💬 "' + this.esc(u.motto) + '"</div>' : '') +
+        (isMe ? '<button onclick="App.openProfileEdit()" style="margin-top:12px; background:rgba(255,255,255,0.95); border:none; border-radius:14px; padding:8px 18px; font-family:var(--font-main); font-weight:800; font-size:13px; color:var(--clay-purple-shadow); cursor:pointer;">✏️ แก้ไขโปรไฟล์ฉัน</button>' : '') +
+      '</div>' +
+      // Vinyl player (if they have music)
+      this.vinylHtml(u.youtubeUrl) +
+      // Stats
+      '<div class="card">' +
+        '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin-bottom:12px;">📊 สถิติการเรียน</div>' +
+        '<div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">' +
+          '<div style="text-align:center; background:linear-gradient(145deg,#F8F3FF,#EEE8FF); border-radius:16px; padding:12px 6px;">' +
+            '<div style="font-size:22px; font-weight:800; color:var(--clay-purple-shadow);">' + u.xp.toLocaleString() + '</div>' +
+            '<div style="font-size:11px; color:var(--clay-text-light); font-weight:700;">XP</div>' +
+          '</div>' +
+          '<div style="text-align:center; background:linear-gradient(145deg,#FFF3E0,#FFE8CC); border-radius:16px; padding:12px 6px;">' +
+            '<div style="font-size:22px; font-weight:800; color:var(--bear-orange-shadow);">🔥 ' + (u.streak || 0) + '</div>' +
+            '<div style="font-size:11px; color:var(--clay-text-light); font-weight:700;">วันต่อเนื่อง</div>' +
+          '</div>' +
+          '<div style="text-align:center; background:linear-gradient(145deg,#E8FFF0,#D4F5E0); border-radius:16px; padding:12px 6px;">' +
+            '<div style="font-size:22px; font-weight:800; color:var(--clay-green-shadow);">' + st.completedModules + '</div>' +
+            '<div style="font-size:11px; color:var(--clay-text-light); font-weight:700;">Unit จบแล้ว</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      // Level
+      '<div class="card">' +
+        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">' +
+          '<div style="font-weight:800; font-size:15px; color:var(--clay-text);">' + lv.emoji + ' ' + lv.name + ' <span style="font-size:12px; color:var(--clay-text-light);">(' + lv.th + ')</span></div>' +
+          '<div style="background:linear-gradient(135deg,#5BA4F5,#C084FC); border-radius:12px; padding:4px 12px; font-weight:800; color:white; font-size:13px;">' + u.xp.toLocaleString() + ' XP</div>' +
+        '</div>' +
+        '<div class="progress-bar-container"><div class="progress-bar-fill" style="width:' + lv.pct + '%;"></div></div>' +
+      '</div>' +
+      // About
+      ((u.dream || u.targetGoal || u.bio)
+        ? '<div class="card">' +
+            '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin-bottom:10px;">💬 เกี่ยวกับเขา/เธอ</div>' +
+            (u.targetGoal ? '<div style="display:flex; gap:8px; margin-bottom:8px;"><span>🎯</span><div style="font-size:13px; color:var(--clay-text);"><b>เป้าหมาย:</b> ' + this.esc(u.targetGoal) + '</div></div>' : '') +
+            (u.dream ? '<div style="display:flex; gap:8px; margin-bottom:8px;"><span>🌈</span><div style="font-size:13px; color:var(--clay-text);"><b>ความฝัน:</b> ' + this.esc(u.dream) + '</div></div>' : '') +
+            (u.bio ? '<div style="display:flex; gap:8px;"><span>📝</span><div style="font-size:13px; color:var(--clay-text-light); line-height:1.6;">' + this.esc(u.bio) + '</div></div>' : '') +
+          '</div>'
+        : '') +
     '</div>';
   },
 
@@ -1358,6 +1492,8 @@ var App = {
             (u.Bio ? '<div style="display:flex; gap:8px;"><span>📝</span><div style="font-size:13px; color:var(--clay-text-light); line-height:1.6;">' + this.esc(u.Bio) + '</div></div>' : '') +
           '</div>'
         : '<div class="card" style="text-align:center; background:linear-gradient(145deg,#F8F3FF,#EEE8FF);"><div style="font-size:13px; color:var(--clay-text-light);">ยังไม่ได้กรอกข้อมูลแนะนำตัว 🐾<br>กด "แก้ไขโปรไฟล์" เพื่อเพิ่มความฝันและเป้าหมายของคุณ!</div></div>') +
+      // Vinyl music player (if set)
+      this.vinylHtml(u.YoutubeUrl) +
       // Level card
       '<div class="card">' +
         '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">' +
@@ -1451,7 +1587,14 @@ var App = {
         this.fieldLabel('เป้าหมายคะแนน (TOEIC / TGAT / A-Level)') +
         '<input id="edit-target" class="input-field" value="' + this.esc(u.TargetGoal) + '" placeholder="เช่น A-Level อังกฤษ 80+">' +
         this.fieldLabel('แนะนำตัวสั้นๆ') +
-        '<textarea id="edit-bio" class="input-field" style="margin-bottom:0; min-height:70px; resize:vertical;" placeholder="เล่าเกี่ยวกับตัวเองสั้นๆ">' + this.esc(u.Bio) + '</textarea>' +
+        '<textarea id="edit-bio" class="input-field" style="min-height:70px; resize:vertical;" placeholder="เล่าเกี่ยวกับตัวเองสั้นๆ">' + this.esc(u.Bio) + '</textarea>' +
+      '</div>' +
+      // Music
+      '<div class="card">' +
+        '<div style="font-weight:800; font-size:14px; color:var(--clay-text); margin-bottom:10px;">🎵 เพลงประจำโปรไฟล์</div>' +
+        this.fieldLabel('YouTube Link (วางลิงก์เพลงที่ต้องการ)') +
+        '<input id="edit-youtube" class="input-field" style="margin-bottom:0;" value="' + this.esc(u.YoutubeUrl || '') + '" placeholder="เช่น https://youtu.be/xxxxx หรือ youtube.com/watch?v=xxxxx">' +
+        '<div style="font-size:11px; color:var(--clay-text-light); margin-top:6px;">เพลงจะเล่นอัตโนมัติ (ปิดเสียง) เมื่อใครเข้าดูโปรไฟล์ของคุณ 🎧</div>' +
       '</div>' +
       '<div id="profile-save-status" style="text-align:center; font-size:13px; font-weight:700; margin-bottom:8px;"></div>' +
       '<button class="btn btn-primary" onclick="App.saveProfile()">💾 บันทึก</button>' +
@@ -1586,7 +1729,8 @@ var App = {
     var f = {
       firstName: val('edit-firstname'), lastName: val('edit-lastname'), nickname: val('edit-nickname'),
       className: val('edit-class'), number: val('edit-number'),
-      motto: val('edit-motto'), dream: val('edit-dream'), targetGoal: val('edit-target'), bio: val('edit-bio')
+      motto: val('edit-motto'), dream: val('edit-dream'), targetGoal: val('edit-target'), bio: val('edit-bio'),
+      youtubeUrl: val('edit-youtube')
     };
     var st = document.getElementById('profile-save-status');
     if (!f.firstName) { if (st) { st.style.color = 'var(--clay-red)'; st.innerText = 'กรุณากรอกชื่อ'; } return; }
@@ -1600,6 +1744,7 @@ var App = {
       u.FirstName = f.firstName; u.LastName = f.lastName; u.Nickname = f.nickname;
       u.Class = f.className; u.Number = f.number;
       u.Motto = f.motto; u.Dream = f.dream; u.TargetGoal = f.targetGoal; u.Bio = f.bio;
+      u.YoutubeUrl = f.youtubeUrl;
       if (newAvatar) u.ProfileImage = newAvatar;
       localStorage.setItem('lms_user', JSON.stringify(u));
       self.state.editAvatar = null;
