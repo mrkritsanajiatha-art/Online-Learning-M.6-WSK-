@@ -175,18 +175,17 @@ var App = {
     this.state.currentRoute = route;
 
     if (route === 'dashboard') {
-      // Render immediately with cached data (instant), then refresh in background
       this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res.success) self.state.bonusScore = { total: res.total, history: res.history };
-        if (self.state.currentRoute === 'dashboard') self.render();
+        if (self.state.currentRoute === 'dashboard') self.render(true);
       }).withFailureHandler(function() {}).getBonusScore(this.state.user.UserID);
       google.script.run.withSuccessHandler(function(res) {
         if (res && res.success) {
           self.state.weeklyGoal = { loaded: true, goal: res.goal };
           if (res.goal && res.goal.justCompleted) { self.celebrate(50); self.toast('🎉 ทำเป้าหมายสัปดาห์สำเร็จ! รับ Badge'); }
         }
-        if (self.state.currentRoute === 'dashboard') self.render();
+        if (self.state.currentRoute === 'dashboard') self.render(true);
       }).withFailureHandler(function() {}).getWeeklyGoal(this.state.user.UserID);
       if (!this.state.dataLoaded) {
         google.script.run.withSuccessHandler(function(res) {
@@ -195,86 +194,85 @@ var App = {
             if (res.modules) self.state.modules = res.modules;
             self.state.dataLoaded = true;
           }
-          if (self.state.currentRoute === 'dashboard') self.render();
-        }).withFailureHandler(function(e) { if (self.state.currentRoute === 'dashboard') self.render(); }).getAppData(self.state.user.UserID);
+          if (self.state.currentRoute === 'dashboard') self.render(true);
+        }).withFailureHandler(function() { if (self.state.currentRoute === 'dashboard') self.render(true); }).getAppData(self.state.user.UserID);
       } else {
         google.script.run.withSuccessHandler(function(res) {
           if (res.success) self.state.dashboardData = res.data;
-          if (self.state.currentRoute === 'dashboard') self.render();
+          if (self.state.currentRoute === 'dashboard') self.render(true);
         }).withFailureHandler(function() {}).getDashboardData(self.state.user.UserID);
       }
     } else if (route === 'lessons') {
-      // Show cached modules immediately, refresh completion status in background
       this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res.success) self.state.completedModules = res.data;
-        if (self.state.currentRoute === 'lessons') self.render();
+        if (self.state.currentRoute === 'lessons') self.render(true);
       }).withFailureHandler(function() {}).getCompletedModules(this.state.user.UserID);
       if (!this.state.modules) {
         google.script.run.withSuccessHandler(function(res) {
           self.state.modules = res;
-          if (self.state.currentRoute === 'lessons') self.render();
-        }).withFailureHandler(function(e) { if (self.state.currentRoute === 'lessons') self.render(); }).getModules();
+          if (self.state.currentRoute === 'lessons') self.render(true);
+        }).withFailureHandler(function() { if (self.state.currentRoute === 'lessons') self.render(true); }).getModules();
       }
     } else if (route === 'leaderboard') {
-      // Show stale leaderboard instantly, refresh in background
       this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res.success) { self.state.leaderboard = res.data; self.state.leaderboardClasses = res.classes || []; }
-        if (self.state.currentRoute === 'leaderboard') self.render();
+        if (self.state.currentRoute === 'leaderboard') self.render(true);
       }).withFailureHandler(function() {}).getLeaderboard(self.state.leaderboardFilter || null);
     } else if (route === 'dailyQuest') {
       this.state.quiz.moduleId = 'Daily';
-      this.state.quiz.currentIndex = 0;
-      this.state.quiz.score = 0;
+      this.state.quiz.currentIndex = 0; this.state.quiz.score = 0;
       this.state.quiz.submitted = false; this.state.quiz.awarded = 0; this.state.quiz.alreadyDone = false;
+      this.state.quiz.questions = [];
+      this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res.success) self.state.quiz.questions = res.data;
-        self.render();
-      }).withFailureHandler(function(e) { self.render(); }).getDailyQuest();
+        if (self.state.currentRoute === 'dailyQuest') self.render(true);
+      }).withFailureHandler(function() { if (self.state.currentRoute === 'dailyQuest') self.render(true); }).getDailyQuest();
     } else if (route === 'quiz') {
-      // params can be plain number "5" or "moduleId|quizType" e.g. "5|PreTest"
       var paramStr = String(params || '1');
       var parts = paramStr.split('|');
       var mId = parts[0] || 1;
       var qType = parts[1] || null;
-      this.state.quiz.moduleId = mId;
-      this.state.quiz.quizType = qType;
-      this.state.quiz.currentIndex = 0;
-      this.state.quiz.score = 0;
+      this.state.quiz.moduleId = mId; this.state.quiz.quizType = qType;
+      this.state.quiz.currentIndex = 0; this.state.quiz.score = 0;
       this.state.quiz.submitted = false; this.state.quiz.awarded = 0; this.state.quiz.alreadyDone = false;
+      this.state.quiz.questions = [];
+      this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res.success) self.state.quiz.questions = res.data;
-        self.render();
-      }).withFailureHandler(function(e) { self.render(); }).getQuizQuestions(mId, qType);
+        if (self.state.currentRoute === 'quiz') self.render(true);
+      }).withFailureHandler(function() { if (self.state.currentRoute === 'quiz') self.render(true); }).getQuizQuestions(mId, qType);
     } else if (route === 'lesson') {
       this.state.currentModuleId = params || 1;
-      this.state.currentRoute = 'lesson';
       this.render();
     } else if (route === 'flashcards') {
       var fmId = params || 1;
       this.state.flashcards.moduleId = fmId;
       this.state.flashcards.currentIndex = 0;
       this.state.flashcards.submitted = false; this.state.flashcards.awarded = 0; this.state.flashcards.alreadyDone = false;
+      this.state.flashcards.cards = [];
+      this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res.success) self.state.flashcards.cards = res.data;
-        self.render();
-      }).withFailureHandler(function(e) { self.render(); }).getFlashcards(fmId);
+        if (self.state.currentRoute === 'flashcards') self.render(true);
+      }).withFailureHandler(function() { if (self.state.currentRoute === 'flashcards') self.render(true); }).getFlashcards(fmId);
     } else if (route === 'admin') {
       this.render();
     } else if (route === 'adminDB') {
+      this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res.success) self.state.admin.tables = res.data;
-        self.render();
-      }).withFailureHandler(function(e) { self.render(); }).adminGetTables();
+        if (self.state.currentRoute === 'adminDB') self.render(true);
+      }).withFailureHandler(function() {}).adminGetTables();
     } else if (route === 'adminExport') {
       this.render();
     } else if (route === 'bonusQR') {
-      // Show cached score instantly, refresh in background
       this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res.success) self.state.bonusScore = { total: res.total, history: res.history };
-        if (self.state.currentRoute === 'bonusQR') self.render();
+        if (self.state.currentRoute === 'bonusQR') self.render(true);
       }).withFailureHandler(function() {}).getBonusScore(self.state.user.UserID);
     } else if (route === 'storyCompose') {
       this.state.storyDraft = ''; this.state.storyKind = 'text'; this.state.storyAnonymous = false;
@@ -284,24 +282,24 @@ var App = {
       this.state.wgGoalEdit = ex ? { type: ex.goalType, target: ex.target } : Object.assign({}, this.state.wgPick);
       this.render();
     } else if (route === 'feed') {
-      // Keep stale feed visible immediately, refresh in background
       this.state.postDraft = ''; this.state.postAnonymous = false;
       this.state.openComments = {}; this.state.postComments = {};
       this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res && res.success) self.state.feed = { stories: res.stories || [], posts: res.posts || [], loaded: true };
-        else self.state.feed = Object.assign(self.state.feed, { loaded: true });
-        if (self.state.currentRoute === 'feed') self.render();
-      }).withFailureHandler(function() { self.state.feed = Object.assign(self.state.feed, { loaded: true }); if (self.state.currentRoute === 'feed') self.render(); }).getFeedData(self.state.user.UserID);
+        else self.state.feed = Object.assign({}, self.state.feed, { loaded: true });
+        if (self.state.currentRoute === 'feed') self.render(true);
+      }).withFailureHandler(function() {
+        self.state.feed = Object.assign({}, self.state.feed, { loaded: true });
+        if (self.state.currentRoute === 'feed') self.render(true);
+      }).getFeedData(self.state.user.UserID);
     } else if (route === 'userProfile') {
-      // If same user already loaded keep old data, always re-fetch in background
       this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res && res.success) self.state.viewingUser = res;
-        if (self.state.currentRoute === 'userProfile') self.render();
+        if (self.state.currentRoute === 'userProfile') self.render(true);
       }).withFailureHandler(function() { self.navigate('feed'); }).getUserProfile(params);
     } else if (route === 'profile') {
-      // Render immediately (shows cached myPosts), refresh in background
       this.render();
       this.loadMyPosts();
     } else if (route === 'adminScanner') {
@@ -313,53 +311,60 @@ var App = {
       var tName = params;
       this.state.admin.currentTable = tName;
       this.state.admin.editingRow = -1;
+      this.render();
       google.script.run.withSuccessHandler(function(res) {
-        if (res.success) {
-          self.state.admin.headers = res.headers;
-          self.state.admin.data = res.data;
-        }
-        self.render();
-      }).withFailureHandler(function(e) { self.render(); }).adminGetTableData(tName);
+        if (res.success) { self.state.admin.headers = res.headers; self.state.admin.data = res.data; }
+        if (self.state.currentRoute === 'adminTable') self.render(true);
+      }).withFailureHandler(function() {}).adminGetTableData(tName);
     } else {
       this.render();
     }
   },
 
-  render: function() {
+  // Build the HTML string for the current route (no DOM side-effects)
+  _buildHtml: function() {
+    var r = this.state.currentRoute;
+    if (r === 'login') return this.viewLogin();
+    if (r === 'register') return this.viewRegister();
+    if (r === 'dashboard') return this.viewDashboard() + this.bottomNav('home');
+    if (r === 'lessons') return this.viewLessons() + this.bottomNav('lessons');
+    if (r === 'moduleDetail') return this.viewModuleDetail();
+    if (r === 'lesson') return this.viewLesson();
+    if (r === 'quiz' || r === 'dailyQuest') return this.viewQuiz();
+    if (r === 'flashcards') return this.viewFlashcards();
+    if (r === 'profile') return this.viewProfile() + this.bottomNav('profile');
+    if (r === 'profileEdit') return this.viewProfileEdit() + this.bottomNav('profile');
+    if (r === 'leaderboard') return this.viewLeaderboard() + this.bottomNav('home');
+    if (r === 'guide') return this.viewGuide() + this.bottomNav('profile');
+    if (r === 'bonusQR') return this.viewBonusQR() + this.bottomNav('bonus');
+    if (r === 'feed') return this.viewFeed() + this.bottomNav('feed');
+    if (r === 'storyCompose') return this.viewStoryCompose() + this.bottomNav('feed');
+    if (r === 'storyView') return this.viewStoryView();
+    if (r === 'userProfile') return this.viewUserProfile() + this.bottomNav('feed');
+    if (r === 'weeklyGoal') return this.viewWeeklyGoal() + this.bottomNav('home');
+    if (r === 'admin') return this.viewAdmin();
+    if (r === 'adminScanner') return this.viewAdminScanner();
+    if (r === 'adminDB') return this.viewAdminDB();
+    if (r === 'adminTable') return this.viewAdminTable();
+    if (r === 'adminExport') return this.viewAdminExport();
+    if (r === 'adminQuizBuilder') return this.viewAdminQuizBuilder();
+    return '<div class="loader">Page not found</div>';
+  },
+
+  // render(quiet=false) — route changes use View Transition; background data updates pass quiet=true
+  render: function(quiet) {
     var el = document.getElementById('app');
     if (!el) return;
     var self = this;
-    var html = '';
-    var r = this.state.currentRoute;
+    var html = this._buildHtml();
 
-    if (r === 'login') { html = this.viewLogin(); }
-    else if (r === 'register') { html = this.viewRegister(); }
-    else if (r === 'dashboard') { html = this.viewDashboard() + this.bottomNav('home'); }
-    else if (r === 'lessons') { html = this.viewLessons() + this.bottomNav('lessons'); }
-    else if (r === 'moduleDetail') { html = this.viewModuleDetail(); }
-    else if (r === 'lesson') { html = this.viewLesson(); }
-    else if (r === 'quiz' || r === 'dailyQuest') { html = this.viewQuiz(); }
-    else if (r === 'flashcards') { html = this.viewFlashcards(); }
-    else if (r === 'profile') { html = this.viewProfile() + this.bottomNav('profile'); }
-    else if (r === 'profileEdit') { html = this.viewProfileEdit() + this.bottomNav('profile'); }
-    else if (r === 'leaderboard') { html = this.viewLeaderboard() + this.bottomNav('home'); }
-    else if (r === 'guide') { html = this.viewGuide() + this.bottomNav('profile'); }
-    else if (r === 'bonusQR') { html = this.viewBonusQR() + this.bottomNav('bonus'); }
-    else if (r === 'feed') { html = this.viewFeed() + this.bottomNav('feed'); }
-    else if (r === 'storyCompose') { html = this.viewStoryCompose() + this.bottomNav('feed'); }
-    else if (r === 'storyView') { html = this.viewStoryView(); }
-    else if (r === 'userProfile') { html = this.viewUserProfile() + this.bottomNav('feed'); }
-    else if (r === 'weeklyGoal') { html = this.viewWeeklyGoal() + this.bottomNav('home'); }
-    else if (r === 'admin') { html = this.viewAdmin(); }
-    else if (r === 'adminScanner') { html = this.viewAdminScanner(); }
-    else if (r === 'adminDB') { html = this.viewAdminDB(); }
-    else if (r === 'adminTable') { html = this.viewAdminTable(); }
-    else if (r === 'adminExport') { html = this.viewAdminExport(); }
-    else if (r === 'adminQuizBuilder') { html = this.viewAdminQuizBuilder(); }
-    else { html = '<div class="loader">Page not found</div>'; }
+    function commit() { el.innerHTML = html; self.postRender(); }
 
-    el.innerHTML = html;
-    this.postRender();
+    if (!quiet && typeof document.startViewTransition === 'function') {
+      document.startViewTransition(commit);
+    } else {
+      commit();
+    }
   },
 
   postRender: function() {
@@ -603,8 +608,8 @@ var App = {
     '</div>';
   },
 
-  wgSetType: function(t) { var p = this.state.wgGoalEdit || Object.assign({}, this.state.wgPick); p.type = t; var def = { lessons:3, xp:500, vocab:10 }; p.target = def[t]; this.state.wgGoalEdit = p; this.render(); },
-  wgSetTarget: function(v, noRender) { var p = this.state.wgGoalEdit || Object.assign({}, this.state.wgPick); p.target = Math.max(1, v || 1); this.state.wgGoalEdit = p; if (!noRender) this.render(); },
+  wgSetType: function(t) { var p = this.state.wgGoalEdit || Object.assign({}, this.state.wgPick); p.type = t; var def = { lessons:3, xp:500, vocab:10 }; p.target = def[t]; this.state.wgGoalEdit = p; this.render(true); },
+  wgSetTarget: function(v, noRender) { var p = this.state.wgGoalEdit || Object.assign({}, this.state.wgPick); p.target = Math.max(1, v || 1); this.state.wgGoalEdit = p; if (!noRender) this.render(true); },
 
   saveWeeklyGoal: function() {
     var self = this;
@@ -779,7 +784,7 @@ var App = {
     this.state.postAnonymous = !this.state.postAnonymous;
     var ta = document.getElementById('post-text');
     if (ta) this.state.postDraft = ta.value;
-    this.render();
+    this.render(true);
   },
 
   submitPost: function() {
@@ -793,7 +798,7 @@ var App = {
       if (res && res.success) {
         self.state.postDraft = ''; self.state.postAnonymous = false;
         self.celebrate(16); self.toast(anon ? '👻 โพสต์แบบไร้ตัวตนแล้ว!' : '✅ โพสต์แล้ว!');
-        if (fromProfile) { self.loadMyPosts(); self.render(); }
+        if (fromProfile) { self.loadMyPosts(); }
         else { self.navigate('feed'); }
       } else alert((res && res.message) || 'โพสต์ไม่สำเร็จ');
     }).withFailureHandler(function(e){ alert('Error: ' + e.message); }).createPost(this.state.user.UserID, content, anon);
@@ -807,7 +812,7 @@ var App = {
       var r = self.state.currentRoute;
       if (r === 'feed') self.navigate('feed');
       else if (r === 'userProfile' && self.state.viewingUser && self.state.viewingUser.user) self.navigate('userProfile', self.state.viewingUser.user.id);
-      else { self.loadMyPosts(); self.render(); }
+      else { self.loadMyPosts(); }
     }).withFailureHandler(function(){}).deletePost(id, this.state.user.UserID);
   },
 
@@ -823,7 +828,7 @@ var App = {
     var on = post.myReactions[emoji];
     post.myReactions[emoji] = !on;
     post.reactions[emoji] = Math.max(0, (post.reactions[emoji] || 0) + (on ? -1 : 1));
-    this.render();
+    this.render(true);
     google.script.run.withFailureHandler(function(){}).addPostReaction(postId, self.state.user.UserID, emoji);
   },
 
@@ -837,7 +842,7 @@ var App = {
     if (!wasOpen && !this.state.postComments[postId]) {
       this.loadPostComments(postId);
     } else {
-      this.render();
+      this.render(true);
     }
   },
 
@@ -847,14 +852,13 @@ var App = {
     google.script.run.withSuccessHandler(function(res){
       if (res && res.success) {
         self.state.postComments[postId] = res.comments || [];
-        // Update commentCount in feed state
         var posts = (self.state.feed && self.state.feed.posts) || [];
         for (var i = 0; i < posts.length; i++) {
           if (posts[i].id === postId) { posts[i].commentCount = (res.comments || []).length; break; }
         }
       }
-      self.render();
-    }).withFailureHandler(function(){ self.render(); }).getPostComments(postId);
+      self.render(true);
+    }).withFailureHandler(function(){ self.render(true); }).getPostComments(postId);
   },
 
   // Submit a comment on a post
@@ -877,7 +881,7 @@ var App = {
   loadMyPosts: function() {
     var self = this;
     google.script.run.withSuccessHandler(function(res){
-      if (res && res.success) { self.state.myPosts = res.posts || []; self.render(); }
+      if (res && res.success) { self.state.myPosts = res.posts || []; self.render(true); }
     }).withFailureHandler(function(){}).getUserPosts(this.state.user.UserID);
   },
 
@@ -927,7 +931,7 @@ var App = {
     this.state.storyAnonymous = !this.state.storyAnonymous;
     var ta = document.getElementById('story-text');
     if (ta) this.state.storyDraft = ta.value;
-    this.render();
+    this.render(true);
   },
 
   pickStoryTemplate: function(kind) {
@@ -936,7 +940,7 @@ var App = {
     var ta = document.getElementById('story-text');
     this.state.storyDraft = (ta ? ta.value : '') ;
     if (t && t.text) this.state.storyDraft = t.text;
-    this.render();
+    this.render(true);
     var ta2 = document.getElementById('story-text'); if (ta2) ta2.focus();
   },
 
@@ -962,7 +966,7 @@ var App = {
     this.state.activeStory = null;
     this.state.currentRoute = 'storyView';
     google.script.run.withSuccessHandler(function(res){
-      if (res && res.success) { self.state.activeStory = res; self.render(); }
+      if (res && res.success) { self.state.activeStory = res; self.render(true); }
       else { alert((res&&res.message)||'ไม่พบสตอรี่'); self.navigate('feed'); }
     }).withFailureHandler(function(){ self.navigate('feed'); }).getStory(id, this.state.user.UserID);
     this.render();
@@ -1783,7 +1787,7 @@ var App = {
           y: (FRAME - img.naturalHeight * base) / 2
         };
         self.state.cropperOpen = true;
-        self.render();
+        self.render(true);
       };
       img.src = e.target.result;
     };
@@ -1819,7 +1823,7 @@ var App = {
   cropCancel: function() {
     this.state.cropperOpen = false; this.state.cropper = null;
     var f = document.getElementById('avatar-file'); if (f) f.value = '';
-    this.render();
+    this.render(true);
   },
 
   cropApply: function() {
@@ -1834,7 +1838,7 @@ var App = {
     ctx.drawImage(src, srcX, srcY, srcSize, srcSize, 0, 0, out, out);
     this.state.editAvatar = canvas.toDataURL('image/jpeg', 0.82);
     this.state.cropperOpen = false; this.state.cropper = null;
-    this.render();
+    this.render(true);
   },
 
   initCropper: function() {
@@ -2385,12 +2389,12 @@ var App = {
         self.state.quiz.awarded = dup ? 0 : potentialXp;
         self.state.quiz.submitted = true;
         if (!dup) self.celebrate(60);
-        self.render();
+        self.render(true);
       }).withFailureHandler(function() {
-        self.state.quiz.submitted = true; self.state.quiz.awarded = 0; self.render();
+        self.state.quiz.submitted = true; self.state.quiz.awarded = 0; self.render(true);
       }).submitQuizScore(this.state.user.UserID, effectiveType, effectiveRef, this.state.quiz.score, this.state.quiz.questions.length, 0);
     }
-    this.render();
+    this.render(true);
   },
 
   nextFlashcard: function() {
@@ -2404,19 +2408,19 @@ var App = {
         self.state.flashcards.awarded = dup ? 0 : 20;
         self.state.flashcards.submitted = true;
         if (!dup) self.celebrate(50);
-        self.render();
+        self.render(true);
       }).withFailureHandler(function() {
-        self.state.flashcards.submitted = true; self.state.flashcards.awarded = 0; self.render();
+        self.state.flashcards.submitted = true; self.state.flashcards.awarded = 0; self.render(true);
       }).submitQuizScore(this.state.user.UserID, 'Flashcards', Number(this.state.flashcards.moduleId), 2, 2, 0);
     }
-    this.render();
+    this.render(true);
   },
 
   /* ===== ADMIN CONTROLLERS ===== */
 
   adminCancelEdit: function() {
     this.state.admin.editingRow = -1;
-    this.render();
+    this.render(true);
   },
 
   adminSaveRow: function(rowIndex) {
