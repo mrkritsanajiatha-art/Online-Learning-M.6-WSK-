@@ -469,11 +469,16 @@ var App = {
         if (self.state.currentRoute === 'activity') self.render(true);
       }).getCommunityData();
     } else if (route === 'userProfile') {
+      this.state.viewingUser = null;
       this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res && res.success) self.state.viewingUser = res;
+        else self.state.viewingUser = { error: true };
         if (self.state.currentRoute === 'userProfile') self.render(true);
-      }).withFailureHandler(function() { self.navigate('feed'); }).getUserProfile(params);
+      }).withFailureHandler(function() {
+        self.state.viewingUser = { error: true };
+        if (self.state.currentRoute === 'userProfile') self.render(true);
+      }).getUserProfile(params);
     } else if (route === 'profile') {
       this.render();
       google.script.run.withSuccessHandler(function(res) {
@@ -1913,6 +1918,7 @@ var App = {
   viewUserProfile: function() {
     var data = this.state.viewingUser;
     if (!data) return '<div class="loader"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลดโปรไฟล์...</div></div>' + this.bottomNav('story');
+    if (data.error) return '<div class="page-content"><button onclick="App.navigate(\'feed\')" style="background:none;border:none;font-size:18px;color:var(--clay-text-light);cursor:pointer;padding:0;margin-bottom:16px;font-weight:700;">&#x2190; กลับ</button><div class="card" style="text-align:center;padding:32px;"><div style="font-size:48px;margin-bottom:12px;">' + this.bear + '</div><div style="font-weight:800;font-size:16px;color:var(--clay-text);">ไม่พบข้อมูลผู้ใช้</div><div style="font-size:13px;color:var(--clay-text-light);margin-top:8px;">อาจเกิดข้อผิดพลาดหรือผู้ใช้ถูกลบออกแล้ว</div></div></div>' + this.bottomNav('story');
     var u = data.user;
     var st = data.stats;
     var lv = this.levelInfo(u.xp);

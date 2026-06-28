@@ -277,7 +277,7 @@
     gap: 14px;
   }
   .loader-bear {
-    font-size: 56px;
+    font-size: 80px;
     filter: drop-shadow(0 8px 0 rgba(200,140,80,0.25));
     animation: bearBounce 2s ease-in-out infinite;
   }
@@ -568,14 +568,14 @@
 
   /* ===== MASCOT IMAGE (replaces bear emoji everywhere) ===== */
   .mascot-img-inline {
-    width: 1em;
-    height: 1em;
-    border-radius: 50%;
-    object-fit: cover;
+    width: 1.25em;
+    height: 1.25em;
+    border-radius: 18%;
+    object-fit: contain;
     object-position: center center;
     display: inline-block;
     vertical-align: middle;
-    filter: drop-shadow(0 4px 8px rgba(120,60,200,0.18));
+    filter: drop-shadow(0 3px 6px rgba(120,60,200,0.22));
   }
 
   /* ===== ENGLISH COURSE — NEW BADGE BLINK ===== */
