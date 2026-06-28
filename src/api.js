@@ -751,10 +751,10 @@ export async function submitEnglishScore(userId, moduleId, score, maxScore) {
 
 export async function getUserProfile(targetUserId) {
   const uid = String(targetUserId).trim();
-  const { data: u } = await supabase.from('users')
-    .select('id, first_name, last_name, class_name, xp, streak, profile_image, youtube_url, nickname, motto, dream, bio, target_goal, english_level, placement_done')
+  const { data: u, error: uErr } = await supabase.from('users')
+    .select('*')
     .eq('id', uid).single();
-  if (!u) return { success: false, message: 'ไม่พบผู้ใช้' };
+  if (uErr || !u) return { success: false, message: 'ไม่พบผู้ใช้' };
 
   // Run remaining queries in parallel
   const [scoresRes, rankRes] = await Promise.all([
