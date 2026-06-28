@@ -65,14 +65,9 @@ var App = {
     storyKind: 'text',
     weeklyGoal: { loaded: false, goal: null },
     wgPick: { type: 'lessons', target: 3 },
-    feed: { stories: [], posts: [], loaded: false },
-    postDraft: '',
-    postAnonymous: false,
-    myPosts: null,
+    feed: { stories: [], loaded: false },
+    activity: { items: [], loaded: false },
     viewingUser: null,
-    openComments: {},
-    postComments: {},
-    commentDraft: {},
     storyIds: [],
     storyIdx: 0,
     cropper: null,
@@ -87,7 +82,8 @@ var App = {
     scannerAnimFrame: null,
     scannedUser: null,
     scannedUserBonus: 0,
-    pendingBonusPoints: 10
+    pendingBonusPoints: 10,
+    placement: { phase: 'intro', currentIndex: 0, answers: [], result: null, answering: false }
   },
 
   bear: '&#x1F43B;',
@@ -105,6 +101,34 @@ var App = {
     { min: 9000, name: 'Master',   th: 'ปรมาจารย์',      emoji: '👑' }
   ],
   XP_MAX: 10000,
+
+  // ===== PLACEMENT TEST QUESTIONS (20 ข้อ A1→B2 สำหรับ TGAT/A-Level) =====
+  placementQuestions: [
+    // A1 — พื้นฐานสุด
+    { q: 'She ___ a student at our school.', opts: ['am','is','are','be'], ans: 'is', level: 'A1', type: 'Grammar', th: 'Verb to be' },
+    { q: 'I ___ TV every evening with my family.', opts: ['watch','watches','watching','watched'], ans: 'watch', level: 'A1', type: 'Grammar', th: 'Present Simple' },
+    { q: 'What does "happy" mean in Thai?', opts: ['เศร้า','โกรธ','มีความสุข','กลัว'], ans: 'มีความสุข', level: 'A1', type: 'Vocab', th: 'Basic Vocabulary' },
+    { q: 'Choose the CORRECT sentence:', opts: ["She don't like cats.","She doesn't like cats.","She not like cats.","She no like cats."], ans: "She doesn't like cats.", level: 'A1', type: 'Grammar', th: 'Negative Form' },
+    { q: '___ you speak English well?', opts: ['Is','Are','Do','Does'], ans: 'Do', level: 'A1', type: 'Grammar', th: 'Question Form' },
+    // A2 — พื้นฐาน
+    { q: 'I ___ to Bangkok last summer.', opts: ['go','goes','went','going'], ans: 'went', level: 'A2', type: 'Grammar', th: 'Past Simple' },
+    { q: 'I have ___ apple in my lunch box.', opts: ['a','an','the','—'], ans: 'an', level: 'A2', type: 'Grammar', th: 'Articles' },
+    { q: 'The opposite of "expensive" is ___', opts: ['cheap','rich','poor','costly'], ans: 'cheap', level: 'A2', type: 'Vocab', th: 'Antonyms' },
+    { q: 'My sister is ___ than me.', opts: ['tall','more tall','taller','tallest'], ans: 'taller', level: 'A2', type: 'Grammar', th: 'Comparative' },
+    { q: 'We have lived here ___ 2010.', opts: ['for','since','ago','from'], ans: 'since', level: 'A2', type: 'Grammar', th: 'Present Perfect' },
+    // B1 — กลาง
+    { q: 'If I ___ you, I would study harder every day.', opts: ['am','was','were','be'], ans: 'were', level: 'B1', type: 'Grammar', th: 'Conditional Type 2' },
+    { q: 'By the time she arrived, the film ___ already.', opts: ['starts','has started','had started','will start'], ans: 'had started', level: 'B1', type: 'Grammar', th: 'Past Perfect' },
+    { q: 'What does "reluctant" mean?', opts: ['ไม่เต็มใจ','กระตือรือร้น','ซื่อสัตย์','สงบ'], ans: 'ไม่เต็มใจ', level: 'B1', type: 'Vocab', th: 'Intermediate Vocab' },
+    { q: 'The homework must ___ by tomorrow morning.', opts: ['submit','submits','submitted','be submitted'], ans: 'be submitted', level: 'B1', type: 'Grammar', th: 'Passive Voice' },
+    { q: 'I wish I ___ speak French as fluently as she does.', opts: ['can','could','will','would'], ans: 'could', level: 'B1', type: 'Grammar', th: 'Wish Clauses' },
+    // B2 — ขั้นสูง / TGAT
+    { q: 'Despite ___ tired, she continued working until midnight.', opts: ['be','to be','being','been'], ans: 'being', level: 'B2', type: 'Grammar', th: 'Gerund after Despite' },
+    { q: 'No sooner ___ he arrived than it started raining heavily.', opts: ['has','had','did','was'], ans: 'had', level: 'B2', type: 'Grammar', th: 'Inversion' },
+    { q: 'What does "ambiguous" mean?', opts: ['ไม่ชัดเจน','ทะเยอทะยาน','มีชื่อเสียง','ขัดแย้ง'], ans: 'ไม่ชัดเจน', level: 'B2', type: 'Vocab', th: 'Advanced Vocab' },
+    { q: 'It is high time we ___ action on this serious issue.', opts: ['take','took','taking','have taken'], ans: 'took', level: 'B2', type: 'Grammar', th: 'Subjunctive' },
+    { q: 'The results, ___ were published last week, surprised everyone.', opts: ['which','who','whom','what'], ans: 'which', level: 'B2', type: 'Grammar', th: 'Non-defining Relative Clause' },
+  ],
 
   levelInfo: function(xp) {
     xp = xp || 0;
@@ -139,7 +163,7 @@ var App = {
   },
 
   afterAuth: function() {
-    // Record login → real streak + daily bonus, then open dashboard
+    // Record login → real streak + daily bonus, then route to placement test (first-time) or dashboard
     var self = this;
     this.state.dataLoaded = false;
     google.script.run.withSuccessHandler(function(res) {
@@ -152,8 +176,12 @@ var App = {
           }, 600);
         }
       }
-      self.navigate('dashboard');
-    }).withFailureHandler(function() { self.navigate('dashboard'); }).recordLogin(this.state.user.UserID);
+      var goTo = (self.state.user && self.state.user.PlacementDone) ? 'dashboard' : 'placementTest';
+      self.navigate(goTo);
+    }).withFailureHandler(function() {
+      var goTo = (self.state.user && self.state.user.PlacementDone) ? 'dashboard' : 'placementTest';
+      self.navigate(goTo);
+    }).recordLogin(this.state.user.UserID);
   },
 
   toast: function(msg) {
@@ -282,17 +310,27 @@ var App = {
       this.state.wgGoalEdit = ex ? { type: ex.goalType, target: ex.target } : Object.assign({}, this.state.wgPick);
       this.render();
     } else if (route === 'feed') {
-      this.state.postDraft = ''; this.state.postAnonymous = false;
-      this.state.openComments = {}; this.state.postComments = {};
+      // Story tab — load active stories only (keep stale visible)
       this.render();
       google.script.run.withSuccessHandler(function(res) {
-        if (res && res.success) self.state.feed = { stories: res.stories || [], posts: res.posts || [], loaded: true };
+        if (res && res.success) self.state.feed = { stories: res.stories || [], loaded: true };
         else self.state.feed = Object.assign({}, self.state.feed, { loaded: true });
         if (self.state.currentRoute === 'feed') self.render(true);
       }).withFailureHandler(function() {
         self.state.feed = Object.assign({}, self.state.feed, { loaded: true });
         if (self.state.currentRoute === 'feed') self.render(true);
       }).getFeedData(self.state.user.UserID);
+    } else if (route === 'activity') {
+      // Activity tab — recent learning activity timeline (derived, no extra tables)
+      this.render();
+      google.script.run.withSuccessHandler(function(res) {
+        if (res && res.success) self.state.activity = { items: res.feed || [], loaded: true };
+        else self.state.activity = Object.assign({}, self.state.activity, { loaded: true });
+        if (self.state.currentRoute === 'activity') self.render(true);
+      }).withFailureHandler(function() {
+        self.state.activity = Object.assign({}, self.state.activity, { loaded: true });
+        if (self.state.currentRoute === 'activity') self.render(true);
+      }).getCommunityData();
     } else if (route === 'userProfile') {
       this.render();
       google.script.run.withSuccessHandler(function(res) {
@@ -301,7 +339,6 @@ var App = {
       }).withFailureHandler(function() { self.navigate('feed'); }).getUserProfile(params);
     } else if (route === 'profile') {
       this.render();
-      this.loadMyPosts();
     } else if (route === 'adminScanner') {
       this.state.scannedUser = null;
       this.render();
@@ -316,6 +353,9 @@ var App = {
         if (res.success) { self.state.admin.headers = res.headers; self.state.admin.data = res.data; }
         if (self.state.currentRoute === 'adminTable') self.render(true);
       }).withFailureHandler(function() {}).adminGetTableData(tName);
+    } else if (route === 'placementTest') {
+      this.state.placement = { phase: 'intro', currentIndex: 0, answers: [], result: null, answering: false };
+      this.render();
     } else {
       this.render();
     }
@@ -337,10 +377,11 @@ var App = {
     if (r === 'leaderboard') return this.viewLeaderboard() + this.bottomNav('home');
     if (r === 'guide') return this.viewGuide() + this.bottomNav('profile');
     if (r === 'bonusQR') return this.viewBonusQR() + this.bottomNav('bonus');
-    if (r === 'feed') return this.viewFeed() + this.bottomNav('feed');
-    if (r === 'storyCompose') return this.viewStoryCompose() + this.bottomNav('feed');
+    if (r === 'feed') return this.viewFeed() + this.bottomNav('story');
+    if (r === 'activity') return this.viewActivity() + this.bottomNav('activity');
+    if (r === 'storyCompose') return this.viewStoryCompose() + this.bottomNav('story');
     if (r === 'storyView') return this.viewStoryView();
-    if (r === 'userProfile') return this.viewUserProfile() + this.bottomNav('feed');
+    if (r === 'userProfile') return this.viewUserProfile() + this.bottomNav('story');
     if (r === 'weeklyGoal') return this.viewWeeklyGoal() + this.bottomNav('home');
     if (r === 'admin') return this.viewAdmin();
     if (r === 'adminScanner') return this.viewAdminScanner();
@@ -348,6 +389,7 @@ var App = {
     if (r === 'adminTable') return this.viewAdminTable();
     if (r === 'adminExport') return this.viewAdminExport();
     if (r === 'adminQuizBuilder') return this.viewAdminQuizBuilder();
+    if (r === 'placementTest') return this.viewPlacementTest();
     return '<div class="loader">Page not found</div>';
   },
 
@@ -447,6 +489,217 @@ var App = {
     '</div>';
   },
 
+  /* ===== PLACEMENT TEST ===== */
+
+  viewPlacementTest: function() {
+    var ph = this.state.placement.phase;
+    if (ph === 'result') return this._ptResult();
+    if (ph === 'quiz') return this._ptQuiz();
+    return this._ptIntro();
+  },
+
+  _ptIntro: function() {
+    return '<div class="page-content" style="display:flex; flex-direction:column; justify-content:center; min-height:100%;">' +
+      '<div class="text-center" style="margin-bottom:24px;">' +
+        '<div class="mascot-bounce" style="font-size:88px; filter:drop-shadow(0 10px 0 rgba(200,140,80,0.3)); display:inline-block;">' + this.bear + '</div>' +
+        '<h1 class="text-title" style="background:linear-gradient(135deg,#5BA4F5,#C084FC); -webkit-background-clip:text; -webkit-text-fill-color:transparent; font-size:24px; margin-bottom:6px;">วัดระดับภาษาอังกฤษ</h1>' +
+        '<div style="display:inline-block; background:linear-gradient(135deg,#E8F4FF,#EEE0FF); border-radius:20px; padding:6px 18px; font-size:13px; font-weight:800; color:#4A3F7A;">CEFR English Placement Test 🎯</div>' +
+      '</div>' +
+      '<div style="background:linear-gradient(145deg,#F0F7FF,#E8F0FF); border-radius:20px; padding:18px 20px; margin-bottom:18px; border-left:4px solid #5BA4F5;">' +
+        '<div style="font-weight:800; font-size:14px; color:#2563EB; margin-bottom:10px;">📋 รายละเอียดแบบทดสอบ</div>' +
+        '<div style="font-size:13px; color:#1e3a5f; line-height:1.9;">' +
+          '📝 <b>20 ข้อ</b> ครอบคลุม Grammar &amp; Vocabulary<br>' +
+          '🎯 ประเมินระดับ <b>CEFR A1 → B2</b><br>' +
+          '📚 เนื้อหาตรงกับ <b>TGAT / A-Level</b><br>' +
+          '⏱️ ใช้เวลาประมาณ <b>5–10 นาที</b><br>' +
+          '💡 ผลจะช่วยวางแผนการเรียน<b>ให้ตรงจุด</b>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex; gap:8px; margin-bottom:20px; justify-content:center;">' +
+        ['A1','A2','B1','B2'].map(function(lv, i) {
+          var colors = ['#4ECB71','#5BA4F5','#FF8C42','#C084FC'];
+          return '<div style="flex:1; text-align:center; padding:10px 4px; border-radius:14px; background:' + colors[i] + '22;">' +
+            '<div style="font-weight:900; font-size:16px; color:' + colors[i] + ';">' + lv + '</div>' +
+            '<div style="font-size:9px; color:var(--clay-text-light); font-weight:700; margin-top:2px;">' + ['ต้น','พื้นฐาน','กลาง','สูง'][i] + '</div>' +
+          '</div>';
+        }).join('') +
+      '</div>' +
+      '<button class="btn btn-primary" style="font-size:16px; padding:16px;" onclick="App.startPlacement()">🚀 เริ่มทดสอบเลย!</button>' +
+      '<button class="btn btn-outline" style="font-size:12px; margin-top:8px;" onclick="App.skipPlacement()">ข้ามก่อน (ทำทีหลังในโปรไฟล์)</button>' +
+    '</div>';
+  },
+
+  _ptQuiz: function() {
+    var pl = this.state.placement;
+    var q = this.placementQuestions[pl.currentIndex];
+    var total = this.placementQuestions.length;
+    var pct = Math.round((pl.currentIndex / total) * 100);
+    var levelColors = { A1: '#4ECB71', A2: '#5BA4F5', B1: '#FF8C42', B2: '#C084FC' };
+    var levelBg    = { A1: '#E8FFF0', A2: '#E8F4FF', B1: '#FFF3E0', B2: '#F3E8FF' };
+    var col = levelColors[q.level] || '#FF8C42';
+    var bg  = levelBg[q.level]  || '#FFF3E0';
+    var self = this;
+
+    var optsHtml = q.opts.map(function(opt, i) {
+      var letter = ['A','B','C','D'][i];
+      return '<button class="pt-option" onclick="App.placementAnswer(' + i + ')" style="width:100%; text-align:left; display:flex; align-items:center; gap:12px; padding:14px 16px; background:var(--clay-white); border:2px solid rgba(150,100,200,0.12); border-radius:16px; cursor:pointer; font-family:var(--font-main); box-shadow:0 4px 0 rgba(150,100,200,0.08); margin-bottom:10px; transition:all 0.15s;">' +
+        '<div style="width:32px; height:32px; border-radius:50%; background:var(--clay-bg); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:13px; color:var(--clay-text); flex-shrink:0;">' + letter + '</div>' +
+        '<span style="font-size:14px; font-weight:600; color:var(--clay-text);">' + self.esc(opt) + '</span>' +
+      '</button>';
+    }).join('');
+
+    return '<div class="page-content">' +
+      '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">' +
+        '<div style="font-weight:800; font-size:13px; color:var(--clay-text-light);">แบบทดสอบวัดระดับ</div>' +
+        '<div style="background:' + bg + '; color:' + col + '; font-weight:800; font-size:12px; padding:5px 14px; border-radius:20px; border:1px solid ' + col + '44;">' + q.level + '</div>' +
+      '</div>' +
+      '<div class="progress-bar-container" style="margin-bottom:6px; height:10px;"><div class="progress-bar-fill" style="width:' + pct + '%; height:100%; border-radius:10px; background:linear-gradient(90deg,#5BA4F5,#C084FC); transition:width 0.4s;"></div></div>' +
+      '<div style="display:flex; justify-content:space-between; font-size:11px; color:var(--clay-text-light); font-weight:700; margin-bottom:20px;">' +
+        '<span>ข้อ ' + (pl.currentIndex + 1) + ' / ' + total + '</span>' +
+        '<span>' + q.type + ' — ' + q.th + '</span>' +
+      '</div>' +
+      '<div class="card" style="background:linear-gradient(145deg,#F8F3FF,#EEE8FF); border:none; padding:20px 22px; margin-bottom:20px;">' +
+        '<div style="font-size:16px; font-weight:800; color:var(--clay-text); line-height:1.6;">' + this.esc(q.q) + '</div>' +
+      '</div>' +
+      optsHtml +
+    '</div>';
+  },
+
+  _ptResult: function() {
+    var res = this.state.placement.result;
+    var levelColors = { A1: '#4ECB71', A2: '#5BA4F5', B1: '#FF8C42', B2: '#C084FC' };
+    var levelMeta = {
+      A1: { emoji: '🐣', colorLight: '#E8FFF0', label: 'Beginner', th: 'เริ่มต้น', desc: 'ต้องเสริมพื้นฐาน Grammar & Vocab' },
+      A2: { emoji: '📗', colorLight: '#E8F4FF', label: 'Elementary', th: 'พื้นฐาน', desc: 'มีฐานดีพอควร ต้องฝึกเพิ่ม' },
+      B1: { emoji: '📘', colorLight: '#FFF3E0', label: 'Intermediate', th: 'กลาง', desc: 'กำลังพัฒนาดี ใกล้ถึงเป้า TGAT' },
+      B2: { emoji: '🏅', colorLight: '#F3E8FF', label: 'Upper-Intermediate', th: 'ขั้นสูง', desc: 'ใกล้พร้อมสอบ TGAT แล้ว!' },
+    };
+    var recs = {
+      A1: ['Flashcards ทุกวัน — Vocab 1-5 ก่อนเลย', 'ฝึก Present Simple & Past Simple ให้แม่น', 'Daily Quest ทุกวัน เน้นข้อ Vocab'],
+      A2: ['เรียน Tenses ให้ครบก่อน (12 Tenses)', 'ขยาย Vocabulary ให้ได้ 1,500+ คำ', 'ฝึก Functional English ให้คล่อง'],
+      B1: ['เน้น Grammar: Passive, Conditionals, Wish', 'ฝึก Vocabulary ระดับ Academic Word List', 'ทำโจทย์ TGAT เก่าให้ชิน Pattern ข้อสอบ'],
+      B2: ['Mock Test TGAT/A-Level จับเวลาทุกสัปดาห์', 'ฝึก Reading Comprehension แบบยาว', 'เน้น Error Identification & Sentence Completion'],
+    };
+    var info = levelMeta[res.level] || levelMeta.B1;
+    var col  = levelColors[res.level] || '#FF8C42';
+    var recItems = (recs[res.level] || []).map(function(r, i) {
+      return '<div style="display:flex; align-items:flex-start; gap:10px; padding:10px 0; ' + (i > 0 ? 'border-top:1px solid rgba(150,100,200,0.08);' : '') + '">' +
+        '<div style="width:24px; height:24px; border-radius:50%; background:' + col + '; display:flex; align-items:center; justify-content:center; font-size:12px; color:white; font-weight:800; flex-shrink:0;">' + (i+1) + '</div>' +
+        '<span style="font-size:13px; color:var(--clay-text); line-height:1.5; padding-top:2px;">' + r + '</span>' +
+      '</div>';
+    }).join('');
+    var breakdown = ['A1','A2','B1','B2'].map(function(lv) {
+      var sc = (res.byLevel && res.byLevel[lv]) || { correct: 0, total: 5 };
+      var lc = levelColors[lv] || '#888';
+      var bpct = sc.total > 0 ? Math.round((sc.correct/sc.total)*100) : 0;
+      return '<div style="margin-bottom:10px;">' +
+        '<div style="display:flex; justify-content:space-between; font-size:12px; font-weight:800; color:var(--clay-text); margin-bottom:4px;"><span>' + lv + '</span><span style="color:' + lc + ';">' + sc.correct + '/' + sc.total + '</span></div>' +
+        '<div style="height:8px; border-radius:8px; background:rgba(150,100,200,0.10);"><div style="width:' + bpct + '%; height:100%; border-radius:8px; background:' + lc + '; transition:width 0.6s;"></div></div>' +
+      '</div>';
+    }).join('');
+
+    return '<div class="page-content">' +
+      '<div class="text-center" style="margin-bottom:20px;">' +
+        '<div style="font-size:72px; margin-bottom:8px; animation:mascot-bounce 1s ease infinite;">' + info.emoji + '</div>' +
+        '<h2 class="text-title" style="color:var(--bear-brown); margin:0 0 4px;">ผลการทดสอบ</h2>' +
+        '<div style="font-size:12px; color:var(--clay-text-light);">ได้รับ +50 XP สำหรับการทำแบบทดสอบ 🎉</div>' +
+      '</div>' +
+      '<div style="background:' + info.colorLight + '; border:2px solid ' + col + '; border-radius:24px; padding:22px; text-align:center; margin-bottom:16px;">' +
+        '<div style="font-size:11px; font-weight:800; color:' + col + '; letter-spacing:2px; margin-bottom:6px;">CEFR LEVEL</div>' +
+        '<div style="font-size:56px; font-weight:900; color:' + col + '; line-height:1;">' + res.level + '</div>' +
+        '<div style="font-size:15px; font-weight:800; color:var(--clay-text); margin-top:8px;">' + info.label + ' — ' + info.th + '</div>' +
+        '<div style="font-size:12px; color:var(--clay-text-light); margin-top:4px;">' + info.desc + '</div>' +
+        '<div style="margin-top:12px; font-size:22px; font-weight:900; color:' + col + ';">' + res.correct + '<span style="font-size:14px; color:var(--clay-text-light); font-weight:700;">/20 ข้อ</span></div>' +
+      '</div>' +
+      '<div class="card" style="padding:16px; margin-bottom:14px;">' +
+        '<div style="font-weight:800; font-size:13px; color:var(--clay-text); margin-bottom:14px;">📊 คะแนนแยกตามระดับ</div>' +
+        breakdown +
+      '</div>' +
+      '<div class="card" style="padding:16px; margin-bottom:18px;">' +
+        '<div style="font-weight:800; font-size:14px; color:var(--clay-text); margin-bottom:12px;">💡 แนะนำ: เรียนอะไรก่อน?</div>' +
+        recItems +
+      '</div>' +
+      '<button class="btn btn-primary" style="font-size:15px;" onclick="App.finishPlacement()">🐾 เริ่มเรียนเลย!</button>' +
+    '</div>';
+  },
+
+  startPlacement: function() {
+    this.state.placement.phase = 'quiz';
+    this.state.placement.currentIndex = 0;
+    this.state.placement.answers = [];
+    this.state.placement.answering = false;
+    this.render(true);
+  },
+
+  skipPlacement: function() {
+    var self = this;
+    this.state.user.PlacementDone = true;
+    localStorage.setItem('lms_user', JSON.stringify(this.state.user));
+    google.script.run.withSuccessHandler(function() { self.navigate('dashboard'); })
+      .withFailureHandler(function() { self.navigate('dashboard'); })
+      .submitPlacementResult(this.state.user.UserID, 'B1', 0);
+  },
+
+  placementAnswer: function(optIdx) {
+    var pl = this.state.placement;
+    if (pl.answering) return;
+    pl.answering = true;
+    var q = this.placementQuestions[pl.currentIndex];
+    var correct = q.opts[optIdx] === q.ans;
+    var ansIdx = q.opts.indexOf(q.ans);
+
+    var btns = document.querySelectorAll('.pt-option');
+    btns.forEach(function(b, i) {
+      b.style.pointerEvents = 'none';
+      if (i === ansIdx) {
+        b.style.background = 'linear-gradient(135deg,#4ECB71,#2EAA55)';
+        b.style.color = 'white'; b.style.borderColor = '#2EAA55';
+        b.querySelector('div').style.background = 'rgba(255,255,255,0.25)';
+        b.querySelector('div').style.color = 'white';
+      } else if (i === optIdx && !correct) {
+        b.style.background = 'linear-gradient(135deg,#FF6B6B,#E53E3E)';
+        b.style.color = 'white'; b.style.borderColor = '#E53E3E';
+      }
+    });
+
+    var self = this;
+    setTimeout(function() {
+      pl.answers.push({ level: q.level, type: q.type, correct: correct });
+      pl.currentIndex++;
+      pl.answering = false;
+      if (pl.currentIndex >= self.placementQuestions.length) {
+        pl.result = self.calcPlacementResult(pl.answers);
+        pl.phase = 'result';
+        self.state.user.EnglishLevel = pl.result.level;
+        self.state.user.PlacementDone = true;
+        localStorage.setItem('lms_user', JSON.stringify(self.state.user));
+        google.script.run
+          .withFailureHandler(function() {})
+          .submitPlacementResult(self.state.user.UserID, pl.result.level, pl.result.correct);
+        self.celebrate(30);
+      }
+      self.render(true);
+    }, 750);
+  },
+
+  calcPlacementResult: function(answers) {
+    var byLevel = { A1: { correct: 0, total: 0 }, A2: { correct: 0, total: 0 }, B1: { correct: 0, total: 0 }, B2: { correct: 0, total: 0 } };
+    var total = 0;
+    answers.forEach(function(a) {
+      if (byLevel[a.level]) {
+        byLevel[a.level].total++;
+        if (a.correct) { byLevel[a.level].correct++; total++; }
+      }
+    });
+    var level = total <= 4 ? 'A1' : total <= 9 ? 'A2' : total <= 14 ? 'B1' : 'B2';
+    return { correct: total, byLevel: byLevel, level: level };
+  },
+
+  finishPlacement: function() {
+    this.toast('🎯 ระดับของคุณ: ' + (this.state.user.EnglishLevel || 'B1') + ' — ไปเรียนได้เลย!');
+    this.navigate('dashboard');
+  },
+
   viewDashboard: function() {
     var u = this.state.user;
     var d = this.state.dashboardData;
@@ -478,6 +731,23 @@ var App = {
           '<div style="font-size:11px; color:var(--clay-text-light); font-weight:600;">Rank</div>' +
         '</div>' +
       '</div>' +
+      // CEFR English Level badge
+      (function(u) {
+        var lv = u.EnglishLevel;
+        if (!lv) return '<div class="card action-card" onclick="App.navigate(\'placementTest\')" style="background:linear-gradient(145deg,#EEF4FF,#E0EAFF); margin-bottom:14px; cursor:pointer; padding:14px 16px; display:flex; align-items:center; gap:12px; box-shadow:0 4px 0 rgba(91,164,245,0.2);">' +
+          '<div style="font-size:32px;">📋</div>' +
+          '<div style="flex:1;"><div style="font-weight:800; font-size:14px; color:#2563EB;">ยังไม่ได้วัดระดับภาษาอังกฤษ</div><div style="font-size:11px; color:var(--clay-text-light); margin-top:3px;">แตะเพื่อทำ Placement Test (CEFR) 5 นาที</div></div>' +
+          '<div style="font-size:18px; color:#5BA4F5;">→</div>' +
+        '</div>';
+        var lvCols = { A1:'#4ECB71',A2:'#5BA4F5',B1:'#FF8C42',B2:'#C084FC' };
+        var lvBg   = { A1:'#E8FFF0',A2:'#EEF4FF',B1:'#FFF3E0',B2:'#F5EEFF' };
+        var col = lvCols[lv] || '#5BA4F5', bg = lvBg[lv] || '#EEF4FF';
+        return '<div class="card" onclick="App.navigate(\'placementTest\')" style="background:' + bg + '; margin-bottom:14px; cursor:pointer; padding:12px 16px; display:flex; align-items:center; gap:12px; border-left:4px solid ' + col + '; box-shadow:none;">' +
+          '<div style="font-size:28px;">🎯</div>' +
+          '<div style="flex:1;"><div style="font-size:11px; color:var(--clay-text-light); font-weight:700;">ระดับภาษาอังกฤษของคุณ (CEFR)</div><div style="font-weight:900; font-size:22px; color:' + col + '; line-height:1;">' + lv + '</div></div>' +
+          '<div style="font-size:11px; color:' + col + '; font-weight:700; text-align:right;">ทำใหม่<br>→</div>' +
+        '</div>';
+      })(u) +
       // Bonus score (คะแนนพิเศษ)
       '<div class="card action-card" style="background:linear-gradient(145deg,#F8F3FF,#EEE0FF); box-shadow:0 6px 0 rgba(160,80,200,0.2),0 10px 20px rgba(160,80,200,0.10); margin-bottom:16px; cursor:pointer; padding:16px;" onclick="App.navigate(\'bonusQR\')">' +
         '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">' +
@@ -524,15 +794,17 @@ var App = {
           '<div style="width:36px; height:36px; border-radius:50%; background:white; box-shadow:0 4px 0 rgba(60,130,220,0.2); display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--clay-blue);">▶</div>' +
         '</div>' +
       '</div>' +
-      // Feed
-      '<div class="card action-card" style="background:linear-gradient(145deg,#E0F7FA,#C8EEF5); box-shadow:0 6px 0 rgba(60,170,200,0.2),0 10px 20px rgba(60,170,200,0.10); margin-top:12px; cursor:pointer;" onclick="App.navigate(\'feed\')">' +
-        '<div style="display:flex; align-items:center; gap:12px;">' +
-          '<div style="font-size:40px;">📰</div>' +
-          '<div style="flex:1;">' +
-            '<div style="font-weight:800; font-size:15px; color:#0E7C8B;">📰 Feed เพื่อนๆ</div>' +
-            '<div style="font-size:12px; color:var(--clay-text-light); margin-top:4px;">โพสต์ข้อความ + ดูสตอรี่และความเคลื่อนไหวของเพื่อนทั้งระดับ</div>' +
-          '</div>' +
-          '<div style="width:36px; height:36px; border-radius:50%; background:white; box-shadow:0 4px 0 rgba(60,170,200,0.2); display:flex; align-items:center; justify-content:center; font-size:16px; color:#0E7C8B;">▶</div>' +
+      // Story + Activity shortcuts
+      '<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px;">' +
+        '<div class="card action-card" style="background:linear-gradient(145deg,#F8ECFF,#F0DBFF); box-shadow:0 6px 0 rgba(160,80,200,0.2),0 10px 20px rgba(160,80,200,0.10); text-align:center; padding:18px 10px; margin:0; cursor:pointer;" onclick="App.navigate(\'feed\')">' +
+          '<div style="font-size:34px;">📸</div>' +
+          '<div style="font-weight:800; font-size:14px; color:var(--clay-purple-shadow); margin-top:6px;">สตอรี่</div>' +
+          '<div style="font-size:11px; color:var(--clay-text-light); margin-top:2px;">แชร์ช่วงเวลา</div>' +
+        '</div>' +
+        '<div class="card action-card" style="background:linear-gradient(145deg,#E0F7FA,#C8EEF5); box-shadow:0 6px 0 rgba(60,170,200,0.2),0 10px 20px rgba(60,170,200,0.10); text-align:center; padding:18px 10px; margin:0; cursor:pointer;" onclick="App.navigate(\'activity\')">' +
+          '<div style="font-size:34px;">⚡</div>' +
+          '<div style="font-weight:800; font-size:14px; color:#0E7C8B; margin-top:6px;">กิจกรรม</div>' +
+          '<div style="font-size:11px; color:var(--clay-text-light); margin-top:2px;">ความเคลื่อนไหว</div>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -632,12 +904,19 @@ var App = {
     return new Date(iso).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
   },
 
-  feedHeader: function() {
+  storyHeader: function() {
+    return '<div style="background:linear-gradient(135deg,#C084FC,#FF8C42); border-radius:24px; padding:18px 20px; margin-bottom:16px; box-shadow:0 8px 0 rgba(160,80,200,0.2),0 14px 28px rgba(160,80,200,0.15); display:flex; align-items:center; gap:12px;">' +
+      '<div style="font-size:36px; filter:drop-shadow(0 4px 0 rgba(0,0,0,0.12));">📸</div>' +
+      '<div style="flex:1;"><div style="font-size:18px; font-weight:800; color:white;">สตอรี่เพื่อนๆ</div>' +
+      '<div style="font-size:12px; color:rgba(255,255,255,0.9);">แชร์ช่วงเวลาดีๆ — โพสต์หายใน 24 ชม. ✨</div></div>' +
+    '</div>';
+  },
+
+  activityHeader: function() {
     return '<div style="background:linear-gradient(135deg,#26C6DA,#5BA4F5); border-radius:24px; padding:18px 20px; margin-bottom:16px; box-shadow:0 8px 0 rgba(40,150,180,0.2),0 14px 28px rgba(40,150,180,0.15); display:flex; align-items:center; gap:12px;">' +
-      '<div style="font-size:36px; filter:drop-shadow(0 4px 0 rgba(0,0,0,0.12));">📰</div>' +
-      '<div style="flex:1;"><div style="font-size:18px; font-weight:800; color:white;">Feed เพื่อนๆ</div>' +
-      '<div style="font-size:12px; color:rgba(255,255,255,0.9);">โพสต์ข้อความ แชร์เรื่องราว เชียร์กันทั้งระดับ! 🎉</div></div>' +
-      '<button onclick="App.navigate(\'dashboard\')" style="background:rgba(255,255,255,0.25); border:none; width:34px; height:34px; border-radius:50%; font-size:16px; cursor:pointer; color:white;">✕</button>' +
+      '<div style="font-size:36px; filter:drop-shadow(0 4px 0 rgba(0,0,0,0.12));">⚡</div>' +
+      '<div style="flex:1;"><div style="font-size:18px; font-weight:800; color:white;">กิจกรรมล่าสุด</div>' +
+      '<div style="font-size:12px; color:rgba(255,255,255,0.9);">ดูว่าเพื่อนๆ กำลังเรียนอะไรกันอยู่! 🎉</div></div>' +
     '</div>';
   },
 
@@ -661,228 +940,81 @@ var App = {
     return html;
   },
 
-  // A single post card (shared by Feed + profile walls)
-  postCard: function(p, opts) {
-    opts = opts || {};
-    var self = this;
-    var clickable = !p.anonymous && p.userId;
-    var av = p.anonymous
-      ? '<div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#2d2d44,#1a1a2e);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">👻</div>'
-      : (p.img ? '<img src="' + p.img + '" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0;">' : '<div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">👤</div>');
-    var avWrap = clickable
-      ? '<div onclick="App.navigate(\'userProfile\',\'' + p.userId + '\')" style="cursor:pointer;">' + av + '</div>'
-      : av;
-    var canDelete = opts.canDelete || p.mine;
-    var showReactions = opts.showReactions !== false;
-
-    // Reaction bar (only in Feed, not profile walls)
-    var rxHtml = '';
-    if (showReactions) {
-      var rxEmojis = [['❤️','heart'],['👍','thumbs'],['🔥','fire'],['😂','laugh']];
-      var rxBtns = rxEmojis.map(function(e) {
-        var ic = e[0], key = e[1];
-        var cnt = (p.reactions && p.reactions[key]) || 0;
-        var on = p.myReactions && p.myReactions[key];
-        return '<button onclick="App.reactPost(' + p.id + ',\'' + key + '\')" style="display:inline-flex; align-items:center; gap:4px; border:none; border-radius:20px; padding:5px 10px; font-size:13px; cursor:pointer; font-weight:700; background:' + (on ? 'linear-gradient(135deg,#EDE9F7,#DDD4EF)' : 'transparent') + '; color:' + (on ? 'var(--clay-purple-shadow)' : 'var(--clay-text-light)') + ';">' +
-          ic + (cnt > 0 ? '<span>' + cnt + '</span>' : '') +
-        '</button>';
-      }).join('');
-      var cmtCnt = p.commentCount || 0;
-      rxHtml = '<div style="display:flex; align-items:center; margin-top:10px; padding-top:8px; border-top:1px solid rgba(150,100,200,0.08);">' +
-        '<div style="display:flex; gap:2px; flex:1;">' + rxBtns + '</div>' +
-        '<button onclick="App.toggleComments(' + p.id + ')" style="display:inline-flex; align-items:center; gap:5px; border:none; background:transparent; color:var(--clay-text-light); font-size:13px; font-weight:700; cursor:pointer; padding:5px 8px;">' +
-          '💬 ' + (cmtCnt > 0 ? cmtCnt : '') + ' ความเห็น' +
-        '</button>' +
-      '</div>';
-
-      // Comments section (when open)
-      if (this.state.openComments[p.id]) {
-        var cached = this.state.postComments[p.id];
-        var cmtListHtml = '';
-        if (!cached) {
-          cmtListHtml = '<div style="padding:8px 0; color:var(--clay-text-light); font-size:12px; text-align:center;">กำลังโหลด...</div>';
-        } else if (cached.length === 0) {
-          cmtListHtml = '<div style="padding:8px 0; color:var(--clay-text-light); font-size:12px; text-align:center;">ยังไม่มีความเห็น</div>';
-        } else {
-          cmtListHtml = cached.map(function(c) {
-            var cav = c.img ? '<img src="' + c.img + '" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;">' : '<div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;">👤</div>';
-            return '<div style="display:flex; align-items:flex-start; gap:8px; margin-bottom:8px;">' + cav +
-              '<div style="flex:1; background:var(--clay-bg); border-radius:12px; padding:7px 10px;">' +
-                '<div style="font-size:11px; font-weight:800; color:var(--clay-text); margin-bottom:2px;">' + self.esc(c.name) + '</div>' +
-                '<div style="font-size:13px; color:var(--clay-text); line-height:1.4;">' + self.esc(c.content) + '</div>' +
-                '<div style="font-size:10px; color:var(--clay-text-light); margin-top:3px;">' + self.timeAgo(c.at) + '</div>' +
-              '</div>' +
-            '</div>';
-          }).join('');
-        }
-        var draftVal = this.state.commentDraft[p.id] || '';
-        rxHtml += '<div style="margin-top:10px; padding-top:8px; border-top:1px solid rgba(150,100,200,0.08);">' +
-          cmtListHtml +
-          '<div style="display:flex; gap:8px; margin-top:8px; align-items:center;">' +
-            '<textarea id="cmt-' + p.id + '" class="input-field" rows="1" maxlength="500" placeholder="เขียนความเห็น..." style="flex:1; font-size:13px; min-height:38px; padding:8px 12px; resize:none;">' + self.esc(draftVal) + '</textarea>' +
-            '<button onclick="App.submitComment(' + p.id + ')" style="background:linear-gradient(135deg,#FF8C42,#C084FC); border:none; border-radius:12px; padding:8px 14px; font-weight:800; font-size:13px; color:white; cursor:pointer; white-space:nowrap;">ส่ง</button>' +
-          '</div>' +
-        '</div>';
-      }
-    }
-
-    return '<div style="background:var(--clay-white); border-radius:16px; padding:14px; margin-bottom:8px; box-shadow:0 4px 0 rgba(150,100,200,0.10),0 6px 12px rgba(150,100,200,0.06);">' +
-      '<div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">' + avWrap +
-        '<div style="flex:1; min-width:0;">' +
-          '<div style="font-weight:800; font-size:13px; color:var(--clay-text);">' + this.esc(p.name) + (p.anonymous ? ' <span style="font-size:10px; color:var(--clay-text-light);">👻 ไร้ตัวตน</span>' : '') + '</div>' +
-          '<div style="font-size:11px; color:var(--clay-text-light);">' + (p.cls ? this.esc(p.cls) + ' · ' : '') + this.timeAgo(p.at) + '</div>' +
-        '</div>' +
-        (canDelete ? '<button onclick="App.deletePost(' + p.id + ')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; line-height:1;">🗑️</button>' : '') +
-      '</div>' +
-      '<div style="font-size:14px; color:var(--clay-text); line-height:1.6; white-space:pre-wrap;">' + this.esc(p.content) + '</div>' +
-      rxHtml +
-    '</div>';
-  },
-
-  // Compose box for a new text post (used on Feed + own profile)
-  postComposer: function() {
-    var anon = this.state.postAnonymous;
-    return '<div class="card">' +
-      '<textarea id="post-text" class="input-field" style="margin-bottom:10px; min-height:80px; resize:vertical; font-size:15px;" maxlength="1000" placeholder="โพสต์อะไรสักอย่าง... แชร์ให้เพื่อนๆ ใน Feed!">' + this.esc(this.state.postDraft || '') + '</textarea>' +
-      '<div style="display:flex; align-items:center; gap:10px;">' +
-        '<div onclick="App.togglePostAnon()" style="display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; flex:1;">' +
-          '<div style="width:40px; height:22px; border-radius:11px; background:' + (anon ? 'var(--clay-purple)' : 'var(--clay-bg)') + '; position:relative;">' +
-            '<div style="position:absolute; top:2px; ' + (anon ? 'right:2px' : 'left:2px') + '; width:18px; height:18px; border-radius:50%; background:white; box-shadow:0 2px 4px rgba(0,0,0,0.2);"></div>' +
-          '</div>' +
-          '<span style="font-size:12px; font-weight:700; color:' + (anon ? 'var(--clay-purple-shadow)' : 'var(--clay-text-light)') + ';">' + (anon ? '👻 ไร้ตัวตน' : '🙂 แสดงชื่อ') + '</span>' +
-        '</div>' +
-        '<button onclick="App.submitPost()" style="background:linear-gradient(135deg,#FF8C42,#C084FC); border:none; border-radius:12px; padding:10px 22px; font-family:var(--font-main); font-weight:800; font-size:14px; color:white; cursor:pointer; box-shadow:0 3px 0 rgba(160,80,200,0.2);">โพสต์ 🚀</button>' +
-      '</div>' +
-    '</div>';
-  },
-
+  // ===== STORY TAB (route 'feed') — stories only =====
   viewFeed: function() {
-    var fd = this.state.feed || { stories: [], posts: [], loaded: false };
+    var fd = this.state.feed || { stories: [], loaded: false };
     if (!fd.loaded) {
-      return '<div class="page-content">' + this.feedHeader() +
-        '<div class="loader" style="height:auto; padding:40px 0;"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลด Feed...</div></div>' +
+      return '<div class="page-content">' + this.storyHeader() +
+        '<div class="loader" style="height:auto; padding:40px 0;"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลดสตอรี่...</div></div>' +
       '</div>';
     }
     var self = this;
-    var posts = fd.posts || [];
-    var postsHtml = posts.length === 0
-      ? '<p class="text-center" style="color:var(--clay-text-light); font-weight:700; padding:20px 0;">ยังไม่มีโพสต์ — มาเป็นคนแรกกัน! ✍️</p>'
-      : posts.map(function(p){ return self.postCard(p); }).join('');
+    var stories = fd.stories || [];
+    var listHtml = stories.length === 0
+      ? '<div class="card" style="text-align:center; background:linear-gradient(145deg,#F8F3FF,#EEE8FF);"><div style="font-size:40px; margin-bottom:6px;">📸</div><div style="font-size:13px; color:var(--clay-text-light); font-weight:700;">ยังไม่มีสตอรี่ — มาเป็นคนแรกกัน!<br>กดวงกลม ＋ ด้านบนเพื่อสร้าง</div></div>'
+      : stories.map(function(s){ return self.storyPreviewCard(s); }).join('');
 
-    return '<div class="page-content">' + this.feedHeader() +
-      // Stories row
-      '<div style="display:flex; gap:10px; overflow-x:auto; padding-bottom:8px; margin-bottom:16px; -webkit-overflow-scrolling:touch;">' + this.storyBubblesHtml(fd.stories) + '</div>' +
-      // Composer
-      this.postComposer() +
-      // Posts feed
-      '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin:16px 0 10px;">📣 โพสต์ล่าสุด</div>' +
-      postsHtml +
+    return '<div class="page-content">' + this.storyHeader() +
+      // Stories row (first bubble = create)
+      '<div style="display:flex; gap:10px; overflow-x:auto; padding-bottom:8px; margin-bottom:16px; -webkit-overflow-scrolling:touch;">' + this.storyBubblesHtml(stories) + '</div>' +
+      '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin:4px 0 10px;">✨ สตอรี่ที่กำลังแสดง</div>' +
+      listHtml +
     '</div>';
   },
 
-  togglePostAnon: function() {
-    this.state.postAnonymous = !this.state.postAnonymous;
-    var ta = document.getElementById('post-text');
-    if (ta) this.state.postDraft = ta.value;
-    this.render(true);
+  // A single story preview card in the Story tab (tap to open full viewer)
+  storyPreviewCard: function(s) {
+    var anon = !!s.anonymous;
+    var av = anon
+      ? '<div style="width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#2d2d44,#1a1a2e);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">👻</div>'
+      : (s.img ? '<img src="' + s.img + '" style="width:42px;height:42px;border-radius:50%;object-fit:cover;flex-shrink:0;">' : '<div style="width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">👤</div>');
+    var name = anon ? 'ไม่ระบุตัวตน' : this.esc(s.name || '-');
+    var snippet = (s.content || '').slice(0, 90);
+    return '<div onclick="App.openStory(' + s.id + ')" style="background:var(--clay-white); border-radius:16px; padding:14px; margin-bottom:8px; box-shadow:0 4px 0 rgba(150,100,200,0.10),0 6px 12px rgba(150,100,200,0.06); cursor:pointer; display:flex; gap:12px; align-items:center;">' +
+      '<div style="border-radius:50%; padding:2px; background:' + (anon ? 'linear-gradient(135deg,#555,#333)' : 'linear-gradient(135deg,#C084FC,#FF8C42)') + '; flex-shrink:0;">' + av + '</div>' +
+      '<div style="flex:1; min-width:0;">' +
+        '<div style="font-weight:800; font-size:13px; color:var(--clay-text);">' + name + '</div>' +
+        '<div style="font-size:13px; color:var(--clay-text-light); line-height:1.4; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">' + this.esc(snippet) + '</div>' +
+        '<div style="font-size:11px; color:var(--clay-text-light); margin-top:3px;">' + (s.cls ? this.esc(s.cls) + ' · ' : '') + this.timeAgo(s.at) + (s.reactions ? ' · ❤️ ' + s.reactions : '') + '</div>' +
+      '</div>' +
+      '<div style="font-size:18px; color:var(--clay-text-light);">›</div>' +
+    '</div>';
   },
 
-  submitPost: function() {
-    var self = this;
-    var ta = document.getElementById('post-text');
-    var content = ta ? ta.value.trim() : '';
-    if (!content) { alert('กรุณาใส่ข้อความ'); return; }
-    var anon = !!this.state.postAnonymous;
-    var fromProfile = this.state.currentRoute === 'profile';
-    google.script.run.withSuccessHandler(function(res){
-      if (res && res.success) {
-        self.state.postDraft = ''; self.state.postAnonymous = false;
-        self.celebrate(16); self.toast(anon ? '👻 โพสต์แบบไร้ตัวตนแล้ว!' : '✅ โพสต์แล้ว!');
-        if (fromProfile) { self.loadMyPosts(); }
-        else { self.navigate('feed'); }
-      } else alert((res && res.message) || 'โพสต์ไม่สำเร็จ');
-    }).withFailureHandler(function(e){ alert('Error: ' + e.message); }).createPost(this.state.user.UserID, content, anon);
-  },
-
-  deletePost: function(id) {
-    var self = this;
-    if (!confirm('ลบโพสต์นี้?')) return;
-    google.script.run.withSuccessHandler(function(){
-      // refresh whichever list we're viewing
-      var r = self.state.currentRoute;
-      if (r === 'feed') self.navigate('feed');
-      else if (r === 'userProfile' && self.state.viewingUser && self.state.viewingUser.user) self.navigate('userProfile', self.state.viewingUser.user.id);
-      else { self.loadMyPosts(); }
-    }).withFailureHandler(function(){}).deletePost(id, this.state.user.UserID);
-  },
-
-  // Toggle emoji reaction on a post (optimistic update)
-  reactPost: function(postId, emoji) {
-    var self = this;
-    var posts = (this.state.feed && this.state.feed.posts) || [];
-    var post = null;
-    for (var i = 0; i < posts.length; i++) { if (posts[i].id === postId) { post = posts[i]; break; } }
-    if (!post) return;
-    if (!post.reactions) post.reactions = {};
-    if (!post.myReactions) post.myReactions = {};
-    var on = post.myReactions[emoji];
-    post.myReactions[emoji] = !on;
-    post.reactions[emoji] = Math.max(0, (post.reactions[emoji] || 0) + (on ? -1 : 1));
-    this.render(true);
-    google.script.run.withFailureHandler(function(){}).addPostReaction(postId, self.state.user.UserID, emoji);
-  },
-
-  // Toggle comment section open/closed for a post
-  toggleComments: function(postId) {
-    // Save any draft text already in the textarea
-    var ta = document.getElementById('cmt-' + postId);
-    if (ta) this.state.commentDraft[postId] = ta.value;
-    var wasOpen = !!this.state.openComments[postId];
-    this.state.openComments[postId] = !wasOpen;
-    if (!wasOpen && !this.state.postComments[postId]) {
-      this.loadPostComments(postId);
-    } else {
-      this.render(true);
+  // ===== ACTIVITY TAB (route 'activity') — recent learning activity timeline =====
+  viewActivity: function() {
+    var ad = this.state.activity || { items: [], loaded: false };
+    if (!ad.loaded) {
+      return '<div class="page-content">' + this.activityHeader() +
+        '<div class="loader" style="height:auto; padding:40px 0;"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลดกิจกรรม...</div></div>' +
+      '</div>';
     }
+    var self = this;
+    var items = ad.items || [];
+    var listHtml = items.length === 0
+      ? '<div class="card" style="text-align:center; background:linear-gradient(145deg,#F8F3FF,#EEE8FF);"><div style="font-size:40px; margin-bottom:6px;">⚡</div><div style="font-size:13px; color:var(--clay-text-light); font-weight:700;">ยังไม่มีกิจกรรม — เริ่มเรียนเพื่อให้เพื่อนๆ เห็น!</div></div>'
+      : items.map(function(a){ return self.activityItem(a); }).join('');
+
+    return '<div class="page-content">' + this.activityHeader() +
+      listHtml +
+    '</div>';
   },
 
-  // Fetch comments for a post and re-render
-  loadPostComments: function(postId) {
-    var self = this;
-    google.script.run.withSuccessHandler(function(res){
-      if (res && res.success) {
-        self.state.postComments[postId] = res.comments || [];
-        var posts = (self.state.feed && self.state.feed.posts) || [];
-        for (var i = 0; i < posts.length; i++) {
-          if (posts[i].id === postId) { posts[i].commentCount = (res.comments || []).length; break; }
-        }
-      }
-      self.render(true);
-    }).withFailureHandler(function(){ self.render(true); }).getPostComments(postId);
-  },
-
-  // Submit a comment on a post
-  submitComment: function(postId) {
-    var self = this;
-    var ta = document.getElementById('cmt-' + postId);
-    var content = ta ? ta.value.trim() : (this.state.commentDraft[postId] || '').trim();
-    if (!content) return;
-    this.state.commentDraft[postId] = '';
-    google.script.run.withSuccessHandler(function(res){
-      if (res && res.success) {
-        delete self.state.postComments[postId]; // clear cache so it reloads
-        self.loadPostComments(postId);
-        self.toast('💬 ส่งความเห็นแล้ว!');
-      } else { alert((res && res.message) || 'ส่งความเห็นไม่สำเร็จ'); }
-    }).withFailureHandler(function(e){ alert('Error: ' + e.message); }).addPostComment(postId, this.state.user.UserID, content);
-  },
-
-  // Load the current user's own posts (for the profile wall)
-  loadMyPosts: function() {
-    var self = this;
-    google.script.run.withSuccessHandler(function(res){
-      if (res && res.success) { self.state.myPosts = res.posts || []; self.render(true); }
-    }).withFailureHandler(function(){}).getUserPosts(this.state.user.UserID);
+  // One activity row (avatar clickable → profile, emoji + action text + time)
+  activityItem: function(a) {
+    var av = a.img
+      ? '<img src="' + a.img + '" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0;">'
+      : '<div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">👤</div>';
+    var avWrap = a.userId
+      ? '<div onclick="App.navigate(\'userProfile\',\'' + a.userId + '\')" style="cursor:pointer;">' + av + '</div>'
+      : av;
+    return '<div style="background:var(--clay-white); border-radius:16px; padding:12px 14px; margin-bottom:8px; box-shadow:0 4px 0 rgba(150,100,200,0.10),0 6px 12px rgba(150,100,200,0.06); display:flex; gap:12px; align-items:center;">' + avWrap +
+      '<div style="flex:1; min-width:0;">' +
+        '<div style="font-size:14px; color:var(--clay-text); line-height:1.4;"><b>' + this.esc(a.name) + '</b> <span style="color:var(--clay-text-light);">' + this.esc(a.text) + '</span></div>' +
+        '<div style="font-size:11px; color:var(--clay-text-light); margin-top:3px;">' + (a.cls ? this.esc(a.cls) + ' · ' : '') + this.timeAgo(a.at) + '</div>' +
+      '</div>' +
+      '<div style="font-size:26px; flex-shrink:0;">' + a.emoji + '</div>' +
+    '</div>';
   },
 
   /* ===== STORY / MOMENTS ===== */
@@ -1525,7 +1657,7 @@ var App = {
 
   viewUserProfile: function() {
     var data = this.state.viewingUser;
-    if (!data) return '<div class="loader"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลดโปรไฟล์...</div></div>' + this.bottomNav('feed');
+    if (!data) return '<div class="loader"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลดโปรไฟล์...</div></div>' + this.bottomNav('story');
     var u = data.user;
     var st = data.stats;
     var lv = this.levelInfo(u.xp);
@@ -1582,24 +1714,7 @@ var App = {
             (u.bio ? '<div style="display:flex; gap:8px;"><span>📝</span><div style="font-size:13px; color:var(--clay-text-light); line-height:1.6;">' + this.esc(u.bio) + '</div></div>' : '') +
           '</div>'
         : '') +
-      // Posts wall
-      '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin:16px 0 10px;">📝 โพสต์ของ ' + this.esc(u.firstName) + '</div>' +
-      this.postsWallHtml(data.posts, { name: u.firstName, cls: u.className, img: u.profileImage, userId: u.id }, isMe) +
     '</div>';
-  },
-
-  // Render a list of a single user's wall posts (non-anonymous). `author` provides display info.
-  postsWallHtml: function(posts, author, canDelete) {
-    var self = this;
-    if (!posts || posts.length === 0) {
-      return '<p class="text-center" style="color:var(--clay-text-light); font-weight:700; padding:14px 0;">ยังไม่มีโพสต์</p>';
-    }
-    return posts.map(function(p){
-      return self.postCard({
-        id: p.id, content: p.content, at: p.at,
-        name: author.name, cls: author.cls, img: author.img, userId: null, anonymous: false
-      }, { canDelete: !!canDelete });
-    }).join('');
   },
 
   viewProfile: function() {
@@ -1636,12 +1751,6 @@ var App = {
         : '<div class="card" style="text-align:center; background:linear-gradient(145deg,#F8F3FF,#EEE8FF);"><div style="font-size:13px; color:var(--clay-text-light);">ยังไม่ได้กรอกข้อมูลแนะนำตัว 🐾<br>กด "แก้ไขโปรไฟล์" เพื่อเพิ่มความฝันและเป้าหมายของคุณ!</div></div>') +
       // Vinyl music player (if set)
       this.vinylHtml(u.YoutubeUrl) +
-      // My posts (composer + wall)
-      '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin:16px 0 10px;">📝 โพสต์ของฉัน</div>' +
-      this.postComposer() +
-      (this.state.myPosts === null
-        ? '<p class="text-center" style="color:var(--clay-text-light); font-weight:700; padding:14px 0;">กำลังโหลดโพสต์...</p>'
-        : this.postsWallHtml(this.state.myPosts, { name: (u.FirstName + ' ' + u.LastName), cls: u.Class, img: u.ProfileImage, userId: u.UserID }, true)) +
       // Level card
       '<div class="card">' +
         '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">' +
@@ -1677,6 +1786,28 @@ var App = {
           '</div>';
         }).join('') +
       '</div>' +
+      // English Level card
+      (function(u, self) {
+        var lv = u.EnglishLevel;
+        var lvCols = { A1:'#4ECB71', A2:'#5BA4F5', B1:'#FF8C42', B2:'#C084FC' };
+        var lvBg   = { A1:'#E8FFF0', A2:'#EEF4FF', B1:'#FFF3E0', B2:'#F5EEFF' };
+        var col = lv ? (lvCols[lv] || '#5BA4F5') : '#5BA4F5';
+        var bg  = lv ? (lvBg[lv]  || '#EEF4FF') : '#EEF4FF';
+        return '<div class="card" style="background:' + bg + '; border-left:4px solid ' + col + '; box-shadow:none;">' +
+          '<div style="display:flex; align-items:center; gap:12px;">' +
+            '<div style="font-size:32px;">🎯</div>' +
+            '<div style="flex:1;">' +
+              '<div style="font-size:11px; font-weight:700; color:var(--clay-text-light); margin-bottom:2px;">ระดับภาษาอังกฤษ (CEFR)</div>' +
+              (lv
+                ? '<div style="font-weight:900; font-size:28px; color:' + col + '; line-height:1;">' + lv + '</div>'
+                : '<div style="font-weight:700; font-size:13px; color:var(--clay-text-light);">ยังไม่ได้วัดระดับ</div>') +
+            '</div>' +
+            '<button onclick="App.navigate(\'placementTest\')" style="background:' + col + '; border:none; border-radius:12px; padding:8px 14px; font-family:var(--font-main); font-weight:800; font-size:12px; color:white; cursor:pointer;">' +
+              (lv ? 'ทำใหม่' : 'วัดระดับ') +
+            '</button>' +
+          '</div>' +
+        '</div>';
+      })(u, this) +
       '<button class="btn btn-outline" onclick="App.navigate(\'guide\')">📖 คู่มือการใช้งาน</button>' +
       '<button class="btn btn-danger" onclick="App.logout()">ออกจากระบบ</button>' +
     '</div>';
@@ -2247,11 +2378,12 @@ var App = {
       '<rect x="14" y="18" width="2" height="2"/><rect x="18" y="18" width="4" height="2"/><rect x="14" y="22" width="2" height="1"/><rect x="18" y="21" width="5" height="2"/>' +
       '</svg>';
     var tabs = [
-      { id:'home',    icon:'&#x1F3E0;', label:'หน้าหลัก', route:'dashboard' },
-      { id:'lessons', icon:'&#x1F4DA;', label:'บทเรียน',  route:'lessons' },
-      { id:'feed',    icon:'&#x1F4F0;', label:'Feed',      route:'feed' },
-      { id:'bonus',   icon: qrSvg,      label:'QR คะแนน', route:'bonusQR', isSvg: true },
-      { id:'profile', icon:'&#x1F43E;', label:'โปรไฟล์',  route:'profile' }
+      { id:'home',     icon:'&#x1F3E0;', label:'หน้าหลัก', route:'dashboard' },
+      { id:'lessons',  icon:'&#x1F4DA;', label:'บทเรียน',  route:'lessons' },
+      { id:'story',    icon:'&#x1F4F8;', label:'สตอรี่',   route:'feed' },
+      { id:'activity', icon:'&#x26A1;',  label:'กิจกรรม',  route:'activity' },
+      { id:'bonus',    icon: qrSvg,      label:'QR คะแนน', route:'bonusQR', isSvg: true },
+      { id:'profile',  icon:'&#x1F43E;', label:'โปรไฟล์',  route:'profile' }
     ];
     var navHtml = '';
     for (var i = 0; i < tabs.length; i++) {
