@@ -566,6 +566,18 @@
     to   { opacity: 1; transform: translateY(0); }
   }
 
+  /* ===== MASCOT IMAGE (replaces bear emoji everywhere) ===== */
+  .mascot-img-inline {
+    width: 1em;
+    height: 1em;
+    border-radius: 50%;
+    object-fit: cover;
+    object-position: center center;
+    display: inline-block;
+    vertical-align: middle;
+    filter: drop-shadow(0 4px 8px rgba(120,60,200,0.18));
+  }
+
   /* ===== ENGLISH COURSE — NEW BADGE BLINK ===== */
   @keyframes new-badge-pulse {
     0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 2px 6px rgba(255,107,107,0.45); }

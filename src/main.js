@@ -1,6 +1,8 @@
 import * as api from './api.js';
 import QRCode from 'qrcode';
 import jsQR from 'jsqr';
+import mascotUrl from './assets/mascot.png';
+import mascot2Url from './assets/mascot2.png';
 
 window.google = {
   script: {
@@ -58,6 +60,7 @@ var App = {
     },
     leaderboard: [],
     leaderboardFilter: '',
+    leaderboardSearch: '',
     leaderboardClasses: [],
     completedModules: [],
     streakInfo: null,
@@ -85,12 +88,13 @@ var App = {
     pendingBonusPoints: 10,
     placement: { phase: 'intro', currentIndex: 0, answers: [], result: null, answering: false },
     englishCourse: { exp: 0, progress: {}, loaded: false },
-    englishQuiz: { moduleId: null, questions: [], currentIndex: 0, answers: [], submitted: false, awarded: 0 }
+    englishQuiz: { moduleId: null, questions: [], currentIndex: 0, answers: [], submitted: false, awarded: 0 },
+    selfProfile: null
   },
 
-  bear: '&#x1F43B;',
-  bearHappy: '&#x1F43B;',
-  bearStar: '&#x2B50;',
+  get bear() { return '<img src="' + mascot2Url + '" class="mascot-img-inline" />'; },
+  get bearHappy() { return '<img src="' + mascot2Url + '" class="mascot-img-inline" />'; },
+  get bearStar() { return '<img src="' + mascot2Url + '" class="mascot-img-inline" />'; },
 
   // ===== LEVEL TIERS (XP-based, top out at 10,000) =====
   levelTiers: [
@@ -154,6 +158,85 @@ var App = {
       { q: 'Read: "The policy was controversial, with many citizens opposing it." — "controversial" means ___', opts: ['popular', 'causing disagreement', 'successful', 'unimportant'], ans: 1, explain: 'controversial = ขัดแย้ง ≈ causing disagreement' },
       { q: 'Error ID: "Each of the students have their own textbook."', opts: ['Each of', 'the students', 'have', 'their own'], ans: 2, explain: 'have → has (Each of + N + singular verb)' }
     ]
+  },
+
+  // ===== BADGE DEFINITIONS =====
+  BADGE_DEFS: [
+    // XP / Level
+    { id:'xp_500',   emoji:'🌱', label:'เริ่มต้นแล้ว',   desc:'สะสม 500 XP',          group:'xp',      check:function(d){return d.xp>=500;} },
+    { id:'xp_1500',  emoji:'📘', label:'นักเรียนรู้',     desc:'สะสม 1,500 XP',        group:'xp',      check:function(d){return d.xp>=1500;} },
+    { id:'xp_3000',  emoji:'🎯', label:'ชำนาญ',           desc:'สะสม 3,000 XP',        group:'xp',      check:function(d){return d.xp>=3000;} },
+    { id:'xp_7000',  emoji:'💎', label:'ผู้เชี่ยวชาญ',   desc:'สะสม 7,000 XP',        group:'xp',      check:function(d){return d.xp>=7000;} },
+    // Streak
+    { id:'streak_3',  emoji:'🔥', label:'ไฟไม่ดับ',      desc:'เรียน 3 วันต่อเนื่อง',  group:'streak',  check:function(d){return d.streak>=3;} },
+    { id:'streak_7',  emoji:'⚡', label:'สายฟ้า',         desc:'เรียน 7 วันต่อเนื่อง',  group:'streak',  check:function(d){return d.streak>=7;} },
+    { id:'streak_14', emoji:'🌟', label:'ดาวเด่น',        desc:'เรียน 14 วันต่อเนื่อง', group:'streak',  check:function(d){return d.streak>=14;} },
+    // Modules
+    { id:'mod_1',   emoji:'📚', label:'เริ่มเรียน',       desc:'เรียนจบ 1 Unit',        group:'lessons', check:function(d){return d.completedModules>=1;} },
+    { id:'mod_all', emoji:'🏆', label:'เรียนจบหมด',       desc:'เรียนจบทุก Unit',       group:'lessons', check:function(d){return d.completedModules>=4;} },
+    // English TGAT
+    { id:'eng_placement', emoji:'🎓', label:'Placement Pro',   desc:'วัดระดับ CEFR แล้ว',   group:'english', check:function(d){return d.placementDone;} },
+    { id:'eng_grammar',   emoji:'✏️',  label:'Grammar Star',    desc:'Grammar ≥ 80%',        group:'english', check:function(d){return (d.grammarPct||0)>=80;} },
+    { id:'eng_vocab',     emoji:'📖', label:'Vocab Hunter',    desc:'ทำ Vocabulary ครบ',    group:'english', check:function(d){return !!d.vocabDone;} },
+    { id:'eng_reading',   emoji:'🔍', label:'Error Detective', desc:'Error ID ≥ 80%',       group:'english', check:function(d){return (d.readingPct||0)>=80;} },
+    { id:'eng_master',    emoji:'🏅', label:'English Master',  desc:'EXP ≥ 210 ทุกโมดูล',  group:'english', check:function(d){return (d.totalEngExp||0)>=210;} },
+    // Rank
+    { id:'rank_1',  emoji:'🥇', label:'อันดับ 1',  desc:'Top 1 ของห้อง',   group:'rank', check:function(d){return d.rank===1;} },
+    { id:'rank_3',  emoji:'🥈', label:'Top 3',     desc:'อันดับ 2–3',       group:'rank', check:function(d){return d.rank<=3 && d.rank>1;} },
+    { id:'rank_10', emoji:'🥉', label:'Top 10',    desc:'อันดับ 4–10',      group:'rank', check:function(d){return d.rank<=10 && d.rank>3;} },
+  ],
+
+  profileBadgesHtml: function(data) {
+    var self = this;
+    var groups = [
+      { key:'rank',    label:'🏆 อันดับ' },
+      { key:'english', label:'📗 English TGAT' },
+      { key:'xp',      label:'⚡ XP & ระดับ' },
+      { key:'streak',  label:'🔥 ความสม่ำเสมอ' },
+      { key:'lessons', label:'📚 บทเรียน' },
+    ];
+
+    // Rank pill at top
+    var rankPill = '';
+    if (data.rank) {
+      var rColor = data.rank === 1 ? '#B7950B' : data.rank <= 3 ? '#1565C0' : data.rank <= 10 ? '#6A1B9A' : '#555';
+      var rBg    = data.rank === 1 ? '#FFF9C4' : data.rank <= 3 ? '#E3F2FD' : data.rank <= 10 ? '#F3E5F5' : '#F5F5F5';
+      var rEmoji = data.rank === 1 ? '🥇' : data.rank <= 3 ? '🥈' : data.rank <= 10 ? '🥉' : '🎖️';
+      rankPill = '<div style="display:inline-flex; align-items:center; gap:8px; background:' + rBg + '; border:1.5px solid ' + rColor + '44; border-radius:20px; padding:8px 16px; margin-bottom:14px;">' +
+        '<span style="font-size:22px;">' + rEmoji + '</span>' +
+        '<div>' +
+          '<div style="font-weight:900; font-size:16px; color:' + rColor + ';">อันดับที่ ' + data.rank + '</div>' +
+          '<div style="font-size:11px; color:#888; margin-top:1px;">Leaderboard XP</div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    var html = '<div class="card" style="padding:16px; margin-top:12px;">' +
+      '<div style="font-weight:800; font-size:15px; color:var(--clay-text); margin-bottom:12px;">🏅 Badge ที่ได้รับ</div>' +
+      (rankPill ? '<div>' + rankPill + '</div>' : '');
+
+    groups.forEach(function(g) {
+      var defs = self.BADGE_DEFS.filter(function(b){ return b.group === g.key; });
+      if (!defs.length) return;
+      // skip rank group — already shown as pill
+      if (g.key === 'rank') return;
+      html += '<div style="font-size:11px; font-weight:800; color:var(--clay-text-light); letter-spacing:0.8px; text-transform:uppercase; margin:14px 0 8px;">' + g.label + '</div>' +
+        '<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">';
+      defs.forEach(function(b) {
+        var earned = b.check(data);
+        html += '<div style="display:flex; align-items:center; gap:10px; background:' + (earned ? '#F0FFF4' : 'rgba(0,0,0,0.03)') + '; border:1.5px solid ' + (earned ? '#4CAF5066' : 'rgba(0,0,0,0.06)') + '; border-radius:14px; padding:10px 12px; opacity:' + (earned ? '1' : '0.38') + ';">' +
+          '<div style="font-size:22px; flex-shrink:0;">' + b.emoji + '</div>' +
+          '<div style="min-width:0;">' +
+            '<div style="font-weight:800; font-size:12px; color:var(--clay-text); line-height:1.3;">' + b.label + '</div>' +
+            '<div style="font-size:10px; color:var(--clay-text-light); margin-top:2px; line-height:1.3;">' + b.desc + '</div>' +
+          '</div>' +
+        '</div>';
+      });
+      html += '</div>';
+    });
+
+    html += '</div>';
+    return html;
   },
 
   // ===== PLACEMENT TEST QUESTIONS (20 ข้อ A1→B2 สำหรับ TGAT/A-Level) =====
@@ -393,6 +476,12 @@ var App = {
       }).withFailureHandler(function() { self.navigate('feed'); }).getUserProfile(params);
     } else if (route === 'profile') {
       this.render();
+      google.script.run.withSuccessHandler(function(res) {
+        if (res && res.success) self.state.selfProfile = res;
+        if (self.state.currentRoute === 'profile') self.render(true);
+      }).withFailureHandler(function() {
+        if (self.state.currentRoute === 'profile') self.render(true);
+      }).getUserProfile(self.state.user.UserID);
     } else if (route === 'adminScanner') {
       this.state.scannedUser = null;
       this.render();
@@ -519,10 +608,12 @@ var App = {
 
   viewLogin: function() {
     return '<div class="page-content" style="display:flex; flex-direction:column; justify-content:center; min-height:100%;">' +
-      '<div class="text-center" style="margin-bottom: 28px;">' +
-        '<div class="mascot-bounce" style="font-size: 90px; filter: drop-shadow(0 10px 0 rgba(200,140,80,0.3)); display:inline-block;">' + this.bear + '</div>' +
-        '<h1 class="text-title" style="background: linear-gradient(135deg, var(--bear-brown), var(--clay-purple)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 28px; margin-bottom: 6px;">เรียนรู้พิชิตบทเรียน</h1>' +
-        '<div style="display:inline-block; background:linear-gradient(135deg,#FFE0CC,#EED5FF); border-radius:20px; padding:6px 18px; font-size:14px; font-weight:800; color:var(--bear-brown); box-shadow:0 4px 0 rgba(200,140,80,0.2);">ชั้น ม.6 (ว.ส.ค.69) 🐾</div>' +
+      '<div class="text-center" style="margin-bottom: 24px;">' +
+        '<div class="mascot-bounce" style="display:inline-block; margin-bottom:10px;">' +
+          '<img src="' + mascotUrl + '" style="width:160px; height:160px; border-radius:50%; object-fit:cover; filter:drop-shadow(0 10px 20px rgba(120,60,200,0.35));" />' +
+        '</div>' +
+        '<h1 style="font-size:32px; font-weight:900; margin:0 0 4px; background:linear-gradient(135deg,#5B21B6,#FF8C42); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">Engkrit M6</h1>' +
+        '<div style="display:inline-block; background:linear-gradient(135deg,#EDE9FE,#FFE0CC); border-radius:20px; padding:5px 18px; font-size:13px; font-weight:800; color:#5B21B6; box-shadow:0 4px 0 rgba(91,33,182,0.15);">📗 English Learning · ชั้น ม.6</div>' +
       '</div>' +
       '<div class="card" style="padding: 20px;">' +
         '<input type="text" class="input-field" placeholder="👤 Username (รหัสนักเรียน)" id="username">' +
@@ -1593,53 +1684,143 @@ var App = {
 
   setLeaderboardFilter: function(val) {
     this.state.leaderboardFilter = val || '';
+    this.state.leaderboardSearch = '';
     this.navigate('leaderboard');
   },
 
-  viewLeaderboard: function() {
-    var lb = this.state.leaderboard;
+  lbSearchInput: function(val) {
+    this.state.leaderboardSearch = val || '';
+    this._updateLbSuggestions(val);
+    this._updateLbList(val);
+  },
+
+  lbSelectSuggestion: function(name) {
+    this.state.leaderboardSearch = name;
+    var inp = document.getElementById('lb-search-input');
+    if (inp) inp.value = name;
+    this._updateLbSuggestions('');
+    this._updateLbList(name);
+  },
+
+  _updateLbSuggestions: function(val) {
+    var el = document.getElementById('lb-suggestions');
+    if (!el) return;
+    var q = (val || '').trim().toLowerCase();
+    if (!q) { el.innerHTML = ''; el.style.display = 'none'; return; }
+    var lb = this.state.leaderboard || [];
     var myId = this.state.user ? this.state.user.UserID : null;
-    var listHtml = '';
-    for (var i = 0; i < lb.length; i++) {
-      var s = lb[i];
-      var medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '<span style="font-weight:800; font-size:15px; color:var(--clay-text-light);">' + (i + 1) + '</span>';
+    var matches = lb.filter(function(s) {
+      return s.name && s.name.toLowerCase().indexOf(q) !== -1;
+    }).slice(0, 6);
+    if (!matches.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
+    var safe = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    el.style.display = 'block';
+    el.innerHTML = matches.map(function(s, i) {
+      var hi = s.name.replace(new RegExp('(' + safe + ')', 'gi'), '<b style="color:var(--clay-purple-shadow);">$1</b>');
+      var av = s.profileImage
+        ? '<img src="' + s.profileImage + '" style="width:32px;height:32px;border-radius:50%;object-fit:cover;">'
+        : '<div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:14px;">👤</div>';
+      var isMe = myId && s.id === myId;
+      return '<div onclick="App.lbSelectSuggestion(\'' + s.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'") + '\')" style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-bottom:1px solid rgba(0,0,0,0.05);background:' + (i % 2 === 0 ? 'white' : '#FAFAFA') + ';" onmouseenter="this.style.background=\'#F3EEFF\'" onmouseleave="this.style.background=\'' + (i % 2 === 0 ? 'white' : '#FAFAFA') + '\'">' +
+        av +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-size:13px;font-weight:700;color:var(--clay-text);">' + hi + (isMe ? ' <span style="color:var(--bear-orange);font-size:11px;">(คุณ)</span>' : '') + '</div>' +
+          '<div style="font-size:11px;color:var(--clay-text-light);">' + (s.className || '-') + ' · ' + s.xp + ' XP</div>' +
+        '</div>' +
+        '<div style="font-size:11px;font-weight:800;color:var(--clay-text-light);">#' + (lb.indexOf(s) + 1) + '</div>' +
+      '</div>';
+    }).join('');
+  },
+
+  _buildLbListHtml: function(filtered, allLb) {
+    var self = this;
+    var myId = this.state.user ? this.state.user.UserID : null;
+    if (!filtered.length) return '<p class="text-center" style="font-weight:bold; color:var(--clay-text-light); padding:20px 0;">ไม่พบชื่อที่ค้นหา</p>';
+    return filtered.map(function(s) {
+      var rank = allLb.indexOf(s);
+      var medal = rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : '<span style="font-weight:800;font-size:15px;color:var(--clay-text-light);">' + (rank + 1) + '</span>';
       var av = s.profileImage ? '<img src="' + s.profileImage + '" style="width:44px;height:44px;border-radius:50%;object-fit:cover;box-shadow:0 3px 0 rgba(0,0,0,0.1);">' : '<div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:22px;box-shadow:0 3px 0 rgba(150,100,200,0.2);">👤</div>';
       var isMe = myId && s.id === myId;
       var itemStyle = isMe
         ? 'background:linear-gradient(145deg,#FFF3E0,#FFE8CC); border-radius:20px; box-shadow:0 5px 0 rgba(200,140,80,0.2),0 8px 16px rgba(200,140,80,0.10); padding:12px 14px; margin-bottom:8px; border:2px solid var(--bear-orange);'
         : 'background:var(--clay-white); border-radius:18px; box-shadow:0 4px 0 rgba(150,100,200,0.12),0 6px 12px rgba(150,100,200,0.08); padding:10px 14px; margin-bottom:8px;';
-      listHtml += '<div onclick="App.navigate(\'userProfile\',\'' + s.id + '\')" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; ' + itemStyle + '">' +
-        '<div style="display:flex; align-items:center; gap:12px; min-width:0;">' +
-          '<div style="width:28px; text-align:center; font-size:20px; flex-shrink:0;">' + medal + '</div>' + av +
-          '<div style="min-width:0;"><div style="font-weight:700; font-size:14px; color:var(--clay-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + s.name + (isMe ? ' <span style="color:var(--bear-orange); font-size:11px;">(คุณ)</span>' : '') + '</div>' +
-            '<div style="font-size:12px; color:var(--clay-text-light);">' + (s.className || '-') + '</div></div>' +
+      return '<div onclick="App.navigate(\'userProfile\',\'' + s.id + '\')" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;' + itemStyle + '">' +
+        '<div style="display:flex;align-items:center;gap:12px;min-width:0;">' +
+          '<div style="width:28px;text-align:center;font-size:20px;flex-shrink:0;">' + medal + '</div>' + av +
+          '<div style="min-width:0;"><div style="font-weight:700;font-size:14px;color:var(--clay-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + s.name + (isMe ? ' <span style="color:var(--bear-orange);font-size:11px;">(คุณ)</span>' : '') + '</div>' +
+            '<div style="font-size:12px;color:var(--clay-text-light);">' + (s.className || '-') + '</div></div>' +
         '</div>' +
-        '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:12px; padding:6px 12px; font-weight:800; color:white; font-size:13px; box-shadow:0 3px 0 rgba(160,80,200,0.2); flex-shrink:0;">' + s.xp + ' XP</div>' +
+        '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC);border-radius:12px;padding:6px 12px;font-weight:800;color:white;font-size:13px;box-shadow:0 3px 0 rgba(160,80,200,0.2);flex-shrink:0;">' + s.xp + ' XP</div>' +
       '</div>';
-    }
-    if (!listHtml) listHtml = '<p class="text-center" style="font-weight:bold; color:var(--clay-text-light); padding:20px 0;">ยังไม่มีข้อมูล</p>';
+    }).join('');
+  },
 
-    // Filter dropdown
+  _updateLbList: function(val) {
+    var el = document.getElementById('lb-list');
+    if (!el) return;
+    var lb = this.state.leaderboard || [];
     var cur = this.state.leaderboardFilter || '';
+    var q = (val || '').trim().toLowerCase();
+    var filtered = q ? lb.filter(function(s){ return s.name && s.name.toLowerCase().indexOf(q) !== -1; }) : lb;
+    el.innerHTML = this._buildLbListHtml(filtered, lb);
+    var countEl = document.getElementById('lb-count');
+    if (countEl) {
+      countEl.textContent = q
+        ? (filtered.length + ' จาก ' + lb.length + ' คน')
+        : (lb.length + ' คน' + (cur ? ' · ' + cur : ' · ทั้งระดับ'));
+    }
+  },
+
+  viewLeaderboard: function() {
+    var lb = this.state.leaderboard;
+    var cur = this.state.leaderboardFilter || '';
+    var searchVal = this.state.leaderboardSearch || '';
+
+    // Filter by search (client-side)
+    var q = searchVal.trim().toLowerCase();
+    var filtered = q ? lb.filter(function(s){ return s.name && s.name.toLowerCase().indexOf(q) !== -1; }) : lb;
+    var listHtml = this._buildLbListHtml(filtered, lb);
+
+    // Class filter dropdown
     var optionsHtml = '<option value=""' + (cur === '' ? ' selected' : '') + '>🌐 ทั้งระดับ (ทุกห้อง)</option>';
     var classes = this.state.leaderboardClasses || [];
     for (var c = 0; c < classes.length; c++) {
       optionsHtml += '<option value="' + classes[c] + '"' + (cur === classes[c] ? ' selected' : '') + '>🏫 ' + classes[c] + '</option>';
     }
 
+    var countLabel = q
+      ? (filtered.length + ' จาก ' + lb.length + ' คน')
+      : (lb.length + ' คน' + (cur ? ' · ' + cur : ' · ทั้งระดับ'));
+
     return '<div class="page-content" style="padding:0;">' +
       '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:0 0 28px 28px; padding:20px; box-shadow:0 8px 0 rgba(160,80,200,0.2),0 14px 28px rgba(160,80,200,0.15); margin-bottom:16px;">' +
+        // Header row
         '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">' +
           '<div style="display:flex; align-items:center; gap:10px;">' +
             '<div style="font-size:32px; filter:drop-shadow(0 4px 0 rgba(0,0,0,0.15));">' + this.bear + '</div>' +
             '<div><div style="font-size:20px; font-weight:800; color:white;">🏆 Leaderboard</div>' +
-            '<div style="font-size:12px; color:rgba(255,255,255,0.85);">' + lb.length + ' คน' + (cur ? ' · ' + cur : ' · ทั้งระดับ') + '</div></div>' +
+            '<div id="lb-count" style="font-size:12px; color:rgba(255,255,255,0.85);">' + countLabel + '</div></div>' +
           '</div>' +
           '<button onclick="App.navigate(\'dashboard\')" style="background:rgba(255,255,255,0.25); border:none; width:36px; height:36px; border-radius:50%; font-size:18px; cursor:pointer; color:white; display:flex; align-items:center; justify-content:center;">✕</button>' +
         '</div>' +
+        // Search box (with suggestion dropdown)
+        '<div style="position:relative; margin-bottom:10px;">' +
+          '<div style="position:absolute; left:14px; top:50%; transform:translateY(-50%); font-size:16px; pointer-events:none;">🔍</div>' +
+          '<input id="lb-search-input" type="search" autocomplete="off" placeholder="ค้นหาชื่อนักเรียน..." ' +
+            'value="' + this.esc(searchVal) + '" ' +
+            'oninput="App.lbSearchInput(this.value)" ' +
+            'onfocus="App.lbSearchInput(this.value)" ' +
+            'onblur="setTimeout(function(){var el=document.getElementById(\'lb-suggestions\');if(el)el.style.display=\'none\';},180)" ' +
+            'style="width:100%; padding:12px 16px 12px 40px; border:none; border-radius:16px; font-family:var(--font-main); font-weight:600; font-size:14px; color:var(--clay-text); background:rgba(255,255,255,0.95); box-shadow:inset 0 2px 6px rgba(0,0,0,0.08); outline:none; box-sizing:border-box;" />' +
+          // Clear button
+          (searchVal ? '<button onclick="App.lbSearchInput(\'\');document.getElementById(\'lb-search-input\').value=\'\';" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,0.1);border:none;border-radius:50%;width:22px;height:22px;font-size:12px;cursor:pointer;color:var(--clay-text);display:flex;align-items:center;justify-content:center;padding:0;">✕</button>' : '') +
+          // Suggestions dropdown
+          '<div id="lb-suggestions" style="display:none; position:absolute; top:calc(100% + 6px); left:0; right:0; background:white; border-radius:16px; box-shadow:0 8px 24px rgba(0,0,0,0.18); z-index:200; overflow:hidden; max-height:260px; overflow-y:auto;"></div>' +
+        '</div>' +
+        // Class filter dropdown
         '<select onchange="App.setLeaderboardFilter(this.value)" style="width:100%; padding:12px 16px; border:none; border-radius:16px; font-family:var(--font-main); font-weight:700; font-size:14px; color:var(--clay-text); background:rgba(255,255,255,0.95); box-shadow:inset 0 2px 6px rgba(0,0,0,0.08); -webkit-appearance:none; appearance:none; cursor:pointer;">' + optionsHtml + '</select>' +
       '</div>' +
-      '<div style="padding:0 16px;">' + listHtml + '</div>' +
+      '<div id="lb-list" style="padding:0 16px;">' + listHtml + '</div>' +
     '</div>';
   },
 
@@ -1788,6 +1969,18 @@ var App = {
             (u.bio ? '<div style="display:flex; gap:8px;"><span>📝</span><div style="font-size:13px; color:var(--clay-text-light); line-height:1.6;">' + this.esc(u.bio) + '</div></div>' : '') +
           '</div>'
         : '') +
+      // Badges
+      this.profileBadgesHtml({
+        xp: u.xp,
+        streak: u.streak || 0,
+        completedModules: st.completedModules,
+        placementDone: !!(data.english && data.english.placementDone),
+        grammarPct: data.english ? (data.english.grammarPct || 0) : 0,
+        vocabDone: data.english ? (data.english.vocabDone || false) : false,
+        readingPct: data.english ? (data.english.readingPct || 0) : 0,
+        totalEngExp: data.english ? (data.english.totalEngExp || 0) : 0,
+        rank: data.rank || null
+      }) +
     '</div>';
   },
 
@@ -1882,6 +2075,27 @@ var App = {
           '</div>' +
         '</div>';
       })(u, this) +
+      // Badges
+      (function(self) {
+        var ec = self.state.englishCourse;
+        var sp = self.state.selfProfile;
+        var engProg = ec.progress || {};
+        var grammarPct = engProg['english_grammar']
+          ? Math.round((engProg['english_grammar'].score / engProg['english_grammar'].maxScore) * 100) : 0;
+        var readingPct = engProg['english_reading']
+          ? Math.round((engProg['english_reading'].score / engProg['english_reading'].maxScore) * 100) : 0;
+        return self.profileBadgesHtml({
+          xp: d.xp,
+          streak: d.streak || 0,
+          completedModules: self.state.completedModules ? self.state.completedModules.length : 0,
+          placementDone: !!(u.PlacementDone || (sp && sp.english && sp.english.placementDone)),
+          grammarPct: sp ? (sp.english && sp.english.grammarPct || 0) : grammarPct,
+          vocabDone:  sp ? !!(sp.english && sp.english.vocabDone) : !!engProg['english_vocab'],
+          readingPct: sp ? (sp.english && sp.english.readingPct || 0) : readingPct,
+          totalEngExp: ec.exp || 0,
+          rank: sp ? (sp.rank || null) : null
+        });
+      })(this) +
       '<button class="btn btn-outline" onclick="App.navigate(\'guide\')">📖 คู่มือการใช้งาน</button>' +
       '<button class="btn btn-danger" onclick="App.logout()">ออกจากระบบ</button>' +
     '</div>';

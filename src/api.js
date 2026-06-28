@@ -752,12 +752,34 @@ export async function submitEnglishScore(userId, moduleId, score, maxScore) {
 export async function getUserProfile(targetUserId) {
   const uid = String(targetUserId).trim();
   const { data: u } = await supabase.from('users')
-    .select('id, first_name, last_name, class_name, xp, streak, profile_image, youtube_url, nickname, motto, dream, bio, target_goal')
+    .select('id, first_name, last_name, class_name, xp, streak, profile_image, youtube_url, nickname, motto, dream, bio, target_goal, english_level, placement_done')
     .eq('id', uid).single();
   if (!u) return { success: false, message: 'ไม่พบผู้ใช้' };
-  const { data: scores } = await supabase.from('scores').select('quiz_type, reference_id').eq('user_id', uid);
+  const { data: scores } = await supabase.from('scores').select('quiz_type, reference_id, score, max_score').eq('user_id', uid);
   const completedModules = [...new Set((scores || []).filter(s => s.quiz_type === 'PostTest').map(s => s.reference_id))].length;
   const activities = (scores || []).length;
+
+  // English badge data — best score per module
+  const engBest = {};
+  (scores || []).filter(s => ['english_grammar','english_vocab','english_reading'].includes(s.quiz_type)).forEach(s => {
+    if (!engBest[s.quiz_type] || s.score > engBest[s.quiz_type].score)
+      engBest[s.quiz_type] = { score: s.score, maxScore: s.max_score };
+  });
+  const engData = {
+    placementDone: !!u.placement_done,
+    englishLevel: u.english_level || null,
+    grammarPct: engBest['english_grammar'] ? Math.round((engBest['english_grammar'].score / engBest['english_grammar'].maxScore) * 100) : 0,
+    vocabDone:   !!engBest['english_vocab'],
+    readingPct:  engBest['english_reading'] ? Math.round((engBest['english_reading'].score / engBest['english_reading'].maxScore) * 100) : 0,
+    totalEngExp: Object.values(engBest).reduce((s, v) => s + (v.score || 0), 0)
+  };
+
+  // Leaderboard rank — count users with strictly higher XP
+  const { count: rankCount } = await supabase.from('users')
+    .select('*', { count: 'exact', head: true })
+    .gt('xp', u.xp || 0);
+  const rank = (rankCount || 0) + 1;
+
   // public posts (non-anonymous) for the wall
   const { data: posts } = await supabase.from('posts')
     .select('id, content, created_at')
@@ -772,6 +794,8 @@ export async function getUserProfile(targetUserId) {
       motto: u.motto || '', dream: u.dream || '', bio: u.bio || '', targetGoal: u.target_goal || ''
     },
     stats: { completedModules, activities },
+    rank: rank,
+    english: engData,
     posts: (posts || []).map(p => ({ id: p.id, content: p.content, at: p.created_at }))
   };
 }
