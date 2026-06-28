@@ -83,7 +83,9 @@ var App = {
     scannedUser: null,
     scannedUserBonus: 0,
     pendingBonusPoints: 10,
-    placement: { phase: 'intro', currentIndex: 0, answers: [], result: null, answering: false }
+    placement: { phase: 'intro', currentIndex: 0, answers: [], result: null, answering: false },
+    englishCourse: { exp: 0, progress: {}, loaded: false },
+    englishQuiz: { moduleId: null, questions: [], currentIndex: 0, answers: [], submitted: false, awarded: 0 }
   },
 
   bear: '&#x1F43B;',
@@ -101,6 +103,58 @@ var App = {
     { min: 9000, name: 'Master',   th: 'ปรมาจารย์',      emoji: '👑' }
   ],
   XP_MAX: 10000,
+
+  // ===== ENGLISH TGAT COURSE =====
+  ENGLISH_MODULES: [
+    { id: 'grammar', emoji: '📝', title: 'Grammar Mastery', titleTh: 'ไวยากรณ์',
+      color: '#2E7D32', light: '#E8F5E9', shadow: 'rgba(46,125,50,0.22)',
+      desc: 'Tenses · Passive · Conditionals · Modal Verbs', exp: 100 },
+    { id: 'vocab', emoji: '🔤', title: 'Vocabulary Mastery', titleTh: 'คำศัพท์',
+      color: '#1565C0', light: '#E3F2FD', shadow: 'rgba(21,101,192,0.22)',
+      desc: 'Academic Words · Collocations · Word Forms', exp: 100 },
+    { id: 'reading', emoji: '📖', title: 'Reading & Error ID', titleTh: 'อ่านและจับผิด',
+      color: '#BF360C', light: '#FBE9E7', shadow: 'rgba(191,54,12,0.22)',
+      desc: 'Main Idea · Inference · Error Identification', exp: 100 }
+  ],
+
+  ENGLISH_QUESTIONS: {
+    grammar: [
+      { q: 'He ___ to school yesterday.', opts: ['go', 'goes', 'went', 'gone'], ans: 2, explain: 'Past Simple + yesterday → went' },
+      { q: 'The students ___ very tired after the exam.', opts: ['is', 'was', 'are', 'were'], ans: 3, explain: 'students (plural) + were' },
+      { q: 'If I ___ a car, I would drive to work.', opts: ['have', 'had', 'has', 'having'], ans: 1, explain: 'Conditional Type 2: If + Past Simple, would + V' },
+      { q: 'The letter ___ by my mother this morning.', opts: ['write', 'wrote', 'is written', 'was written'], ans: 3, explain: 'Passive Voice (Past): was + past participle' },
+      { q: 'The girl ___ won the prize is my classmate.', opts: ['which', 'whom', 'who', 'whose'], ans: 2, explain: 'who — ใช้กับคน ทำหน้าที่ประธาน' },
+      { q: 'She is ___ honest and hardworking student.', opts: ['a', 'an', 'the', '–'], ans: 1, explain: 'an + เสียงสระ (honest ออกเสียง /ɒn/)' },
+      { q: "You ___ wear a seatbelt. It's the law!", opts: ['should', 'may', 'must', 'might'], ans: 2, explain: 'must = บังคับ/กฎหมาย' },
+      { q: 'I enjoy ___ music in my free time.', opts: ['listen', 'listened', 'to listen', 'listening'], ans: 3, explain: 'enjoy + Gerund (V-ing)' },
+      { q: 'If it rains tomorrow, we ___ cancel the picnic.', opts: ['will', 'would', 'can', 'should'], ans: 0, explain: 'Conditional Type 1: If + Present Simple, will + V' },
+      { q: 'He said that he ___ very tired.', opts: ['is', 'was', 'were', 'be'], ans: 1, explain: 'Reported Speech: is → was (backshift tense)' }
+    ],
+    vocab: [
+      { q: 'The researcher carefully ___ the experimental data.', opts: ['analyzed', 'concluded', 'defined', 'suggested'], ans: 0, explain: 'analyze = วิเคราะห์' },
+      { q: 'Which word is a SYNONYM of "significant"?', opts: ['minor', 'important', 'ordinary', 'difficult'], ans: 1, explain: 'significant = สำคัญ ≈ important' },
+      { q: '"The scientist made an important ___." — Choose the correct word form.', opts: ['discover', 'discovering', 'discovery', 'discovered'], ans: 2, explain: 'discovery = คำนาม (การค้นพบ)' },
+      { q: 'Which COLLOCATION is correct?', opts: ['do a decision', 'make a decision', 'take a decision', 'have a decision'], ans: 1, explain: 'make a decision = ตัดสินใจ' },
+      { q: 'The price was so ___ that no one could afford it.', opts: ['cheap', 'affordable', 'prohibitive', 'reasonable'], ans: 2, explain: 'prohibitive = แพงมากจนซื้อไม่ได้' },
+      { q: "I don't like coffee; ___, I prefer tea.", opts: ['therefore', 'however', 'moreover', 'furthermore'], ans: 1, explain: 'however = อย่างไรก็ตาม (แสดงความตรงข้าม)' },
+      { q: 'The word "evaluate" most closely means ___', opts: ['to create', 'to assess', 'to ignore', 'to describe'], ans: 1, explain: 'evaluate = ประเมิน ≈ assess' },
+      { q: 'Which word uses a prefix meaning "not"?', opts: ['preview', 'incorrect', 'prepare', 'promote'], ans: 1, explain: 'in- = ไม่ → incorrect = ไม่ถูกต้อง' },
+      { q: 'The government will ___ a new education policy next year.', opts: ['implement', 'examine', 'consider', 'calculate'], ans: 0, explain: 'implement = นำไปปฏิบัติ' },
+      { q: 'Which word is closest in meaning to "conclude"?', opts: ['begin', 'infer', 'question', 'support'], ans: 1, explain: 'conclude/infer = สรุป/อนุมาน' }
+    ],
+    reading: [
+      { q: 'Error ID: "She go to school every day."', opts: ['She', 'go', 'school', 'every day'], ans: 1, explain: 'go → goes (3rd person singular present)' },
+      { q: 'Error ID: "The students was studying hard."', opts: ['The students', 'was', 'studying', 'hard'], ans: 1, explain: 'was → were (students = plural noun)' },
+      { q: 'Error ID: "He speaks English very good."', opts: ['He speaks', 'English', 'very good', 'ไม่มีผิด'], ans: 2, explain: 'good (adj) → well (adv) ขยายกริยา speaks' },
+      { q: 'Error ID: "She is interested on science."', opts: ['She is', 'interested', 'on', 'science'], ans: 2, explain: 'on → in: "interested in" คือ collocation ที่ถูกต้อง' },
+      { q: 'Error ID: "He is a honest person."', opts: ['He is', 'a', 'honest', 'person'], ans: 1, explain: 'a → an ก่อนเสียงสระ (honest = /ɒ/)' },
+      { q: 'Read: "Scientists found that even short walks of 20 min may boost brain function." — Main idea?', opts: ['Walking is difficult', 'Exercise benefits the brain', 'Scientists like walking', 'Memory improves with age'], ans: 1, explain: 'ใจความหลัก = การออกกำลังกาย (แม้น้อย) ช่วยสมอง' },
+      { q: 'Read: "Despite heavy rain, the students arrived on time." — We can infer students were ___', opts: ['confused', 'late', 'determined', 'lucky'], ans: 2, explain: 'despite (ทั้งๆ ที่) + on time → แสดงว่า determined (มุ่งมั่น)' },
+      { q: 'Error ID: "I have lived here since five years."', opts: ['I have lived', 'here', 'since', 'five years'], ans: 2, explain: 'since → for (ใช้ for กับระยะเวลา, since กับจุดเริ่มต้น)' },
+      { q: 'Read: "The policy was controversial, with many citizens opposing it." — "controversial" means ___', opts: ['popular', 'causing disagreement', 'successful', 'unimportant'], ans: 1, explain: 'controversial = ขัดแย้ง ≈ causing disagreement' },
+      { q: 'Error ID: "Each of the students have their own textbook."', opts: ['Each of', 'the students', 'have', 'their own'], ans: 2, explain: 'have → has (Each of + N + singular verb)' }
+    ]
+  },
 
   // ===== PLACEMENT TEST QUESTIONS (20 ข้อ A1→B2 สำหรับ TGAT/A-Level) =====
   placementQuestions: [
@@ -356,6 +410,23 @@ var App = {
     } else if (route === 'placementTest') {
       this.state.placement = { phase: 'intro', currentIndex: 0, answers: [], result: null, answering: false };
       this.render();
+    } else if (route === 'englishCourse') {
+      this.state.englishCourse = Object.assign({}, this.state.englishCourse, { loaded: false });
+      this.render();
+      var self = this;
+      google.script.run.withSuccessHandler(function(res) {
+        if (res && res.success) self.state.englishCourse = { exp: res.totalExp || 0, progress: res.progress || {}, loaded: true };
+        else self.state.englishCourse = Object.assign({}, self.state.englishCourse, { loaded: true });
+        if (self.state.currentRoute === 'englishCourse') self.render(true);
+      }).withFailureHandler(function() {
+        self.state.englishCourse = Object.assign({}, self.state.englishCourse, { loaded: true });
+        if (self.state.currentRoute === 'englishCourse') self.render(true);
+      }).getEnglishProgress(self.state.user.UserID);
+    } else if (route === 'englishModuleQuiz') {
+      var modId = params || 'grammar';
+      var qs = this.ENGLISH_QUESTIONS[modId] || [];
+      this.state.englishQuiz = { moduleId: modId, questions: qs, currentIndex: 0, answers: [], submitted: false, awarded: 0 };
+      this.render();
     } else {
       this.render();
     }
@@ -390,6 +461,8 @@ var App = {
     if (r === 'adminExport') return this.viewAdminExport();
     if (r === 'adminQuizBuilder') return this.viewAdminQuizBuilder();
     if (r === 'placementTest') return this.viewPlacementTest();
+    if (r === 'englishCourse') return this.viewEnglishCourse() + this.bottomNav('home');
+    if (r === 'englishModuleQuiz') return this.viewEnglishModuleQuiz();
     return '<div class="loader">Page not found</div>';
   },
 
@@ -696,8 +769,8 @@ var App = {
   },
 
   finishPlacement: function() {
-    this.toast('🎯 ระดับของคุณ: ' + (this.state.user.EnglishLevel || 'B1') + ' — ไปเรียนได้เลย!');
-    this.navigate('dashboard');
+    this.toast('🎯 ระดับของคุณ: ' + (this.state.user.EnglishLevel || 'B1') + ' — เริ่มคอร์ส English TGAT ได้เลย!');
+    this.navigate('englishCourse');
   },
 
   viewDashboard: function() {
@@ -761,10 +834,11 @@ var App = {
       this.dashWeeklyGoalCard() +
       // Quick Actions
       '<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">' +
-        '<div class="card action-card" style="background:linear-gradient(145deg,#FFF3E0,#FFE8CC); box-shadow:0 6px 0 rgba(200,140,80,0.2),0 10px 20px rgba(200,140,80,0.10); text-align:center; padding:20px 12px;" onclick="App.navigate(\'lessons\')">' +
-          '<div style="font-size:38px;">📚</div>' +
-          '<div style="font-weight:800; font-size:14px; color:var(--bear-brown); margin-top:8px;">เริ่มเรียน</div>' +
-          '<div style="font-size:11px; color:var(--clay-text-light); margin-top:4px;">4 โมดูล</div>' +
+        '<div class="card action-card" style="background:linear-gradient(145deg,#E8F5E9,#C8E6C9); box-shadow:0 6px 0 rgba(46,125,50,0.2),0 10px 20px rgba(46,125,50,0.10); text-align:center; padding:18px 12px; position:relative; overflow:visible;" onclick="App.navigate(\'englishCourse\')">' +
+          '<div style="position:absolute; top:-6px; right:-4px;"><span class="badge-new">NEW!</span></div>' +
+          '<div style="font-size:36px;">📗</div>' +
+          '<div style="font-weight:800; font-size:13px; color:#1B5E20; margin-top:6px;">English TGAT</div>' +
+          '<div style="font-size:11px; color:#388E3C; margin-top:3px; font-weight:700;">Grammar · Vocab · Reading</div>' +
         '</div>' +
         '<div class="card action-card" style="background:linear-gradient(145deg,#FFF9D0,#FFF0A0); box-shadow:0 6px 0 rgba(180,160,60,0.2),0 10px 20px rgba(180,160,60,0.10); text-align:center; padding:20px 12px;" onclick="App.navigate(\'leaderboard\')">' +
           '<div style="font-size:38px;">🏆</div>' +
@@ -2786,6 +2860,250 @@ var App = {
         if (st) st.innerText = '❌ Error: ' + e.message;
       })
       .adminGiveBonus(targetUser.id, pts, self.state.user ? self.state.user.UserID : 0);
+  },
+
+  // ===== ENGLISH TGAT COURSE =====
+
+  viewEnglishCourse: function() {
+    var u = this.state.user;
+    var ec = this.state.englishCourse;
+    var level = u.EnglishLevel;
+    var levelMeta = {
+      A1: { label: '🔴 Starter', th: 'เริ่มต้น', color: '#C62828', light: '#FFEBEE', tip: 'ปูพื้นฐาน Grammar + Core Vocab' },
+      A2: { label: '🟡 Builder', th: 'พัฒนา', color: '#F57F17', light: '#FFF8E1', tip: 'เสริม Grammar + ขยาย Vocab' },
+      B1: { label: '🟢 Booster', th: 'ขั้นสูง', color: '#2E7D32', light: '#E8F5E9', tip: 'เจาะโจทย์ข้อสอบ + ยกระดับ' },
+      B2: { label: '🟢 Booster', th: 'ขั้นสูง', color: '#2E7D32', light: '#E8F5E9', tip: 'Mock Test + Error Log' }
+    };
+    var lm = levelMeta[level] || { label: '⚪ ยังไม่ได้วัดระดับ', th: '', color: '#666', light: '#F5F5F5', tip: 'ทำ Placement Test ก่อนเริ่มเรียน' };
+    var totalMaxExp = 300;
+    var expPct = Math.min(100, Math.round((ec.exp / totalMaxExp) * 100));
+
+    var header = '<div style="background:linear-gradient(135deg,#1565C0,#2E7D32); padding:24px 20px 28px; margin:-16px -16px 20px; position:relative; overflow:hidden;">' +
+      '<div style="position:absolute; top:-20px; right:-20px; width:100px; height:100px; background:rgba(255,255,255,0.06); border-radius:50%;"></div>' +
+      '<div style="position:absolute; bottom:-30px; left:30%; width:120px; height:120px; background:rgba(255,255,255,0.04); border-radius:50%;"></div>' +
+      '<div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">' +
+        '<button onclick="App.navigate(\'dashboard\')" style="background:rgba(255,255,255,0.18); border:none; border-radius:50%; width:36px; height:36px; font-size:18px; cursor:pointer; color:white; display:flex; align-items:center; justify-content:center;">←</button>' +
+        '<div>' +
+          '<div style="font-size:11px; color:rgba(255,255,255,0.7); font-weight:700; letter-spacing:1px;">ENGLISH TGAT / A-LEVEL</div>' +
+          '<div style="font-size:20px; font-weight:900; color:white; line-height:1.2;">📗 คอร์สภาษาอังกฤษ</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="background:rgba(255,255,255,0.12); border-radius:16px; padding:14px 16px;">' +
+        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">' +
+          '<div style="color:white; font-weight:800; font-size:13px;">⚡ EXP สะสม</div>' +
+          '<div style="color:white; font-weight:900; font-size:16px;">' + ec.exp + '<span style="font-size:11px; font-weight:600; opacity:0.7;"> / ' + totalMaxExp + '</span></div>' +
+        '</div>' +
+        '<div style="height:10px; background:rgba(255,255,255,0.2); border-radius:10px; overflow:hidden;">' +
+          '<div style="width:' + expPct + '%; height:100%; background:linear-gradient(90deg,#69F0AE,#FFEB3B); border-radius:10px; transition:width 0.6s;"></div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+    var placementBanner = '';
+    if (!u.PlacementDone) {
+      placementBanner = '<div class="card" style="background:linear-gradient(145deg,#FFF9C4,#FFF3A0); border:2px dashed #F9A825; margin-bottom:16px; text-align:center; padding:20px 16px;">' +
+        '<div style="font-size:36px; margin-bottom:8px;">📋</div>' +
+        '<div style="font-weight:800; font-size:15px; color:#E65100; margin-bottom:6px;">ทำ Placement Test ก่อนเลย!</div>' +
+        '<div style="font-size:12px; color:#795548; margin-bottom:14px;">วัดระดับภาษา (20 ข้อ) เพื่อจัดหลักสูตรให้เหมาะกับตัวเอง + รับ 50 XP</div>' +
+        '<button class="btn btn-primary" style="font-size:13px; margin:0;" onclick="App.navigate(\'placementTest\')">🎯 เริ่มวัดระดับ</button>' +
+      '</div>';
+    } else {
+      placementBanner = '<div class="card" style="background:' + lm.light + '; border:2px solid ' + lm.color + '44; margin-bottom:16px; padding:14px 16px;">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<div style="font-size:32px;">🎯</div>' +
+          '<div style="flex:1;">' +
+            '<div style="font-size:11px; font-weight:800; color:' + lm.color + '; letter-spacing:1px; text-transform:uppercase;">CEFR Level: ' + (level || '?') + '</div>' +
+            '<div style="font-weight:900; font-size:16px; color:' + lm.color + '; margin:2px 0;">' + lm.label + '</div>' +
+            '<div style="font-size:12px; color:#666;">' + lm.tip + '</div>' +
+          '</div>' +
+          '<button onclick="App.navigate(\'placementTest\')" style="background:' + lm.color + '; color:white; border:none; border-radius:12px; padding:8px 12px; font-size:11px; font-weight:700; cursor:pointer; font-family:var(--font-main);">ทำใหม่</button>' +
+        '</div>' +
+      '</div>';
+    }
+
+    var self = this;
+    var modulesHtml = this.ENGLISH_MODULES.map(function(m) {
+      var prog = ec.progress['english_' + m.id];
+      var bestScore = prog ? prog.score : 0;
+      var bestPct = prog ? Math.round((prog.score / prog.maxScore) * 100) : 0;
+      var done = !!prog;
+      var badge = done
+        ? (bestPct >= 80 ? '🌟 ' + bestPct + '%' : '✅ ' + bestPct + '%')
+        : '';
+      return '<div class="card action-card" style="background:linear-gradient(145deg,' + m.light + ',#FFFFFF); box-shadow:0 6px 0 ' + m.shadow + ',0 10px 20px ' + m.shadow + '; margin-bottom:12px; padding:18px 16px;" onclick="App.navigate(\'englishModuleQuiz\',\'' + m.id + '\')">' +
+        '<div style="display:flex; align-items:center; gap:14px;">' +
+          '<div style="width:50px; height:50px; border-radius:14px; background:' + m.color + '; display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0; box-shadow:0 4px 0 ' + m.shadow + ';">' + m.emoji + '</div>' +
+          '<div style="flex:1; min-width:0;">' +
+            '<div style="font-weight:900; font-size:14px; color:' + m.color + ';">' + m.title + '</div>' +
+            '<div style="font-size:11px; color:var(--clay-text-light); margin:2px 0 6px;">' + m.desc + '</div>' +
+            (done
+              ? '<div style="height:6px; background:rgba(0,0,0,0.08); border-radius:6px; overflow:hidden;"><div style="width:' + bestPct + '%; height:100%; border-radius:6px; background:' + m.color + ';"></div></div>'
+              : '<div style="font-size:11px; color:' + m.color + '; font-weight:700;">⚡ ' + m.exp + ' EXP</div>') +
+          '</div>' +
+          '<div style="text-align:right; flex-shrink:0;">' +
+            (done ? '<div style="font-size:12px; font-weight:800; color:' + m.color + ';">' + badge + '</div>' : '<div style="font-size:20px;">▶</div>') +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    var badgesData = [
+      { emoji: '🌟', label: 'Grammar Star', cond: (ec.progress['english_grammar'] && Math.round((ec.progress['english_grammar'].score/ec.progress['english_grammar'].maxScore)*100) >= 80) },
+      { emoji: '📖', label: 'Vocab Hunter', cond: !!(ec.progress['english_vocab']) },
+      { emoji: '🔍', label: 'Error Detective', cond: (ec.progress['english_reading'] && Math.round((ec.progress['english_reading'].score/ec.progress['english_reading'].maxScore)*100) >= 80) },
+      { emoji: '🏅', label: 'Mock Master', cond: ec.exp >= 210 }
+    ];
+    var badgesHtml = '<div class="card" style="padding:14px 16px; margin-bottom:16px;">' +
+      '<div style="font-weight:800; font-size:13px; color:var(--clay-text); margin-bottom:12px;">🏆 Badge ที่ได้รับ</div>' +
+      '<div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px;">' +
+      badgesData.map(function(b) {
+        return '<div style="text-align:center; opacity:' + (b.cond ? '1' : '0.3') + ';">' +
+          '<div style="font-size:28px;">' + b.emoji + '</div>' +
+          '<div style="font-size:10px; font-weight:700; color:var(--clay-text-light); margin-top:2px; line-height:1.2;">' + b.label + '</div>' +
+        '</div>';
+      }).join('') +
+      '</div></div>';
+
+    var loading = !ec.loaded
+      ? '<div style="text-align:center; padding:20px; color:var(--clay-text-light);">⏳ กำลังโหลด...</div>'
+      : '';
+
+    return '<div class="page-content">' + header + loading + placementBanner +
+      '<div style="font-weight:800; font-size:14px; color:var(--clay-text); margin-bottom:10px;">📚 บทเรียน (3 โมดูล)</div>' +
+      modulesHtml + badgesHtml + '</div>';
+  },
+
+  viewEnglishModuleQuiz: function() {
+    var eq = this.state.englishQuiz;
+    var mod = null;
+    for (var i = 0; i < this.ENGLISH_MODULES.length; i++) {
+      if (this.ENGLISH_MODULES[i].id === eq.moduleId) { mod = this.ENGLISH_MODULES[i]; break; }
+    }
+    if (!mod) return '<div class="page-content"><div class="card">ไม่พบโมดูล</div></div>';
+
+    if (eq.submitted) return this._englishQuizResult(mod, eq);
+
+    var total = eq.questions.length;
+    if (total === 0) return '<div class="page-content"><div class="card" style="text-align:center; padding:30px;">⏳ กำลังโหลดคำถาม...</div></div>';
+
+    var q = eq.questions[eq.currentIndex];
+    if (!q) return '<div class="page-content"><div class="card">ไม่พบคำถาม</div></div>';
+    var pct = Math.round(((eq.currentIndex) / total) * 100);
+    var self = this;
+    var alreadyAnswered = eq.answers[eq.currentIndex] !== undefined;
+
+    var optsHtml = q.opts.map(function(opt, i) {
+      var ans = eq.answers[eq.currentIndex];
+      var picked = alreadyAnswered && ans === i;
+      var correct = alreadyAnswered && i === q.ans;
+      var wrong = alreadyAnswered && picked && i !== q.ans;
+      var bg = correct ? 'background:#E8F5E9; border-color:#4CAF50;'
+               : wrong ? 'background:#FFEBEE; border-color:#F44336;'
+               : picked ? 'background:#E3F2FD; border-color:#2196F3;'
+               : '';
+      var letter = ['A', 'B', 'C', 'D'][i];
+      return '<button onclick="App.englishModuleAnswer(' + i + ')" style="width:100%; text-align:left; display:flex; align-items:center; gap:12px; padding:13px 14px; ' + bg + ' border:2px solid rgba(0,0,0,0.10); border-radius:14px; cursor:pointer; font-family:var(--font-main); margin-bottom:8px; transition:all 0.15s;">' +
+        '<div style="width:30px; height:30px; border-radius:50%; background:' + mod.color + '; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; color:white; flex-shrink:0;">' + letter + '</div>' +
+        '<span style="font-size:14px; font-weight:600; color:var(--clay-text);">' + self.esc(opt) + '</span>' +
+        (correct ? '<span style="margin-left:auto; font-size:16px;">✅</span>' : wrong ? '<span style="margin-left:auto; font-size:16px;">❌</span>' : '') +
+      '</button>';
+    }).join('');
+
+    var explainHtml = alreadyAnswered
+      ? '<div style="background:' + mod.light + '; border-left:4px solid ' + mod.color + '; border-radius:10px; padding:12px 14px; margin-bottom:16px; font-size:13px; color:var(--clay-text); line-height:1.5;"><b>💡 คำอธิบาย:</b> ' + this.esc(q.explain) + '</div>'
+      : '';
+
+    var nextBtn = alreadyAnswered
+      ? (eq.currentIndex < total - 1
+          ? '<button class="btn btn-primary" style="margin:0;" onclick="App.englishModuleNext()">ถัดไป →</button>'
+          : '<button class="btn btn-primary" style="margin:0;" onclick="App.submitEnglishModuleQuiz()">🏁 ดูผล</button>')
+      : '';
+
+    return '<div class="page-content">' +
+      '<div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">' +
+        '<button onclick="App.navigate(\'englishCourse\')" style="background:' + mod.light + '; border:none; border-radius:50%; width:36px; height:36px; font-size:16px; cursor:pointer; color:' + mod.color + ';">←</button>' +
+        '<div style="flex:1;">' +
+          '<div style="font-size:11px; color:var(--clay-text-light); font-weight:700;">' + mod.emoji + ' ' + mod.title + '</div>' +
+          '<div style="font-size:13px; font-weight:800; color:' + mod.color + ';">ข้อ ' + (eq.currentIndex + 1) + ' / ' + total + '</div>' +
+        '</div>' +
+        '<div style="font-size:13px; font-weight:800; color:' + mod.color + ';">' + pct + '%</div>' +
+      '</div>' +
+      '<div style="height:8px; background:rgba(0,0,0,0.08); border-radius:8px; overflow:hidden; margin-bottom:20px;">' +
+        '<div style="width:' + pct + '%; height:100%; background:' + mod.color + '; border-radius:8px; transition:width 0.4s;"></div>' +
+      '</div>' +
+      '<div class="card" style="background:' + mod.light + '; border:none; padding:18px 20px; margin-bottom:16px;">' +
+        '<div style="font-size:15px; font-weight:800; color:var(--clay-text); line-height:1.6;">' + this.esc(q.q) + '</div>' +
+      '</div>' +
+      optsHtml + explainHtml + nextBtn +
+    '</div>';
+  },
+
+  _englishQuizResult: function(mod, eq) {
+    var correct = 0;
+    for (var i = 0; i < eq.questions.length; i++) {
+      if (eq.answers[i] === eq.questions[i].ans) correct++;
+    }
+    var total = eq.questions.length;
+    var pct = Math.round((correct / total) * 100);
+    var grade = pct >= 80 ? { emoji: '🌟', label: 'ยอดเยี่ยม!', color: '#2E7D32' }
+              : pct >= 60 ? { emoji: '👍', label: 'ดีมาก!', color: '#1565C0' }
+              : pct >= 40 ? { emoji: '📘', label: 'พยายามต่อไป!', color: '#F57F17' }
+              : { emoji: '💪', label: 'ลองใหม่อีกครั้ง!', color: '#C62828' };
+    return '<div class="page-content">' +
+      '<div style="text-align:center; padding:30px 16px 20px;">' +
+        '<div style="font-size:72px; margin-bottom:10px; animation:mascot-bounce 1.5s ease infinite;">' + grade.emoji + '</div>' +
+        '<div style="font-size:22px; font-weight:900; color:' + grade.color + '; margin-bottom:4px;">' + grade.label + '</div>' +
+        '<div style="font-size:14px; color:var(--clay-text-light);">คุณทำได้ ' + correct + '/' + total + ' ข้อ</div>' +
+      '</div>' +
+      '<div style="background:' + mod.light + '; border:2px solid ' + mod.color + '; border-radius:20px; padding:20px; text-align:center; margin-bottom:16px;">' +
+        '<div style="font-size:11px; font-weight:800; color:' + mod.color + '; letter-spacing:2px; margin-bottom:6px;">' + mod.emoji + ' ' + mod.title.toUpperCase() + '</div>' +
+        '<div style="font-size:52px; font-weight:900; color:' + mod.color + '; line-height:1;">' + pct + '<span style="font-size:22px;">%</span></div>' +
+        '<div style="font-size:13px; color:var(--clay-text-light); margin-top:6px;">EXP ที่ได้: <b style="color:' + mod.color + ';">+' + eq.awarded + '</b></div>' +
+      '</div>' +
+      '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px;">' +
+        '<button class="btn" style="background:' + mod.light + '; color:' + mod.color + '; border:2px solid ' + mod.color + '44; font-size:13px; margin:0;" onclick="App.navigate(\'englishModuleQuiz\',\'' + eq.moduleId + '\')">🔄 ทำอีกครั้ง</button>' +
+        '<button class="btn btn-primary" style="font-size:13px; margin:0;" onclick="App.navigate(\'englishCourse\')">📚 กลับคอร์ส</button>' +
+      '</div>' +
+    '</div>';
+  },
+
+  englishModuleAnswer: function(optIdx) {
+    var eq = this.state.englishQuiz;
+    if (eq.answers[eq.currentIndex] !== undefined) return;
+    eq.answers[eq.currentIndex] = optIdx;
+    this.render(true);
+  },
+
+  englishModuleNext: function() {
+    var eq = this.state.englishQuiz;
+    if (eq.currentIndex < eq.questions.length - 1) {
+      eq.currentIndex++;
+      this.render(true);
+    }
+  },
+
+  submitEnglishModuleQuiz: function() {
+    var self = this;
+    var eq = this.state.englishQuiz;
+    var correct = 0;
+    for (var i = 0; i < eq.questions.length; i++) {
+      if (eq.answers[i] === eq.questions[i].ans) correct++;
+    }
+    var total = eq.questions.length;
+    var score = correct * 10;
+    var maxScore = total * 10;
+    eq.submitted = true;
+    eq.awarded = score;
+    this.render(true);
+    if (score > 0) {
+      this.celebrate(correct >= total * 0.8 ? 60 : 30);
+    }
+    google.script.run
+      .withSuccessHandler(function() {
+        self.state.englishCourse = Object.assign({}, self.state.englishCourse, { loaded: false });
+      })
+      .withFailureHandler(function() {})
+      .submitEnglishScore(self.state.user.UserID, eq.moduleId, score, maxScore);
   },
 
   adminSaveQuizBuilder: function() {

@@ -15,7 +15,9 @@ function mapUser(data) {
     TargetGoal: data.target_goal || '',
     Bio: data.bio || '',
     TeamId: data.team_id || null,
-    YoutubeUrl: data.youtube_url || ''
+    YoutubeUrl: data.youtube_url || '',
+    EnglishLevel: data.english_level || null,
+    PlacementDone: !!data.placement_done
   };
 }
 
@@ -552,6 +554,17 @@ export async function submitGameScore(userId, gameKey, exp) {
   return { success: true, alreadyDone: false, awarded: award };
 }
 
+export async function submitPlacementResult(userId, level, score) {
+  const uid = String(userId).trim();
+  const { error } = await supabase.from('users')
+    .update({ english_level: level, placement_done: true })
+    .eq('id', uid);
+  if (error) return { success: false, message: error.message };
+  // Award XP for completing placement (once)
+  await supabase.rpc('add_xp', { p_uid: uid, p_amount: 50 });
+  return { success: true };
+}
+
 export async function adminAddQuiz(moduleId, text, opt1, opt2, opt3, opt4, answer, explain) {
   await supabase.from('quiz_bank').insert([{ module_id: moduleId, question: text, choice_a: opt1, choice_b: opt2, choice_c: opt3, choice_d: opt4, correct_answer: answer, explanation: explain }]);
   return { success: true };
@@ -706,6 +719,34 @@ export async function getUserPosts(targetUserId) {
     .eq('user_id', uid).eq('anonymous', false)
     .order('created_at', { ascending: false }).limit(50);
   return { success: true, posts: (posts || []).map(p => ({ id: p.id, content: p.content, at: p.created_at })) };
+}
+
+export async function getEnglishProgress(userId) {
+  const uid = String(userId).trim();
+  const { data } = await supabase.from('scores')
+    .select('quiz_type, score, max_score')
+    .eq('user_id', uid)
+    .in('quiz_type', ['english_grammar', 'english_vocab', 'english_reading']);
+  const best = {};
+  (data || []).forEach(function(row) {
+    if (!best[row.quiz_type] || row.score > best[row.quiz_type].score) {
+      best[row.quiz_type] = { score: row.score, maxScore: row.max_score };
+    }
+  });
+  const totalExp = Object.values(best).reduce(function(s, v) { return s + (v.score || 0); }, 0);
+  return { success: true, progress: best, totalExp };
+}
+
+export async function submitEnglishScore(userId, moduleId, score, maxScore) {
+  const uid = String(userId).trim();
+  const quizType = 'english_' + moduleId;
+  await supabase.from('scores').insert([{
+    user_id: uid, quiz_type: quizType, reference_id: null,
+    score: score, max_score: maxScore, time_spent: 0
+  }]);
+  const xp = score > 0 ? Math.max(1, Math.floor(score / 10)) : 0;
+  if (xp > 0) await supabase.rpc('add_xp', { p_uid: uid, p_amount: xp });
+  return { success: true, awarded: score };
 }
 
 export async function getUserProfile(targetUserId) {
