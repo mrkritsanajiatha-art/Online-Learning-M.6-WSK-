@@ -6,45 +6,33 @@ import mascot2Url from './assets/mascot2.png';
 
 window.google = {
   script: {
-    run: new Proxy({}, {
-      get: function(target, prop) {
-        if (prop === 'withSuccessHandler') {
-          return function(successHandler) {
-            return new Proxy({}, {
-              get: function(target2, prop2) {
-                if (prop2 === 'withFailureHandler') {
-                  return function(failureHandler) {
-                    return new Proxy({}, {
-                      get: function(target3, prop3) {
-                        return async function(...args) {
-                          try {
-                            const res = await api[prop3](...args);
-                            successHandler(res);
-                          } catch (e) {
-                            failureHandler(e);
-                          }
-                        }
-                      }
-                    });
-                  }
-                }
-                return async function(...args) {
-                  try {
-                    const res = await api[prop2](...args);
-                    successHandler(res);
-                  } catch (e) {
-                    console.error(e);
-                  }
-                }
+    // Bridge that mimics Apps Script's google.script.run. Handlers can be
+    // chained in any order (withSuccessHandler / withFailureHandler, either
+    // first, both, or neither) — only a non-handler property triggers the call.
+    run: (function() {
+      function makeRunner(handlers) {
+        return new Proxy({}, {
+          get: function(target, prop) {
+            if (prop === 'withSuccessHandler') {
+              return function(fn) { return makeRunner(Object.assign({}, handlers, { success: fn })); };
+            }
+            if (prop === 'withFailureHandler') {
+              return function(fn) { return makeRunner(Object.assign({}, handlers, { failure: fn })); };
+            }
+            return async function(...args) {
+              try {
+                const res = await api[prop](...args);
+                if (handlers.success) handlers.success(res);
+              } catch (e) {
+                if (handlers.failure) handlers.failure(e);
+                else console.error(e);
               }
-            });
+            };
           }
-        }
-        return async function(...args) {
-          await api[prop](...args);
-        }
+        });
       }
-    })
+      return makeRunner({});
+    })()
   }
 };
 
@@ -878,7 +866,7 @@ var App = {
       '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:28px; padding:16px 20px; margin-bottom:18px; box-shadow:0 8px 0 rgba(160,80,200,0.2),0 14px 28px rgba(160,80,200,0.15); display:flex; gap:12px; align-items:center;">' +
         '<div class="mascot-bounce" style="font-size:52px; filter:drop-shadow(0 4px 0 rgba(0,0,0,0.15)); flex-shrink:0;">' + this.bear + '</div>' +
         '<div>' +
-          '<div style="font-size:18px; font-weight:800; color:white;">สวัสดี ' + u.FirstName + '! 🐾</div>' +
+          '<div style="font-size:18px; font-weight:800; color:white;">สวัสดี ' + App.esc(u.FirstName) + '! 🐾</div>' +
           '<div style="font-size:12px; color:rgba(255,255,255,0.85); margin-top:4px;">วันนี้พี่หมีน้อยเตรียมบทเรียนไว้ให้แล้ว!</div>' +
         '</div>' +
       '</div>' +
@@ -1104,7 +1092,7 @@ var App = {
       var firstName = s.anonymous ? '???' : (s.name || '-').split(' ')[0];
       html += '<div onclick="App.openStory(' + s.id + ')" style="flex:0 0 auto; width:66px; text-align:center; cursor:pointer;">' +
         '<div style="width:62px; height:62px; border-radius:50%; padding:3px; background:' + (s.anonymous ? 'linear-gradient(135deg,#555,#333)' : 'linear-gradient(135deg,#C084FC,#FF8C42)') + '; box-shadow:0 4px 0 rgba(160,80,200,0.2);"><div style="width:100%;height:100%;border-radius:50%;overflow:hidden;border:2px solid white;">' + sav + '</div></div>' +
-        '<div style="font-size:10px; color:var(--clay-text); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + firstName + '</div>' +
+        '<div style="font-size:10px; color:var(--clay-text); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + App.esc(firstName) + '</div>' +
       '</div>';
     }
     return html;
@@ -1592,16 +1580,19 @@ var App = {
       shuffledOptions[j] = temp;
     }
 
+    // Keep the shuffled order on the question so answerQuiz can resolve the
+    // chosen option by index — avoids fragile string-escaping in the onclick
+    // attribute (a quote/newline/HTML in an option used to break answering).
+    q._shuffled = shuffledOptions;
     var optionsHtml = '';
     for (var i = 0; i < shuffledOptions.length; i++) {
-      var safeOpt = shuffledOptions[i].replace(/'/g, "\\'").replace(/\n/g, ' ');
-      optionsHtml += '<button class="btn quiz-option" onclick="App.answerQuiz(this, \'' + safeOpt + '\')">' + shuffledOptions[i] + '</button>';
+      optionsHtml += '<button class="btn quiz-option" onclick="App.answerQuiz(this, ' + i + ')">' + App.esc(shuffledOptions[i]) + '</button>';
     }
 
     // Context box for conversation/reading questions
     var contextHtml = '';
     if (q.context) {
-      var formattedCtx = q.context.replace(/\n/g, '<br>');
+      var formattedCtx = App.esc(q.context).replace(/\n/g, '<br>');
       // Highlight the specific blank being asked about e.g. (4) → highlight ___(4)___
       var blankMatch = q.text.match(/\((\d+)\)/);
       if (blankMatch) {
@@ -1630,7 +1621,7 @@ var App = {
       contextHtml +
       '<div style="display:flex; gap:12px; align-items:flex-start; margin-bottom: 16px;">' +
         '<div style="font-size:48px; flex-shrink:0;">' + this.bear + '</div>' +
-        '<div class="speech-bubble" style="flex:1; font-size:15px; font-weight:600; line-height:1.5; white-space:pre-line;">' + q.text + '</div>' +
+        '<div class="speech-bubble" style="flex:1; font-size:15px; font-weight:600; line-height:1.5; white-space:pre-line;">' + App.esc(q.text) + '</div>' +
       '</div>' +
       '<div id="quiz-options">' + optionsHtml + '</div>' +
     '</div>' +
@@ -1721,12 +1712,12 @@ var App = {
     var safe = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     el.style.display = 'block';
     el.innerHTML = matches.map(function(s, i) {
-      var hi = s.name.replace(new RegExp('(' + safe + ')', 'gi'), '<b style="color:var(--clay-purple-shadow);">$1</b>');
+      var hi = App.esc(s.name).replace(new RegExp('(' + safe + ')', 'gi'), '<b style="color:var(--clay-purple-shadow);">$1</b>');
       var av = s.profileImage
         ? '<img src="' + s.profileImage + '" style="width:32px;height:32px;border-radius:50%;object-fit:cover;">'
         : '<div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#EDE9F7,#DDD4EF);display:flex;align-items:center;justify-content:center;font-size:14px;">👤</div>';
       var isMe = myId && s.id === myId;
-      return '<div onclick="App.lbSelectSuggestion(\'' + s.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'") + '\')" style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-bottom:1px solid rgba(0,0,0,0.05);background:' + (i % 2 === 0 ? 'white' : '#FAFAFA') + ';" onmouseenter="this.style.background=\'#F3EEFF\'" onmouseleave="this.style.background=\'' + (i % 2 === 0 ? 'white' : '#FAFAFA') + '\'">' +
+      return '<div onclick="App.lbSelectSuggestion(\'' + App.esc(s.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'")) + '\')" style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-bottom:1px solid rgba(0,0,0,0.05);background:' + (i % 2 === 0 ? 'white' : '#FAFAFA') + ';" onmouseenter="this.style.background=\'#F3EEFF\'" onmouseleave="this.style.background=\'' + (i % 2 === 0 ? 'white' : '#FAFAFA') + '\'">' +
         av +
         '<div style="flex:1;min-width:0;">' +
           '<div style="font-size:13px;font-weight:700;color:var(--clay-text);">' + hi + (isMe ? ' <span style="color:var(--bear-orange);font-size:11px;">(คุณ)</span>' : '') + '</div>' +
@@ -1752,7 +1743,7 @@ var App = {
       return '<div onclick="App.navigate(\'userProfile\',\'' + s.id + '\')" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;' + itemStyle + '">' +
         '<div style="display:flex;align-items:center;gap:12px;min-width:0;">' +
           '<div style="width:28px;text-align:center;font-size:20px;flex-shrink:0;">' + medal + '</div>' + av +
-          '<div style="min-width:0;"><div style="font-weight:700;font-size:14px;color:var(--clay-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + s.name + (isMe ? ' <span style="color:var(--bear-orange);font-size:11px;">(คุณ)</span>' : '') + '</div>' +
+          '<div style="min-width:0;"><div style="font-weight:700;font-size:14px;color:var(--clay-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + App.esc(s.name) + (isMe ? ' <span style="color:var(--bear-orange);font-size:11px;">(คุณ)</span>' : '') + '</div>' +
             '<div style="font-size:12px;color:var(--clay-text-light);">' + (s.className || '-') + '</div></div>' +
         '</div>' +
         '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC);border-radius:12px;padding:6px 12px;font-weight:800;color:white;font-size:13px;box-shadow:0 3px 0 rgba(160,80,200,0.2);flex-shrink:0;">' + s.xp + ' XP</div>' +
@@ -2008,7 +1999,7 @@ var App = {
           '<div style="width:90px; height:90px; border-radius:50%; overflow:hidden; border:4px solid white; box-shadow:0 4px 12px rgba(0,0,0,0.2);">' + avatar + '</div>' +
           '<div style="position:absolute; bottom:-2px; right:-2px; width:34px; height:34px; border-radius:50%; background:white; display:flex; align-items:center; justify-content:center; font-size:18px; box-shadow:0 3px 8px rgba(0,0,0,0.2);">' + lv.emoji + '</div>' +
         '</div>' +
-        '<div style="font-weight:800; font-size:22px; color:white;">' + u.FirstName + ' ' + u.LastName + (u.Nickname ? ' <span style="font-size:15px; opacity:0.9;">(' + u.Nickname + ')</span>' : '') + '</div>' +
+        '<div style="font-weight:800; font-size:22px; color:white;">' + App.esc(u.FirstName) + ' ' + App.esc(u.LastName) + (u.Nickname ? ' <span style="font-size:15px; opacity:0.9;">(' + App.esc(u.Nickname) + ')</span>' : '') + '</div>' +
         '<div style="font-size:13px; color:rgba(255,255,255,0.85); margin-top:4px;">' + (u.Class || '-') + ' เลขที่ ' + (u.Number || '-') + '</div>' +
         (u.Motto ? '<div style="font-size:13px; color:white; margin-top:8px; font-style:italic;">💬 "' + this.esc(u.Motto) + '"</div>' : '') +
         '<button onclick="App.openProfileEdit()" style="margin-top:12px; background:rgba(255,255,255,0.95); border:none; border-radius:14px; padding:8px 18px; font-family:var(--font-main); font-weight:800; font-size:13px; color:var(--clay-purple-shadow); cursor:pointer; box-shadow:0 3px 0 rgba(0,0,0,0.12);">✏️ แก้ไขโปรไฟล์</button>' +
@@ -2362,8 +2353,8 @@ var App = {
     return '<div class="page-content">' +
       '<div style="background:linear-gradient(135deg,#C084FC,#5BA4F5);border-radius:28px;padding:20px;margin-bottom:16px;text-align:center;box-shadow:0 8px 0 rgba(100,80,200,0.2),0 14px 28px rgba(100,80,200,0.12);">' +
         '<div style="font-size:40px;margin-bottom:6px;">🎫</div>' +
-        '<div style="font-size:18px;font-weight:800;color:white;">' + u.FirstName + ' ' + u.LastName + '</div>' +
-        '<div style="font-size:13px;color:rgba(255,255,255,0.85);margin-top:4px;">' + u.Class + ' · เลขที่ ' + u.Number + '</div>' +
+        '<div style="font-size:18px;font-weight:800;color:white;">' + App.esc(u.FirstName) + ' ' + App.esc(u.LastName) + '</div>' +
+        '<div style="font-size:13px;color:rgba(255,255,255,0.85);margin-top:4px;">' + App.esc(u.Class) + ' · เลขที่ ' + App.esc(u.Number) + '</div>' +
       '</div>' +
 
       // QR Code card
@@ -2409,8 +2400,8 @@ var App = {
         '<div style="background:linear-gradient(135deg,#4ECB71,#5BA4F5);border-radius:24px;padding:16px;margin-bottom:16px;display:flex;align-items:center;gap:14px;box-shadow:0 6px 0 rgba(60,160,80,0.2);">' +
           av +
           '<div>' +
-            '<div style="font-size:18px;font-weight:800;color:white;">' + scanned.first_name + ' ' + scanned.last_name + '</div>' +
-            '<div style="font-size:13px;color:rgba(255,255,255,0.85);margin-top:3px;">' + scanned.class_name + ' · เลขที่ ' + scanned.student_number + '</div>' +
+            '<div style="font-size:18px;font-weight:800;color:white;">' + App.esc(scanned.first_name) + ' ' + App.esc(scanned.last_name) + '</div>' +
+            '<div style="font-size:13px;color:rgba(255,255,255,0.85);margin-top:3px;">' + App.esc(scanned.class_name) + ' · เลขที่ ' + App.esc(scanned.student_number) + '</div>' +
           '</div>' +
         '</div>' +
         '<div class="card" style="text-align:center;background:linear-gradient(145deg,#F8F3FF,#EEE8FF);">' +
@@ -2617,11 +2608,13 @@ var App = {
       var tdHtml = '';
       
       for (var c = 0; c < headers.length; c++) {
-        var val = row[headers[c]] || '';
+        var raw = row[headers[c]];
+        var val = (raw === null || raw === undefined) ? '' : raw; // keep 0/false, don't blank them
+        var safe = App.esc(val);
         if (isEditing) {
-          tdHtml += '<td style="padding:4px; border:1px solid #ccc;"><input type="text" id="edit-' + r + '-' + headers[c] + '" value="' + val + '" style="width:100%; box-sizing:border-box; padding:6px; border:1px solid var(--bear-orange); border-radius:4px;"></td>';
+          tdHtml += '<td style="padding:4px; border:1px solid #ccc;"><input type="text" id="edit-' + r + '-' + headers[c] + '" value="' + safe + '" style="width:100%; box-sizing:border-box; padding:6px; border:1px solid var(--bear-orange); border-radius:4px;"></td>';
         } else {
-          tdHtml += '<td style="padding:10px; border:1px solid #ccc; font-size:13px; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + val + '">' + val + '</td>';
+          tdHtml += '<td style="padding:10px; border:1px solid #ccc; font-size:13px; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + safe + '">' + safe + '</td>';
         }
       }
       
@@ -2771,9 +2764,12 @@ var App = {
     reader.readAsDataURL(file);
   },
 
-  answerQuiz: function(btnElem, selectedOpt) {
+  answerQuiz: function(btnElem, optIdx) {
     var qState = this.state.quiz;
     var q = qState.questions[qState.currentIndex];
+    // optIdx indexes the shuffled options rendered in viewQuiz; resolve back to
+    // the exact original option text so comparison with correctAnswer is exact.
+    var selectedOpt = (q._shuffled && q._shuffled[optIdx] !== undefined) ? q._shuffled[optIdx] : optIdx;
     var isCorrect = selectedOpt === q.correctAnswer;
     var allBtns = document.querySelectorAll('.quiz-option');
     for (var i = 0; i < allBtns.length; i++) { allBtns[i].classList.remove('correct', 'incorrect'); }
@@ -2784,12 +2780,12 @@ var App = {
       qState.score++;
       this.celebrate(18);
       btnElem.classList.add('correct');
-      feedbackEl.innerHTML = '<div style="display:flex; align-items:center; gap:8px;"><span style="font-size:24px;">' + this.bear + '</span><div><h3 style="margin:0; color:var(--duo-green-shadow); font-size:16px;">ถูกต้อง!</h3><p style="margin:4px 0 0 0; font-size:13px; color:var(--duo-green-shadow);">' + q.explanation + '</p></div></div>';
+      feedbackEl.innerHTML = '<div style="display:flex; align-items:center; gap:8px;"><span style="font-size:24px;">' + this.bear + '</span><div><h3 style="margin:0; color:var(--duo-green-shadow); font-size:16px;">ถูกต้อง!</h3><p style="margin:4px 0 0 0; font-size:13px; color:var(--duo-green-shadow);">' + this.esc(q.explanation) + '</p></div></div>';
       footerEl.style.backgroundColor = '#d7ffb8';
       nextBtn.className = 'btn btn-primary';
     } else {
       btnElem.classList.add('incorrect');
-      feedbackEl.innerHTML = '<div style="display:flex; align-items:center; gap:8px;"><span style="font-size:24px;">' + this.bear + '</span><div><h3 style="margin:0; color:var(--duo-red-shadow); font-size:16px;">คำตอบที่ถูกต้อง:</h3><p style="margin:4px 0 0 0; font-weight:800; font-size:15px; color:var(--duo-red-shadow);">' + q.correctAnswer + '</p><p style="margin:4px 0 0 0; font-size:12px; color:var(--duo-red-shadow);">' + q.explanation + '</p></div></div>';
+      feedbackEl.innerHTML = '<div style="display:flex; align-items:center; gap:8px;"><span style="font-size:24px;">' + this.bear + '</span><div><h3 style="margin:0; color:var(--duo-red-shadow); font-size:16px;">คำตอบที่ถูกต้อง:</h3><p style="margin:4px 0 0 0; font-weight:800; font-size:15px; color:var(--duo-red-shadow);">' + this.esc(q.correctAnswer) + '</p><p style="margin:4px 0 0 0; font-size:12px; color:var(--duo-red-shadow);">' + this.esc(q.explanation) + '</p></div></div>';
       footerEl.style.backgroundColor = '#ffdfe0';
       nextBtn.className = 'btn btn-danger';
     }
@@ -3077,7 +3073,9 @@ var App = {
       })
       .withFailureHandler(function(e) {
         var st = document.getElementById('bonus-give-status');
-        if (st) st.innerText = '❌ Error: ' + e.message;
+        if (st) { st.style.color = 'var(--clay-red)'; st.innerText = '❌ Error: ' + e.message; }
+        // Re-enable the button so the teacher can retry after a transient failure.
+        if (btn) { btn.disabled = false; btn.innerText = '✅ ให้คะแนน'; }
       })
       .adminGiveBonus(targetUser.id, pts, self.state.user ? self.state.user.UserID : 0);
   },
@@ -3348,19 +3346,7 @@ var App = {
     
     var st = document.getElementById('qb-status');
     st.innerHTML = 'กำลังบันทึก...';
-    
-    var newData = {
-      'QuizID': '', // Auto
-      'ModuleID': mid,
-      'QuestionText': txt,
-      'Option1': opt1,
-      'Option2': opt2,
-      'Option3': opt3,
-      'Option4': opt4,
-      'CorrectAnswer': correctAns,
-      'Explanation': exp
-    };
-    
+
     google.script.run
       .withSuccessHandler(function(res) {
         if (res.success) {
@@ -3379,7 +3365,7 @@ var App = {
       .withFailureHandler(function(e) {
         st.innerHTML = '<span style="color:var(--duo-red);">Error: ' + e.message + '</span>';
       })
-      .adminInsertRow('QuizBank', newData);
+      .adminAddQuiz(mid, txt, opt1, opt2, opt3, opt4, correctAns, exp);
   }
 };
 

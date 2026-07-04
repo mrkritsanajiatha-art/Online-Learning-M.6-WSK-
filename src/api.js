@@ -162,11 +162,16 @@ function weekProgress(rows, goalType, weekStart) {
   if (goalType === 'vocab') {
     return inWeek.filter(r => r.quiz_type === 'Flashcards').length;
   }
-  // xp
+  // xp — mirror the XP actually awarded per activity type (see submitQuizScore,
+  // submitGameScore, submitEnglishScore). Getting this wrong inflates the goal.
   let xp = 0;
   inWeek.forEach(r => {
-    if (r.quiz_type === 'Bonus') return;
-    xp += (r.quiz_type === 'WordBridge') ? (r.score || 0) : (r.score || 0) * 10;
+    const t = r.quiz_type;
+    const s = r.score || 0;
+    if (t === 'Bonus') return;
+    if (t === 'WordBridge') xp += s;                                   // score == XP awarded
+    else if (t && t.indexOf('english_') === 0) xp += s > 0 ? Math.max(1, Math.floor(s / 10)) : 0; // English: floor(score/10)
+    else xp += s * 10;                                                 // quizzes: score * 10
   });
   return xp;
 }
@@ -278,7 +283,7 @@ export async function getCommunityData() {
   const storyOut = (stories || []).map(s => {
     const u = info[s.user_id];
     const anon = !!s.anonymous;
-    return { id: s.id, userId: s.user_id, name: anon ? 'ไม่ระบุตัวตน' : (u ? u.name : '-'), img: anon ? '' : (u ? u.img : ''), kind: s.kind, content: s.content, at: s.created_at, reactions: rc[s.id] || 0, anonymous: anon };
+    return { id: s.id, userId: anon ? null : s.user_id, name: anon ? 'ไม่ระบุตัวตน' : (u ? u.name : '-'), img: anon ? '' : (u ? u.img : ''), kind: s.kind, content: s.content, at: s.created_at, reactions: rc[s.id] || 0, anonymous: anon };
   });
 
   // Showcase (pinned first)
@@ -305,7 +310,10 @@ export async function getStory(storyId, userId) {
   const counts = {}; const mine = {};
   (rx || []).forEach(r => { counts[r.emoji] = (counts[r.emoji] || 0) + 1; if (r.user_id === uid) mine[r.emoji] = true; });
   const anon = !!s.anonymous;
-  return { success: true, story: { id: s.id, ownerId: s.user_id, name: anon ? 'ไม่ระบุตัวตน' : (u ? (u.first_name + ' ' + u.last_name) : '-'), cls: anon ? '' : (u ? u.class_name : ''), img: anon ? '' : (u ? u.profile_image : ''), kind: s.kind, content: s.content, at: s.created_at, anonymous: anon }, counts, mine };
+  // Only reveal ownerId to the owner themselves (drives the delete button); never
+  // leak the real author id of an anonymous story to other viewers.
+  const isOwner = s.user_id === uid;
+  return { success: true, story: { id: s.id, ownerId: isOwner ? s.user_id : null, name: anon ? 'ไม่ระบุตัวตน' : (u ? (u.first_name + ' ' + u.last_name) : '-'), cls: anon ? '' : (u ? u.class_name : ''), img: anon ? '' : (u ? u.profile_image : ''), kind: s.kind, content: s.content, at: s.created_at, anonymous: anon }, counts, mine };
 }
 
 export async function reactStory(storyId, userId, emoji) {
@@ -391,11 +399,14 @@ export async function submitQuizScore(userId, quizType, referenceId, score, maxS
     if (existing && existing.length > 0) return { success: true, alreadyDone: true };
   }
 
-  await supabase.from('scores').insert([{
+  const { error: insErr } = await supabase.from('scores').insert([{
     user_id: uid, quiz_type: quizType,
     reference_id: (referenceId !== null && referenceId !== undefined) ? referenceId : null,
     score, max_score: maxScore, time_spent: timeSpent || 0
   }]);
+  // Only award XP if the score row was actually written — otherwise XP would be
+  // granted with no backing record (or double-granted on a duplicate insert).
+  if (insErr) return { success: false, message: insErr.message };
   await supabase.rpc('add_xp', { p_uid: uid, p_amount: score * 10 });
   return { success: true, alreadyDone: false };
 }
@@ -453,10 +464,16 @@ export async function recordLogin(userId) {
   const yesterday = bangkokDate(Date.now() - 24 * 3600 * 1000);
   const newStreak = (last === yesterday) ? (u.streak || 0) + 1 : 1;
   const bonus = Math.min(50, newStreak * 10); // day1=10 … day5+=50 per day
-  await supabase.from('users').update({
-    last_login: new Date().toISOString(),
-    streak: newStreak
-  }).eq('id', uid);
+  // Compare-and-swap on last_login so two concurrent logins (two tabs/devices)
+  // can't both award the daily bonus: only the update that still matches the
+  // previously-read last_login wins; the loser matches 0 rows and skips XP.
+  let upd = supabase.from('users').update({ last_login: new Date().toISOString(), streak: newStreak });
+  upd = u.last_login ? upd.eq('last_login', u.last_login) : upd.is('last_login', null);
+  const { data: claimed, error: updErr } = await upd.eq('id', uid).select('id');
+  if (updErr) return { success: false, message: updErr.message };
+  if (!claimed || claimed.length === 0) {
+    return { success: true, streak: newStreak, bonus: 0, already: true };
+  }
   if (bonus > 0) await supabase.rpc('add_xp', { p_uid: uid, p_amount: bonus });
   return { success: true, streak: newStreak, bonus, already: false };
 }
@@ -566,7 +583,8 @@ export async function submitPlacementResult(userId, level, score) {
 }
 
 export async function adminAddQuiz(moduleId, text, opt1, opt2, opt3, opt4, answer, explain) {
-  await supabase.from('quiz_bank').insert([{ module_id: moduleId, question: text, choice_a: opt1, choice_b: opt2, choice_c: opt3, choice_d: opt4, correct_answer: answer, explanation: explain }]);
+  const { error } = await supabase.from('quiz_bank').insert([{ module_id: moduleId, question: text, choice_a: opt1, choice_b: opt2, choice_c: opt3, choice_d: opt4, correct_answer: answer, explanation: explain }]);
+  if (error) return { success: false, message: error.message };
   return { success: true };
 }
 
@@ -662,7 +680,7 @@ export async function getFeedData(viewerId) {
   const rc = {}; reacts.forEach(r => { rc[r.story_id] = (rc[r.story_id] || 0) + 1; });
   const storyOut = (stories || []).map(s => {
     const u = info[s.user_id]; const anon = !!s.anonymous;
-    return { id: s.id, userId: s.user_id, name: anon ? 'ไม่ระบุตัวตน' : (u ? u.name : '-'), img: anon ? '' : (u ? u.img : ''), kind: s.kind, content: s.content, at: s.created_at, reactions: rc[s.id] || 0, anonymous: anon };
+    return { id: s.id, userId: anon ? null : s.user_id, name: anon ? 'ไม่ระบุตัวตน' : (u ? u.name : '-'), img: anon ? '' : (u ? u.img : ''), kind: s.kind, content: s.content, at: s.created_at, reactions: rc[s.id] || 0, anonymous: anon };
   });
 
   // post reactions + comment counts
@@ -697,7 +715,7 @@ export async function getFeedData(viewerId) {
     const u = info[p.user_id]; const anon = !!p.anonymous;
     const isMine = vid && p.user_id === vid;
     return {
-      id: p.id, userId: anon ? null : p.user_id, ownerId: p.user_id,
+      id: p.id, userId: anon ? null : p.user_id, ownerId: (anon && !isMine) ? null : p.user_id,
       name: anon ? 'ไม่ระบุตัวตน' : (u ? u.name : '-'),
       cls: anon ? '' : (u ? u.cls : ''),
       img: anon ? '' : (u ? u.img : ''),
