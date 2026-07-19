@@ -63,7 +63,7 @@ var App = {
     studentMode: localStorage.getItem('lms_student_mode') === '1',
     myScores: { data: null, loaded: false },
     grades: { result: null, loading: false, tried: false },
-    announcement: { items: [], idx: 0, loaded: false, show: false, paused: false },
+    announcement: { items: [], idx: 0, loaded: false, show: false, seenAll: false, hideChecked: false },
     announceAdmin: { items: [], loaded: false, image: null, busy: false },
     cropper: null,
     cropperOpen: false,
@@ -377,10 +377,10 @@ var App = {
         try { hide = JSON.parse(localStorage.getItem('lms_announce_hide') || 'null'); } catch (e) { hide = null; }
         show = !(hide && hide.sig === self.announceSignature(items) && hide.date === self.todayTH());
       }
-      self.state.announcement = { items: items, idx: 0, loaded: true, show: show, paused: false };
+      self.state.announcement = { items: items, idx: 0, loaded: true, show: show, seenAll: items.length <= 1, hideChecked: false };
       if (show) self.render(true);
     }).withFailureHandler(function() {
-      self.state.announcement = { items: [], idx: 0, loaded: true, show: false, paused: false };
+      self.state.announcement = { items: [], idx: 0, loaded: true, show: false, seenAll: false, hideChecked: false };
     }).getActiveAnnouncements();
   },
 
@@ -392,52 +392,54 @@ var App = {
         sig: this.announceSignature(st.items), date: this.todayTH()
       }));
     }
-    this.stopAnnounceRotation();
     st.show = false;
     this.render(true);
   },
 
-  /* ---- สไลด์หมุนอัตโนมัติ ---- */
+  /* ---- สไลด์: นักเรียนกด/ปัดเองเพื่อให้ได้อ่านจริง ---- */
 
-  ANNOUNCE_INTERVAL_MS: 5000,
-
-  stopAnnounceRotation: function() {
-    if (this._announceTimer) { clearInterval(this._announceTimer); this._announceTimer = null; }
+  isLastSlide: function() {
+    var st = this.state.announcement;
+    return st.idx >= st.items.length - 1;
   },
 
-  startAnnounceRotation: function() {
-    var self = this;
-    this.stopAnnounceRotation();
+  nextAnnounce: function() {
     var st = this.state.announcement;
-    if (!st.show || st.items.length < 2) return;
-    this._announceTimer = setInterval(function() {
-      var s = self.state.announcement;
-      if (!s.show) { self.stopAnnounceRotation(); return; }
-      if (s.paused) return; // กดค้างอยู่ — ค้างภาพไว้
-      self.goAnnounceSlide((s.idx + 1) % s.items.length);
-    }, this.ANNOUNCE_INTERVAL_MS);
+    if (st.idx < st.items.length - 1) this.goAnnounceSlide(st.idx + 1);
+  },
+
+  prevAnnounce: function() {
+    var st = this.state.announcement;
+    if (st.idx > 0) this.goAnnounceSlide(st.idx - 1);
   },
 
   // เปลี่ยนสไลด์โดยแก้ DOM ตรง ๆ ไม่ render ใหม่ทั้งหน้า
-  // (ถ้า render ใหม่ ช่องติ๊ก "ไม่แสดงอีกวันนี้" ที่ผู้ใช้กดไว้จะหาย)
+  // (ถ้า render ใหม่ ช่องติ๊กที่ผู้ใช้กดไว้จะหาย)
   goAnnounceSlide: function(i) {
     var st = this.state.announcement;
     if (!st.items.length) return;
-    st.idx = ((i % st.items.length) + st.items.length) % st.items.length;
+    st.idx = Math.max(0, Math.min(i, st.items.length - 1));
+    // ดูถึงใบสุดท้ายแล้ว จึงปลดล็อกช่องติ๊ก "ไม่แสดงอีกวันนี้"
+    if (this.isLastSlide()) st.seenAll = true;
+
     var a = st.items[st.idx];
-    var img = document.getElementById('announce-img');
-    if (img && a.image) { img.src = a.image; img.alt = a.title || ''; }
     var body = document.getElementById('announce-body');
-    if (body && !a.image) body.innerHTML = this.announceTextSlide(a);
-    else if (body && a.image) body.innerHTML = '<img id="announce-img" src="' + a.image + '" alt="' + this.esc(a.title) + '" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">';
+    if (body) {
+      body.innerHTML = a.image
+        ? '<img id="announce-img" src="' + a.image + '" alt="' + this.esc(a.title) + '" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">'
+        : this.announceTextSlide(a);
+    }
     var dots = document.getElementById('announce-dots');
     if (dots) dots.innerHTML = this.announceDotsHtml();
+    var foot = document.getElementById('announce-foot');
+    if (foot) foot.innerHTML = this.announceFooterHtml();
+    var hint = document.getElementById('announce-hint');
+    if (hint) hint.innerHTML = this.announceHintHtml();
   },
 
-  pauseAnnounce: function(on) {
-    this.state.announcement.paused = !!on;
-    var hint = document.getElementById('announce-pause-hint');
-    if (hint) hint.style.opacity = on ? '1' : '0';
+  // จำสถานะช่องติ๊กไว้ เผื่อผู้ใช้ย้อนกลับไปดูใบก่อนหน้าแล้วกลับมา
+  onHideTodayToggle: function(el) {
+    this.state.announcement.hideChecked = !!el.checked;
   },
 
   announceDotsHtml: function() {
@@ -458,8 +460,30 @@ var App = {
     '</div>';
   },
 
+  // ส่วนล่างการ์ด: ปุ่มถัดไป หรือ (เมื่อถึงใบสุดท้าย) ช่องติ๊กไม่แสดงอีก
+  announceFooterHtml: function() {
+    var st = this.state.announcement;
+    if (!this.isLastSlide()) {
+      return '<button class="btn btn-primary" style="margin:0; font-size:14px;" onclick="App.nextAnnounce()">อ่านแล้ว ดูถัดไป →</button>';
+    }
+    return '<label style="display:flex; align-items:center; gap:9px; cursor:pointer; background:rgba(255,255,255,0.95); border-radius:14px; padding:10px 15px; box-shadow:0 4px 0 rgba(0,0,0,0.15);">' +
+        '<input type="checkbox" id="announce-hide-today" onchange="App.onHideTodayToggle(this)"' + (st.hideChecked ? ' checked' : '') + ' style="width:19px; height:19px; margin:0; accent-color:var(--bear-orange); cursor:pointer; flex-shrink:0;">' +
+        '<span style="font-size:13px; font-weight:700; color:var(--clay-text); line-height:1.5;">ไม่ต้องแสดงอีกวันนี้</span>' +
+      '</label>' +
+      '<button class="btn btn-primary" style="margin:0; font-size:14px;" onclick="App.closeAnnouncement()">เข้าใจแล้ว เริ่มเรียน 🐾</button>';
+  },
+
+  announceHintHtml: function() {
+    var st = this.state.announcement;
+    if (st.items.length < 2) return '';
+    if (!this.isLastSlide()) {
+      return 'แตะที่ภาพ หรือปัดไปทางซ้าย เพื่อดูประกาศถัดไป (' + (st.idx + 1) + '/' + st.items.length + ')';
+    }
+    return 'อ่านครบทุกประกาศแล้ว ✓';
+  },
+
   // การ์ดประกาศ อัตราส่วน 3:4 — โชว์รูปล้วน ไม่มีข้อความทับ
-  // หลายใบจะหมุนสลับทุก 5 วินาที กดค้างที่การ์ดเพื่อหยุดดู
+  // นักเรียนกด/ปัดเพื่อเลื่อนเอง ช่องติ๊ก "ไม่แสดงอีก" โผล่ตอนใบสุดท้าย
   viewAnnouncementCard: function() {
     var st = this.state.announcement;
     var a = st.items[st.idx];
@@ -470,40 +494,50 @@ var App = {
       // ไม่มีรูป: ต้องมีอะไรให้อ่าน จึงแสดงข้อความแทน ไม่งั้นการ์ดจะว่างเปล่า
       : this.announceTextSlide(a);
 
-    return '<div onclick="App.closeAnnouncement()" style="position:absolute; inset:0; z-index:9000; background:rgba(40,20,70,0.55); backdrop-filter:blur(3px); display:flex; align-items:center; justify-content:center; padding:24px;">' +
-      '<div onclick="event.stopPropagation()" style="width:100%; max-width:320px; display:flex; flex-direction:column; align-items:center; gap:12px;">' +
-        '<div id="announce-card" style="position:relative; width:100%; aspect-ratio:3/4; border-radius:26px; overflow:hidden; box-shadow:0 10px 0 rgba(90,40,150,0.35), 0 24px 48px rgba(60,20,110,0.45); animation:popIn 0.35s cubic-bezier(0.34,1.56,0.64,1); -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;">' +
+    // ยังอ่านไม่ครบ ห้ามปิดด้วยการแตะพื้นหลัง เพื่อให้ได้อ่านจนจบ
+    var backdropClose = st.seenAll ? ' onclick="App.closeAnnouncement()"' : '';
+
+    return '<div' + backdropClose + ' style="position:absolute; inset:0; z-index:9000; background:rgba(40,20,70,0.55); backdrop-filter:blur(3px); display:flex; align-items:center; justify-content:center; padding:24px;">' +
+      '<div onclick="event.stopPropagation()" style="width:100%; max-width:320px; display:flex; flex-direction:column; align-items:center; gap:11px;">' +
+        '<div id="announce-card" style="position:relative; width:100%; aspect-ratio:3/4; border-radius:26px; overflow:hidden; cursor:' + (many ? 'pointer' : 'default') + '; box-shadow:0 10px 0 rgba(90,40,150,0.35), 0 24px 48px rgba(60,20,110,0.45); animation:popIn 0.35s cubic-bezier(0.34,1.56,0.64,1); -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;">' +
           '<div id="announce-body" style="position:absolute; inset:0;">' + body + '</div>' +
           '<button onclick="App.closeAnnouncement()" aria-label="ปิดประกาศ" style="position:absolute; top:12px; right:12px; width:40px; height:40px; min-height:0; margin:0; padding:0; border-radius:50%; border:none; background:rgba(255,255,255,0.96); color:#3D2B5C; font-size:19px; font-weight:800; line-height:1; cursor:pointer; box-shadow:0 4px 0 rgba(0,0,0,0.18), 0 6px 14px rgba(0,0,0,0.28); display:flex; align-items:center; justify-content:center; z-index:3;">✕</button>' +
-          // ป้ายบอกว่ากำลังค้างภาพอยู่ (ซ่อนไว้ตอนไม่ได้กด)
-          (many ? '<div id="announce-pause-hint" style="position:absolute; top:14px; left:14px; z-index:3; padding:5px 11px; border-radius:999px; background:rgba(20,10,40,0.72); color:white; font-size:11px; font-weight:800; opacity:0; transition:opacity 0.18s; pointer-events:none;">⏸ ค้างภาพไว้</div>' : '') +
           // จุดบอกลำดับ อยู่ในกรอบล่างสุด ไม่บังเนื้อหาหลัก
           (many ? '<div id="announce-dots" style="position:absolute; left:0; right:0; bottom:12px; z-index:3; display:flex; gap:6px; align-items:center; justify-content:center;">' + this.announceDotsHtml() + '</div>' : '') +
         '</div>' +
         // อยู่นอกกรอบรูป จึงไม่บังประกาศ
-        (many ? '<div style="font-size:11px; color:rgba(255,255,255,0.9); font-weight:700; text-shadow:0 1px 3px rgba(0,0,0,0.4);">แตะค้างที่ภาพเพื่อหยุดดู</div>' : '') +
-        '<label style="display:flex; align-items:center; gap:9px; cursor:pointer; background:rgba(255,255,255,0.95); border-radius:14px; padding:10px 15px; box-shadow:0 4px 0 rgba(0,0,0,0.15);">' +
-          '<input type="checkbox" id="announce-hide-today" style="width:19px; height:19px; margin:0; accent-color:var(--bear-orange); cursor:pointer; flex-shrink:0;">' +
-          '<span style="font-size:13px; font-weight:700; color:var(--clay-text); line-height:1.5;">ไม่ต้องแสดงอีกวันนี้</span>' +
-        '</label>' +
+        (many ? '<div id="announce-hint" style="font-size:11px; color:rgba(255,255,255,0.92); font-weight:700; text-align:center; line-height:1.6; text-shadow:0 1px 3px rgba(0,0,0,0.45);">' + this.announceHintHtml() + '</div>' : '') +
+        '<div id="announce-foot" style="width:100%; display:flex; flex-direction:column; align-items:center; gap:10px;">' + this.announceFooterHtml() + '</div>' +
       '</div>' +
     '</div>';
   },
 
-  // ผูก event กดค้าง + เริ่มหมุน (เรียกจาก postRender หลัง HTML ลง DOM แล้ว)
+  // ผูกการแตะและการปัด (เรียกจาก postRender หลัง HTML ลง DOM แล้ว)
   initAnnounceCard: function() {
     var self = this;
     var card = document.getElementById('announce-card');
-    if (!card) { this.stopAnnounceRotation(); return; }
-    if (this.state.announcement.items.length < 2) return;
-    var hold = function(e) { if (e.target.closest('button')) return; self.pauseAnnounce(true); };
-    var release = function() { self.pauseAnnounce(false); };
-    card.addEventListener('mousedown', hold);
-    card.addEventListener('touchstart', hold, { passive: true });
-    ['mouseup', 'mouseleave', 'touchend', 'touchcancel'].forEach(function(ev) {
-      card.addEventListener(ev, release);
+    if (!card || this.state.announcement.items.length < 2) return;
+
+    // แตะที่ภาพ = ไปใบถัดไป (ยกเว้นแตะปุ่มปิดหรือจุดบอกลำดับ)
+    card.addEventListener('click', function(e) {
+      if (e.target.closest('button') || e.target.closest('#announce-dots')) return;
+      self.nextAnnounce();
     });
-    this.startAnnounceRotation();
+
+    // ปัดขวา→ซ้าย = ถัดไป, ซ้าย→ขวา = ย้อนกลับ
+    var x0 = null, y0 = null;
+    card.addEventListener('touchstart', function(e) {
+      var t = e.changedTouches[0]; x0 = t.clientX; y0 = t.clientY;
+    }, { passive: true });
+    card.addEventListener('touchend', function(e) {
+      if (x0 === null) return;
+      var t = e.changedTouches[0];
+      var dx = t.clientX - x0, dy = t.clientY - y0;
+      x0 = null;
+      // ต้องปัดแนวนอนชัดเจน ไม่ใช่เลื่อนหน้าจอขึ้นลง
+      if (Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy)) return;
+      if (dx < 0) self.nextAnnounce(); else self.prevAnnounce();
+    }, { passive: true });
   },
 
   toast: function(msg) {
@@ -799,7 +833,6 @@ var App = {
     else if (r === 'profileEdit' && this.state.cropperOpen) this.initCropper();
     if (r === 'profile' || r === 'userProfile') this.initVinyl();
     if (this.state.announcement.show) this.initAnnounceCard();
-    else this.stopAnnounceRotation();
   },
 
   // ===== CONFETTI (variable reward feedback) =====
@@ -2850,7 +2883,7 @@ var App = {
     return '<div class="page-content">' +
       '<button onclick="App.navigate(\'admin\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
       '<h2 class="text-title" style="color:var(--bear-brown); margin-top:0;">📣 ประกาศถึงนักเรียน</h2>' +
-      '<p style="font-size:13px; color:var(--clay-text-light); margin-top:0; line-height:1.7;">การ์ดจะเด้งทุกครั้งที่นักเรียนเข้าระบบ ปิดได้ที่ปุ่มมุมบนขวา และมีช่องให้ติ๊ก “ไม่ต้องแสดงอีกวันนี้”<br><b>เปิดพร้อมกันได้หลายอัน</b> — ระบบจะหมุนสลับให้ทุก 5 วินาที นักเรียนแตะค้างที่ภาพเพื่อหยุดดูได้<br><b>รูปคือตัวประกาศ</b> — ข้อความบนการ์ดมาจากรูปที่อัปโหลด</p>' +
+      '<p style="font-size:13px; color:var(--clay-text-light); margin-top:0; line-height:1.7;">การ์ดจะเด้งทุกครั้งที่นักเรียนเข้าระบบ<br><b>เปิดพร้อมกันได้หลายอัน</b> — นักเรียนต้องแตะหรือปัดดูให้ครบทุกใบ ช่องติ๊ก “ไม่ต้องแสดงอีกวันนี้” จะโผล่เมื่อถึงใบสุดท้ายเท่านั้น<br><b>รูปคือตัวประกาศ</b> — ข้อความบนการ์ดมาจากรูปที่อัปโหลด</p>' +
 
       '<div class="card">' +
         '<div style="display:flex; gap:14px; align-items:flex-start;">' +
