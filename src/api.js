@@ -868,14 +868,15 @@ export async function getUserProfile(targetUserId) {
    ============================================================ */
 
 // ประกาศที่กำลังแสดงอยู่ (เอาอันล่าสุดที่ยังเปิดใช้งาน)
-export async function getActiveAnnouncement() {
+// ประกาศที่เปิดอยู่ทั้งหมด — หน้าแอปจะหมุนสลับให้ทีละใบ
+// เรียงจากเก่าไปใหม่ เพื่อให้ลำดับที่นักเรียนเห็นตรงกับลำดับที่ครูสร้าง
+export async function getActiveAnnouncements() {
   const { data, error } = await supabase.from('announcements')
     .select('id, title, content, image, created_at')
     .eq('active', true)
-    .order('created_at', { ascending: false })
-    .limit(1);
+    .order('created_at', { ascending: true });
   if (error) return { success: false, message: error.message };
-  return { success: true, announcement: (data && data[0]) || null };
+  return { success: true, items: data || [] };
 }
 
 // รายการประกาศทั้งหมดสำหรับหน้าแอดมิน
@@ -890,8 +891,7 @@ export async function adminListAnnouncements() {
 export async function adminCreateAnnouncement(title, content, imageDataUrl, author) {
   const t = (title || '').trim();
   if (!t) return { success: false, message: 'กรุณาใส่หัวข้อประกาศ' };
-  // ประกาศใหม่แทนที่อันเก่า — ปิดของเดิมทั้งหมดก่อน
-  await supabase.from('announcements').update({ active: false }).eq('active', true);
+  // เปิดพร้อมกันได้หลายอัน แอปจะหมุนสลับให้เอง จึงไม่ปิดของเดิม
   const { error } = await supabase.from('announcements').insert([{
     title: t,
     content: (content || '').trim(),
@@ -904,7 +904,6 @@ export async function adminCreateAnnouncement(title, content, imageDataUrl, auth
 }
 
 export async function adminSetAnnouncementActive(id, active) {
-  if (active) await supabase.from('announcements').update({ active: false }).eq('active', true);
   const { error } = await supabase.from('announcements').update({ active: !!active }).eq('id', id);
   if (error) return { success: false, message: error.message };
   return { success: true };

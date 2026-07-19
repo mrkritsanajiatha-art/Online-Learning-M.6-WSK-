@@ -61,7 +61,7 @@ var App = {
     viewingUser: null,
     // แอดมินสลับไปดู/เรียนแบบนักเรียนได้ (จำไว้ข้ามการรีเฟรช)
     studentMode: localStorage.getItem('lms_student_mode') === '1',
-    announcement: { data: null, loaded: false, show: false },
+    announcement: { items: [], idx: 0, loaded: false, show: false, paused: false },
     announceAdmin: { items: [], loaded: false, image: null, busy: false },
     cropper: null,
     cropperOpen: false,
@@ -356,63 +356,152 @@ var App = {
     return new Date(Date.now() + 7 * 3600 * 1000).toISOString().split('T')[0];
   },
 
-  // โหลดประกาศที่เปิดอยู่ — เด้งทุกครั้งที่เข้าระบบ
-  // ยกเว้นผู้ใช้ติ๊ก "ไม่ต้องแสดงอีกวันนี้" ไว้กับประกาศเดียวกันในวันเดียวกัน
+  // ลายเซ็นของชุดประกาศ ใช้เทียบว่า "ชุดเดิม" หรือมีอันใหม่เพิ่มเข้ามา
+  // ถ้าครูโพสต์เพิ่ม ลายเซ็นเปลี่ยน การ์ดจะกลับมาเด้งแม้เคยติ๊กปิดวันนี้แล้ว
+  announceSignature: function(items) {
+    return (items || []).map(function(a) { return a.id; }).join(',');
+  },
+
+  // โหลดประกาศที่เปิดอยู่ทั้งหมด — เด้งทุกครั้งที่เข้าระบบ
+  // ยกเว้นผู้ใช้ติ๊ก "ไม่ต้องแสดงอีกวันนี้" กับชุดเดียวกันในวันเดียวกัน
   loadAnnouncement: function() {
     var self = this;
     localStorage.removeItem('lms_announce_seen'); // คีย์เดิมสมัยที่ปิดแล้วปิดถาวร
     google.script.run.withSuccessHandler(function(res) {
-      var a = (res && res.success) ? res.announcement : null;
+      var items = (res && res.success) ? (res.items || []) : [];
       var show = false;
-      if (a) {
+      if (items.length) {
         var hide = null;
         try { hide = JSON.parse(localStorage.getItem('lms_announce_hide') || 'null'); } catch (e) { hide = null; }
-        show = !(hide && String(hide.id) === String(a.id) && hide.date === self.todayTH());
+        show = !(hide && hide.sig === self.announceSignature(items) && hide.date === self.todayTH());
       }
-      self.state.announcement = { data: a, loaded: true, show: show };
+      self.state.announcement = { items: items, idx: 0, loaded: true, show: show, paused: false };
       if (show) self.render(true);
     }).withFailureHandler(function() {
-      self.state.announcement = { data: null, loaded: true, show: false };
-    }).getActiveAnnouncement();
+      self.state.announcement = { items: [], idx: 0, loaded: true, show: false, paused: false };
+    }).getActiveAnnouncements();
   },
 
   closeAnnouncement: function() {
-    var a = this.state.announcement.data;
+    var st = this.state.announcement;
     var cb = document.getElementById('announce-hide-today');
-    if (a && cb && cb.checked) {
-      localStorage.setItem('lms_announce_hide', JSON.stringify({ id: a.id, date: this.todayTH() }));
+    if (st.items.length && cb && cb.checked) {
+      localStorage.setItem('lms_announce_hide', JSON.stringify({
+        sig: this.announceSignature(st.items), date: this.todayTH()
+      }));
     }
-    this.state.announcement.show = false;
+    this.stopAnnounceRotation();
+    st.show = false;
     this.render(true);
   },
 
+  /* ---- สไลด์หมุนอัตโนมัติ ---- */
+
+  ANNOUNCE_INTERVAL_MS: 5000,
+
+  stopAnnounceRotation: function() {
+    if (this._announceTimer) { clearInterval(this._announceTimer); this._announceTimer = null; }
+  },
+
+  startAnnounceRotation: function() {
+    var self = this;
+    this.stopAnnounceRotation();
+    var st = this.state.announcement;
+    if (!st.show || st.items.length < 2) return;
+    this._announceTimer = setInterval(function() {
+      var s = self.state.announcement;
+      if (!s.show) { self.stopAnnounceRotation(); return; }
+      if (s.paused) return; // กดค้างอยู่ — ค้างภาพไว้
+      self.goAnnounceSlide((s.idx + 1) % s.items.length);
+    }, this.ANNOUNCE_INTERVAL_MS);
+  },
+
+  // เปลี่ยนสไลด์โดยแก้ DOM ตรง ๆ ไม่ render ใหม่ทั้งหน้า
+  // (ถ้า render ใหม่ ช่องติ๊ก "ไม่แสดงอีกวันนี้" ที่ผู้ใช้กดไว้จะหาย)
+  goAnnounceSlide: function(i) {
+    var st = this.state.announcement;
+    if (!st.items.length) return;
+    st.idx = ((i % st.items.length) + st.items.length) % st.items.length;
+    var a = st.items[st.idx];
+    var img = document.getElementById('announce-img');
+    if (img && a.image) { img.src = a.image; img.alt = a.title || ''; }
+    var body = document.getElementById('announce-body');
+    if (body && !a.image) body.innerHTML = this.announceTextSlide(a);
+    else if (body && a.image) body.innerHTML = '<img id="announce-img" src="' + a.image + '" alt="' + this.esc(a.title) + '" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">';
+    var dots = document.getElementById('announce-dots');
+    if (dots) dots.innerHTML = this.announceDotsHtml();
+  },
+
+  pauseAnnounce: function(on) {
+    this.state.announcement.paused = !!on;
+    var hint = document.getElementById('announce-pause-hint');
+    if (hint) hint.style.opacity = on ? '1' : '0';
+  },
+
+  announceDotsHtml: function() {
+    var st = this.state.announcement;
+    if (st.items.length < 2) return '';
+    var cur = st.idx;
+    return st.items.map(function(a, i) {
+      var on = i === cur;
+      return '<span onclick="App.goAnnounceSlide(' + i + ')" style="width:' + (on ? '20px' : '7px') + '; height:7px; border-radius:99px; cursor:pointer; transition:all 0.25s; background:' + (on ? 'white' : 'rgba(255,255,255,0.45)') + ';"></span>';
+    }).join('');
+  },
+
+  announceTextSlide: function(a) {
+    return '<div style="position:absolute; inset:0; background:linear-gradient(145deg,#FF8C42,#C084FC); display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; padding:28px 22px;">' +
+      '<div style="font-size:52px; margin-bottom:12px;">📣</div>' +
+      '<div style="font-size:20px; font-weight:800; color:white; line-height:1.5;">' + this.esc(a.title) + '</div>' +
+      (a.content ? '<div style="font-size:14px; color:rgba(255,255,255,0.95); line-height:1.7; margin-top:10px; white-space:pre-wrap;">' + this.esc(a.content) + '</div>' : '') +
+    '</div>';
+  },
+
   // การ์ดประกาศ อัตราส่วน 3:4 — โชว์รูปล้วน ไม่มีข้อความทับ
-  // (หัวข้อเป็นชื่อไว้จัดการในระบบเท่านั้น รูปคือตัวประกาศ)
+  // หลายใบจะหมุนสลับทุก 5 วินาที กดค้างที่การ์ดเพื่อหยุดดู
   viewAnnouncementCard: function() {
-    var a = this.state.announcement.data;
+    var st = this.state.announcement;
+    var a = st.items[st.idx];
     if (!a) return '';
+    var many = st.items.length > 1;
     var body = a.image
-      ? '<img src="' + a.image + '" alt="' + this.esc(a.title) + '" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">'
+      ? '<img id="announce-img" src="' + a.image + '" alt="' + this.esc(a.title) + '" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">'
       // ไม่มีรูป: ต้องมีอะไรให้อ่าน จึงแสดงข้อความแทน ไม่งั้นการ์ดจะว่างเปล่า
-      : '<div style="position:absolute; inset:0; background:linear-gradient(145deg,#FF8C42,#C084FC); display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; padding:28px 22px;">' +
-          '<div style="font-size:52px; margin-bottom:12px;">📣</div>' +
-          '<div style="font-size:20px; font-weight:800; color:white; line-height:1.5;">' + this.esc(a.title) + '</div>' +
-          (a.content ? '<div style="font-size:14px; color:rgba(255,255,255,0.95); line-height:1.7; margin-top:10px; white-space:pre-wrap;">' + this.esc(a.content) + '</div>' : '') +
-        '</div>';
+      : this.announceTextSlide(a);
 
     return '<div onclick="App.closeAnnouncement()" style="position:absolute; inset:0; z-index:9000; background:rgba(40,20,70,0.55); backdrop-filter:blur(3px); display:flex; align-items:center; justify-content:center; padding:24px;">' +
-      '<div onclick="event.stopPropagation()" style="width:100%; max-width:320px; display:flex; flex-direction:column; align-items:center; gap:14px;">' +
-        '<div style="position:relative; width:100%; aspect-ratio:3/4; border-radius:26px; overflow:hidden; box-shadow:0 10px 0 rgba(90,40,150,0.35), 0 24px 48px rgba(60,20,110,0.45); animation:popIn 0.35s cubic-bezier(0.34,1.56,0.64,1);">' +
-          body +
-          '<button onclick="App.closeAnnouncement()" aria-label="ปิดประกาศ" style="position:absolute; top:12px; right:12px; width:40px; height:40px; min-height:0; margin:0; padding:0; border-radius:50%; border:none; background:rgba(255,255,255,0.96); color:#3D2B5C; font-size:19px; font-weight:800; line-height:1; cursor:pointer; box-shadow:0 4px 0 rgba(0,0,0,0.18), 0 6px 14px rgba(0,0,0,0.28); display:flex; align-items:center; justify-content:center;">✕</button>' +
+      '<div onclick="event.stopPropagation()" style="width:100%; max-width:320px; display:flex; flex-direction:column; align-items:center; gap:12px;">' +
+        '<div id="announce-card" style="position:relative; width:100%; aspect-ratio:3/4; border-radius:26px; overflow:hidden; box-shadow:0 10px 0 rgba(90,40,150,0.35), 0 24px 48px rgba(60,20,110,0.45); animation:popIn 0.35s cubic-bezier(0.34,1.56,0.64,1); -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;">' +
+          '<div id="announce-body" style="position:absolute; inset:0;">' + body + '</div>' +
+          '<button onclick="App.closeAnnouncement()" aria-label="ปิดประกาศ" style="position:absolute; top:12px; right:12px; width:40px; height:40px; min-height:0; margin:0; padding:0; border-radius:50%; border:none; background:rgba(255,255,255,0.96); color:#3D2B5C; font-size:19px; font-weight:800; line-height:1; cursor:pointer; box-shadow:0 4px 0 rgba(0,0,0,0.18), 0 6px 14px rgba(0,0,0,0.28); display:flex; align-items:center; justify-content:center; z-index:3;">✕</button>' +
+          // ป้ายบอกว่ากำลังค้างภาพอยู่ (ซ่อนไว้ตอนไม่ได้กด)
+          (many ? '<div id="announce-pause-hint" style="position:absolute; top:14px; left:14px; z-index:3; padding:5px 11px; border-radius:999px; background:rgba(20,10,40,0.72); color:white; font-size:11px; font-weight:800; opacity:0; transition:opacity 0.18s; pointer-events:none;">⏸ ค้างภาพไว้</div>' : '') +
+          // จุดบอกลำดับ อยู่ในกรอบล่างสุด ไม่บังเนื้อหาหลัก
+          (many ? '<div id="announce-dots" style="position:absolute; left:0; right:0; bottom:12px; z-index:3; display:flex; gap:6px; align-items:center; justify-content:center;">' + this.announceDotsHtml() + '</div>' : '') +
         '</div>' +
         // อยู่นอกกรอบรูป จึงไม่บังประกาศ
+        (many ? '<div style="font-size:11px; color:rgba(255,255,255,0.9); font-weight:700; text-shadow:0 1px 3px rgba(0,0,0,0.4);">แตะค้างที่ภาพเพื่อหยุดดู</div>' : '') +
         '<label style="display:flex; align-items:center; gap:9px; cursor:pointer; background:rgba(255,255,255,0.95); border-radius:14px; padding:10px 15px; box-shadow:0 4px 0 rgba(0,0,0,0.15);">' +
           '<input type="checkbox" id="announce-hide-today" style="width:19px; height:19px; margin:0; accent-color:var(--bear-orange); cursor:pointer; flex-shrink:0;">' +
           '<span style="font-size:13px; font-weight:700; color:var(--clay-text); line-height:1.5;">ไม่ต้องแสดงอีกวันนี้</span>' +
         '</label>' +
       '</div>' +
     '</div>';
+  },
+
+  // ผูก event กดค้าง + เริ่มหมุน (เรียกจาก postRender หลัง HTML ลง DOM แล้ว)
+  initAnnounceCard: function() {
+    var self = this;
+    var card = document.getElementById('announce-card');
+    if (!card) { this.stopAnnounceRotation(); return; }
+    if (this.state.announcement.items.length < 2) return;
+    var hold = function(e) { if (e.target.closest('button')) return; self.pauseAnnounce(true); };
+    var release = function() { self.pauseAnnounce(false); };
+    card.addEventListener('mousedown', hold);
+    card.addEventListener('touchstart', hold, { passive: true });
+    ['mouseup', 'mouseleave', 'touchend', 'touchcancel'].forEach(function(ev) {
+      card.addEventListener(ev, release);
+    });
+    this.startAnnounceRotation();
   },
 
   toast: function(msg) {
@@ -674,6 +763,8 @@ var App = {
     else if (r === 'adminScanner') this.initQRScanner();
     else if (r === 'profileEdit' && this.state.cropperOpen) this.initCropper();
     if (r === 'profile' || r === 'userProfile') this.initVinyl();
+    if (this.state.announcement.show) this.initAnnounceCard();
+    else this.stopAnnounceRotation();
   },
 
   // ===== CONFETTI (variable reward feedback) =====
@@ -2527,7 +2618,7 @@ var App = {
     return '<div class="page-content">' +
       '<button onclick="App.navigate(\'admin\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
       '<h2 class="text-title" style="color:var(--bear-brown); margin-top:0;">📣 ประกาศถึงนักเรียน</h2>' +
-      '<p style="font-size:13px; color:var(--clay-text-light); margin-top:0; line-height:1.7;">การ์ดจะเด้งทุกครั้งที่นักเรียนเข้าระบบ ปิดได้ที่ปุ่มมุมบนขวา และมีช่องให้ติ๊ก “ไม่ต้องแสดงอีกวันนี้” ถ้าไม่อยากเห็นซ้ำ<br><b>รูปคือตัวประกาศ</b> — ข้อความบนการ์ดมาจากรูปที่อัปโหลด</p>' +
+      '<p style="font-size:13px; color:var(--clay-text-light); margin-top:0; line-height:1.7;">การ์ดจะเด้งทุกครั้งที่นักเรียนเข้าระบบ ปิดได้ที่ปุ่มมุมบนขวา และมีช่องให้ติ๊ก “ไม่ต้องแสดงอีกวันนี้”<br><b>เปิดพร้อมกันได้หลายอัน</b> — ระบบจะหมุนสลับให้ทุก 5 วินาที นักเรียนแตะค้างที่ภาพเพื่อหยุดดูได้<br><b>รูปคือตัวประกาศ</b> — ข้อความบนการ์ดมาจากรูปที่อัปโหลด</p>' +
 
       '<div class="card">' +
         '<div style="display:flex; gap:14px; align-items:flex-start;">' +
