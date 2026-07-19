@@ -61,6 +61,7 @@ var App = {
     viewingUser: null,
     // แอดมินสลับไปดู/เรียนแบบนักเรียนได้ (จำไว้ข้ามการรีเฟรช)
     studentMode: localStorage.getItem('lms_student_mode') === '1',
+    myScores: { data: null, loaded: false },
     announcement: { items: [], idx: 0, loaded: false, show: false, paused: false },
     announceAdmin: { items: [], loaded: false, image: null, busy: false },
     cropper: null,
@@ -626,6 +627,16 @@ var App = {
       var ex = this.state.weeklyGoal.goal;
       this.state.wgGoalEdit = ex ? { type: ex.goalType, target: ex.target } : Object.assign({}, this.state.wgPick);
       this.render();
+    } else if (route === 'myScores') {
+      this.state.myScores = { data: null, loaded: false };
+      this.render();
+      google.script.run.withSuccessHandler(function(res) {
+        self.state.myScores = { data: (res && res.success) ? res : null, loaded: true };
+        if (self.state.currentRoute === 'myScores') self.render(true);
+      }).withFailureHandler(function() {
+        self.state.myScores = { data: null, loaded: true };
+        if (self.state.currentRoute === 'myScores') self.render(true);
+      }).getMyScoreReport(this.state.user.UserID);
     } else if (route === 'adminAnnounce') {
       this.state.announceAdmin = { items: [], loaded: false, image: null, busy: false };
       this.render();
@@ -731,6 +742,7 @@ var App = {
     if (r === 'adminTable') return this.viewAdminTable();
     if (r === 'adminExport') return this.viewAdminExport();
     if (r === 'adminQuizBuilder') return this.viewAdminQuizBuilder();
+    if (r === 'myScores') return this.viewMyScores() + this.bottomNav('home');
     if (r === 'adminAnnounce') return this.viewAdminAnnounce();
     if (r === 'placementTest') return this.viewPlacementTest();
     if (r === 'englishCourse') return this.viewEnglishCourse() + this.bottomNav('home');
@@ -1091,6 +1103,17 @@ var App = {
           '<div style="font-size:11px; color:var(--clay-text-light); font-weight:600;">Rank</div>' +
         '</div>' +
       '</div>' +
+      // เช็คคะแนน — วางไว้บนสุดเพื่อให้นักเรียนกดดูได้ทันทีที่เข้าแอป
+      '<div class="card action-card" style="background:linear-gradient(145deg,#E3F2FD,#D0E4FF); box-shadow:0 6px 0 rgba(60,130,220,0.22),0 10px 20px rgba(60,130,220,0.12); margin-bottom:16px; cursor:pointer;" onclick="App.navigate(\'myScores\')">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<div style="font-size:36px;">📊</div>' +
+          '<div style="flex:1;">' +
+            '<div style="font-weight:800; font-size:15px; color:var(--clay-blue-shadow);">เช็คคะแนนของฉัน</div>' +
+            '<div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">ดูคะแนนรายบทและคะแนนพิเศษทั้งหมด</div>' +
+          '</div>' +
+          '<div style="width:36px; height:36px; border-radius:50%; background:white; box-shadow:0 4px 0 rgba(60,130,220,0.2); display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--clay-blue);">›</div>' +
+        '</div>' +
+      '</div>' +
       // ===== HERO: สิ่งที่นักเรียนทำบ่อยที่สุด (จากข้อมูลการใช้งานจริง) =====
       '<div style="font-weight:800; font-size:14px; color:var(--clay-text-light); margin:2px 4px 10px;">วันนี้เรียนอะไรดี 🐾</div>' +
       // Daily Quest — อันดับ 1 ของการใช้งาน
@@ -1176,6 +1199,91 @@ var App = {
           '<div style="font-weight:800; font-size:12px; color:#0E7C8B; margin-top:5px;">กิจกรรม</div>' +
         '</div>' +
       '</div>' +
+    '</div>';
+  },
+
+  /* ===== เช็คคะแนนของฉัน ===== */
+
+  viewMyScores: function() {
+    var self = this;
+    var st = this.state.myScores;
+
+    if (!st.loaded) {
+      return '<div class="page-content">' +
+        '<button onclick="App.navigate(\'dashboard\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+        '<div class="loader" style="height:auto; padding:50px 0;"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังรวบรวมคะแนน...</div></div>' +
+      '</div>';
+    }
+    if (!st.data) {
+      return '<div class="page-content">' +
+        '<button onclick="App.navigate(\'dashboard\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+        '<div class="card" style="text-align:center;"><div style="font-size:40px;">😢</div><div style="font-size:14px; color:var(--clay-text-light); font-weight:700; margin-top:8px;">โหลดคะแนนไม่สำเร็จ ลองใหม่อีกครั้งนะ</div></div>' +
+      '</div>';
+    }
+
+    var d = st.data;
+    var u = this.state.user;
+
+    // แถบสรุปคะแนนรวม
+    var summary = '<div style="background:linear-gradient(135deg,#5BA4F5,#C084FC); border-radius:26px; padding:20px; margin-bottom:16px; box-shadow:0 8px 0 rgba(100,80,200,0.2),0 14px 28px rgba(100,80,200,0.15); text-align:center;">' +
+      '<div style="font-size:12px; color:rgba(255,255,255,0.9); font-weight:700;">คะแนนรวมจากบทเรียน</div>' +
+      '<div style="font-size:44px; font-weight:900; color:white; line-height:1.25; margin-top:2px;">' + d.totals.got + '<span style="font-size:22px; opacity:0.85;">/' + d.totals.full + '</span></div>' +
+      '<div style="display:flex; gap:8px; justify-content:center; margin-top:10px;">' +
+        '<span class="clay-pill" style="background:rgba(255,255,255,0.22); color:white;">⚡ ' + d.xp + ' XP</span>' +
+        '<span class="clay-pill" style="background:rgba(255,255,255,0.22); color:white;">🏆 อันดับ ' + d.rank + '</span>' +
+        (d.englishLevel ? '<span class="clay-pill" style="background:rgba(255,255,255,0.22); color:white;">🎯 ' + d.englishLevel + '</span>' : '') +
+      '</div>' +
+    '</div>';
+
+    // ตารางคะแนนรายบท
+    var unitsHtml = d.units.map(function(un) {
+      var rows = un.parts.map(function(p) {
+        var pct = p.done && p.max ? Math.round((p.score / p.max) * 100) : 0;
+        var col = !p.done ? 'var(--clay-text-light)' : (pct >= 80 ? 'var(--clay-green-shadow)' : (pct >= 50 ? 'var(--bear-orange)' : 'var(--clay-red-shadow)'));
+        return '<div style="display:flex; align-items:center; gap:10px; padding:9px 0; border-top:1px solid rgba(150,100,200,0.10);">' +
+          '<div style="flex:1; font-size:13px; color:var(--clay-text); font-weight:600;">' + p.label + '</div>' +
+          (p.done
+            ? '<div style="width:74px; height:7px; border-radius:99px; background:var(--clay-gray); overflow:hidden; flex-shrink:0;"><div style="width:' + pct + '%; height:100%; background:' + col + ';"></div></div>' +
+              '<div style="font-size:13px; font-weight:800; color:' + col + '; width:52px; text-align:right; flex-shrink:0;">' + p.score + '/' + p.max + '</div>'
+            : '<div style="font-size:12px; font-weight:700; color:var(--clay-text-light); flex-shrink:0;">ยังไม่ได้ทำ</div>') +
+        '</div>';
+      }).join('');
+
+      var allDone = un.doneCount === un.parts.length;
+      return '<div class="card" style="padding:14px 16px;">' +
+        '<div style="display:flex; align-items:center; gap:9px;">' +
+          '<div style="font-size:13px; font-weight:800; color:var(--clay-text); flex:1;">Unit ' + un.no + ': ' + self.esc(un.title) + '</div>' +
+          '<span class="clay-pill" style="background:' + (allDone ? 'var(--clay-green)' : 'var(--clay-gray)') + '; color:' + (allDone ? 'white' : 'var(--clay-text-light)') + '; font-size:11px;">' + un.doneCount + '/' + un.parts.length + (allDone ? ' ✓' : '') + '</span>' +
+        '</div>' + rows +
+      '</div>';
+    }).join('');
+
+    return '<div class="page-content">' +
+      '<button onclick="App.navigate(\'dashboard\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:14px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<h2 class="text-title" style="color:var(--bear-brown); margin:0 0 4px;">📊 คะแนนของฉัน</h2>' +
+      '<p style="font-size:12px; color:var(--clay-text-light); margin:0 0 14px;">' + this.esc(u.FirstName + ' ' + u.LastName) + (d.className ? ' · ' + this.esc(d.className) : '') + '</p>' +
+      summary +
+      '<div style="font-weight:800; font-size:14px; color:var(--clay-text-light); margin:0 4px 10px;">คะแนนรายบท 📚</div>' +
+      unitsHtml +
+      '<div style="font-weight:800; font-size:14px; color:var(--clay-text-light); margin:16px 4px 10px;">อื่น ๆ ✨</div>' +
+      '<div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">' +
+        '<div class="stat-card" style="background:linear-gradient(145deg,#F8F3FF,#EEE0FF); box-shadow:0 5px 0 rgba(160,80,200,0.18);">' +
+          '<div style="font-size:22px;">⭐</div>' +
+          '<div style="font-weight:800; font-size:17px; color:var(--clay-purple-shadow);">' + d.bonus + '<span style="font-size:11px; color:var(--clay-text-light);">/100</span></div>' +
+          '<div style="font-size:10px; color:var(--clay-text-light); font-weight:700;">คะแนนพิเศษ</div>' +
+        '</div>' +
+        '<div class="stat-card" style="background:linear-gradient(145deg,#E0EEFF,#CCE0FF); box-shadow:0 5px 0 rgba(60,130,220,0.18);">' +
+          '<div style="font-size:22px;">📅</div>' +
+          '<div style="font-weight:800; font-size:17px; color:var(--clay-blue-shadow);">' + d.dailyCount + '</div>' +
+          '<div style="font-size:10px; color:var(--clay-text-light); font-weight:700;">แบบฝึกประจำวัน</div>' +
+        '</div>' +
+        '<div class="stat-card" style="background:linear-gradient(145deg,#FFF3E0,#FFE8CC); box-shadow:0 5px 0 rgba(200,140,80,0.18);">' +
+          '<div style="font-size:22px;">🔤</div>' +
+          '<div style="font-weight:800; font-size:17px; color:var(--bear-orange);">' + d.flashCount + '</div>' +
+          '<div style="font-size:10px; color:var(--clay-text-light); font-weight:700;">ท่องคำศัพท์</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="font-size:11px; color:var(--clay-text-light); text-align:center; margin-top:16px; line-height:1.7;">แสดงคะแนนครั้งที่ทำได้ดีที่สุดของแต่ละพาร์ท<br>ทำซ้ำเพื่อเก็บคะแนนให้ดีขึ้นได้เสมอ 🐾</div>' +
     '</div>';
   },
 

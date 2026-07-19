@@ -914,3 +914,66 @@ export async function adminDeleteAnnouncement(id) {
   if (error) return { success: false, message: error.message };
   return { success: true };
 }
+
+/* ============================================================
+   รายงานคะแนนรายบุคคล — หน้า "เช็คคะแนนของฉัน"
+   ดึงจากตาราง scores ที่บันทึกไว้จริง ไม่ได้คำนวณใหม่
+   ============================================================ */
+export async function getMyScoreReport(userId) {
+  const uid = String(userId).trim();
+  const [uRes, mRes, sRes] = await Promise.all([
+    supabase.from('users').select('xp, streak, english_level, class_name').eq('id', uid).single(),
+    supabase.from('modules').select('id, title, display_order').order('display_order', { ascending: true }),
+    supabase.from('scores').select('quiz_type, reference_id, score, max_score, created_at').eq('user_id', uid)
+  ]);
+
+  const u = uRes.data || {};
+  const modules = mRes.data || [];
+  const scores = sRes.data || [];
+
+  // อันดับ = จำนวนคนที่ XP มากกว่าเรา + 1 (ต้องรู้ XP ของเราก่อน จึงแยกออกมา)
+  const { count: aheadCount } = await supabase.from('users')
+    .select('id', { count: 'exact', head: true })
+    .gt('xp', u.xp || 0)
+    .neq('role', 'Admin');
+
+  // เก็บครั้งที่ทำได้ดีที่สุดของแต่ละพาร์ท (นักเรียนทำซ้ำได้)
+  const best = {};
+  scores.forEach(s => {
+    const key = s.quiz_type + '|' + (s.reference_id == null ? '-' : s.reference_id);
+    const pct = s.max_score ? s.score / s.max_score : 0;
+    if (!best[key] || pct > best[key].pct) best[key] = { score: s.score, max: s.max_score, pct, at: s.created_at };
+  });
+
+  const PARTS = [
+    { key: 'PreTest',  label: 'ทดสอบก่อนเรียน' },
+    { key: 'Activity', label: 'แบบฝึกหัด' },
+    { key: 'PostTest', label: 'ทดสอบหลังเรียน' }
+  ];
+
+  let got = 0, full = 0;
+  const units = modules.map((m, i) => {
+    const parts = PARTS.map(p => {
+      const b = best[p.key + '|' + m.id] || null;
+      if (b) { got += b.score; full += b.max; }
+      return { key: p.key, label: p.label, done: !!b, score: b ? b.score : null, max: b ? b.max : null };
+    });
+    return { id: m.id, no: i + 1, title: m.title, parts, doneCount: parts.filter(p => p.done).length };
+  });
+
+  const dailyCount = scores.filter(s => s.quiz_type === 'Daily').length;
+  const flashCount = scores.filter(s => s.quiz_type === 'Flashcards').length;
+  const bonus = Math.min(100, scores.filter(s => s.quiz_type === 'Bonus').reduce((t, s) => t + (s.score || 0), 0));
+
+  return {
+    success: true,
+    xp: u.xp || 0,
+    streak: u.streak || 0,
+    englishLevel: u.english_level || null,
+    className: u.class_name || '',
+    rank: (aheadCount || 0) + 1,
+    units,
+    totals: { got, full, pct: full ? Math.round((got / full) * 100) : 0 },
+    dailyCount, flashCount, bonus
+  };
+}
