@@ -312,14 +312,26 @@ var App = {
 
   /* ===== ประกาศจากคุณครู ===== */
 
-  // โหลดประกาศที่เปิดอยู่ แล้วแสดงเฉพาะอันที่ผู้ใช้ยังไม่เคยกดปิด
+  // วันที่วันนี้ตามเวลาไทย (YYYY-MM-DD) — ใช้ตัดสินว่า "วันนี้" หมดหรือยัง
+  todayTH: function() {
+    return new Date(Date.now() + 7 * 3600 * 1000).toISOString().split('T')[0];
+  },
+
+  // โหลดประกาศที่เปิดอยู่ — เด้งทุกครั้งที่เข้าระบบ
+  // ยกเว้นผู้ใช้ติ๊ก "ไม่ต้องแสดงอีกวันนี้" ไว้กับประกาศเดียวกันในวันเดียวกัน
   loadAnnouncement: function() {
     var self = this;
+    localStorage.removeItem('lms_announce_seen'); // คีย์เดิมสมัยที่ปิดแล้วปิดถาวร
     google.script.run.withSuccessHandler(function(res) {
       var a = (res && res.success) ? res.announcement : null;
-      var seen = localStorage.getItem('lms_announce_seen');
-      self.state.announcement = { data: a, loaded: true, show: !!(a && String(a.id) !== seen) };
-      if (self.state.announcement.show) self.render(true);
+      var show = false;
+      if (a) {
+        var hide = null;
+        try { hide = JSON.parse(localStorage.getItem('lms_announce_hide') || 'null'); } catch (e) { hide = null; }
+        show = !(hide && String(hide.id) === String(a.id) && hide.date === self.todayTH());
+      }
+      self.state.announcement = { data: a, loaded: true, show: show };
+      if (show) self.render(true);
     }).withFailureHandler(function() {
       self.state.announcement = { data: null, loaded: true, show: false };
     }).getActiveAnnouncement();
@@ -327,25 +339,22 @@ var App = {
 
   closeAnnouncement: function() {
     var a = this.state.announcement.data;
-    if (a) localStorage.setItem('lms_announce_seen', String(a.id));
+    var cb = document.getElementById('announce-hide-today');
+    if (a && cb && cb.checked) {
+      localStorage.setItem('lms_announce_hide', JSON.stringify({ id: a.id, date: this.todayTH() }));
+    }
     this.state.announcement.show = false;
     this.render(true);
   },
 
-  // การ์ดประกาศ อัตราส่วน 3:4 พร้อมปุ่มปิดมุมบนขวา
+  // การ์ดประกาศ อัตราส่วน 3:4 — โชว์รูปล้วน ไม่มีข้อความทับ
+  // (หัวข้อเป็นชื่อไว้จัดการในระบบเท่านั้น รูปคือตัวประกาศ)
   viewAnnouncementCard: function() {
     var a = this.state.announcement.data;
     if (!a) return '';
     var body = a.image
-      // มีรูป: รูปเต็มการ์ด ข้อความซ้อนบนแถบไล่สีให้อ่านออกเสมอ
-      ? '<img src="' + a.image + '" alt="" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">' +
-        ((a.title || a.content)
-          ? '<div style="position:absolute; left:0; right:0; bottom:0; padding:22px 20px 20px; background:linear-gradient(to top, rgba(20,10,40,0.92) 0%, rgba(20,10,40,0.72) 55%, rgba(20,10,40,0) 100%);">' +
-              '<div style="font-size:19px; font-weight:800; color:white; line-height:1.5;">' + this.esc(a.title) + '</div>' +
-              (a.content ? '<div style="font-size:13px; color:rgba(255,255,255,0.92); line-height:1.7; margin-top:6px; white-space:pre-wrap;">' + this.esc(a.content) + '</div>' : '') +
-            '</div>'
-          : '')
-      // ไม่มีรูป: พื้นหลังไล่สีของแอป จัดข้อความกึ่งกลาง
+      ? '<img src="' + a.image + '" alt="' + this.esc(a.title) + '" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">'
+      // ไม่มีรูป: ต้องมีอะไรให้อ่าน จึงแสดงข้อความแทน ไม่งั้นการ์ดจะว่างเปล่า
       : '<div style="position:absolute; inset:0; background:linear-gradient(145deg,#FF8C42,#C084FC); display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; padding:28px 22px;">' +
           '<div style="font-size:52px; margin-bottom:12px;">📣</div>' +
           '<div style="font-size:20px; font-weight:800; color:white; line-height:1.5;">' + this.esc(a.title) + '</div>' +
@@ -353,9 +362,16 @@ var App = {
         '</div>';
 
     return '<div onclick="App.closeAnnouncement()" style="position:absolute; inset:0; z-index:9000; background:rgba(40,20,70,0.55); backdrop-filter:blur(3px); display:flex; align-items:center; justify-content:center; padding:24px;">' +
-      '<div onclick="event.stopPropagation()" style="position:relative; width:100%; max-width:320px; aspect-ratio:3/4; border-radius:26px; overflow:hidden; box-shadow:0 10px 0 rgba(90,40,150,0.35), 0 24px 48px rgba(60,20,110,0.45); animation:popIn 0.35s cubic-bezier(0.34,1.56,0.64,1);">' +
-        body +
-        '<button onclick="App.closeAnnouncement()" aria-label="ปิดประกาศ" style="position:absolute; top:12px; right:12px; width:40px; height:40px; min-height:0; margin:0; padding:0; border-radius:50%; border:none; background:rgba(255,255,255,0.96); color:#3D2B5C; font-size:19px; font-weight:800; line-height:1; cursor:pointer; box-shadow:0 4px 0 rgba(0,0,0,0.18), 0 6px 14px rgba(0,0,0,0.28); display:flex; align-items:center; justify-content:center;">✕</button>' +
+      '<div onclick="event.stopPropagation()" style="width:100%; max-width:320px; display:flex; flex-direction:column; align-items:center; gap:14px;">' +
+        '<div style="position:relative; width:100%; aspect-ratio:3/4; border-radius:26px; overflow:hidden; box-shadow:0 10px 0 rgba(90,40,150,0.35), 0 24px 48px rgba(60,20,110,0.45); animation:popIn 0.35s cubic-bezier(0.34,1.56,0.64,1);">' +
+          body +
+          '<button onclick="App.closeAnnouncement()" aria-label="ปิดประกาศ" style="position:absolute; top:12px; right:12px; width:40px; height:40px; min-height:0; margin:0; padding:0; border-radius:50%; border:none; background:rgba(255,255,255,0.96); color:#3D2B5C; font-size:19px; font-weight:800; line-height:1; cursor:pointer; box-shadow:0 4px 0 rgba(0,0,0,0.18), 0 6px 14px rgba(0,0,0,0.28); display:flex; align-items:center; justify-content:center;">✕</button>' +
+        '</div>' +
+        // อยู่นอกกรอบรูป จึงไม่บังประกาศ
+        '<label style="display:flex; align-items:center; gap:9px; cursor:pointer; background:rgba(255,255,255,0.95); border-radius:14px; padding:10px 15px; box-shadow:0 4px 0 rgba(0,0,0,0.15);">' +
+          '<input type="checkbox" id="announce-hide-today" style="width:19px; height:19px; margin:0; accent-color:var(--bear-orange); cursor:pointer; flex-shrink:0;">' +
+          '<span style="font-size:13px; font-weight:700; color:var(--clay-text); line-height:1.5;">ไม่ต้องแสดงอีกวันนี้</span>' +
+        '</label>' +
       '</div>' +
     '</div>';
   },
@@ -2443,16 +2459,18 @@ var App = {
     return '<div class="page-content">' +
       '<button onclick="App.navigate(\'admin\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
       '<h2 class="text-title" style="color:var(--bear-brown); margin-top:0;">📣 ประกาศถึงนักเรียน</h2>' +
-      '<p style="font-size:13px; color:var(--clay-text-light); margin-top:0; line-height:1.7;">การ์ดจะเด้งขึ้นตอนนักเรียนเข้าระบบ ปิดได้ที่ปุ่มมุมบนขวา และจะไม่เด้งซ้ำจนกว่าจะมีประกาศใหม่</p>' +
+      '<p style="font-size:13px; color:var(--clay-text-light); margin-top:0; line-height:1.7;">การ์ดจะเด้งทุกครั้งที่นักเรียนเข้าระบบ ปิดได้ที่ปุ่มมุมบนขวา และมีช่องให้ติ๊ก “ไม่ต้องแสดงอีกวันนี้” ถ้าไม่อยากเห็นซ้ำ<br><b>รูปคือตัวประกาศ</b> — ข้อความบนการ์ดมาจากรูปที่อัปโหลด</p>' +
 
       '<div class="card">' +
         '<div style="display:flex; gap:14px; align-items:flex-start;">' +
           preview +
           '<div style="flex:1; min-width:0;">' +
-            '<label style="display:block; font-weight:800; margin-bottom:6px; font-size:13px;">หัวข้อ</label>' +
-            '<input type="text" id="an-title" class="input-field" maxlength="120" placeholder="เช่น สอบกลางภาค 25 ก.ค.">' +
-            '<label style="display:block; font-weight:800; margin:10px 0 6px; font-size:13px;">รายละเอียด (ไม่บังคับ)</label>' +
-            '<textarea id="an-content" class="input-field" maxlength="500" style="height:88px; resize:vertical; margin-bottom:0;" placeholder="รายละเอียดเพิ่มเติม..."></textarea>' +
+            '<label style="display:block; font-weight:800; margin-bottom:2px; font-size:13px;">ชื่อประกาศ</label>' +
+            '<div style="font-size:11px; color:var(--clay-text-light); margin-bottom:6px; line-height:1.5;">ใช้จำในระบบเท่านั้น ไม่แสดงบนการ์ด</div>' +
+            '<input type="text" id="an-title" class="input-field" maxlength="120" placeholder="เช่น ประกาศสอบกลางภาค">' +
+            '<label style="display:block; font-weight:800; margin:10px 0 2px; font-size:13px;">ข้อความสำรอง (ไม่บังคับ)</label>' +
+            '<div style="font-size:11px; color:var(--clay-text-light); margin-bottom:6px; line-height:1.5;">แสดงเฉพาะกรณีไม่ได้ใส่รูป</div>' +
+            '<textarea id="an-content" class="input-field" maxlength="500" style="height:74px; resize:vertical; margin-bottom:0;" placeholder="ข้อความประกาศ (ถ้าไม่ใส่รูป)"></textarea>' +
           '</div>' +
         '</div>' +
         '<button class="btn btn-primary" style="margin:14px 0 0;" onclick="App.submitAnnouncement()">' + (a.busy ? 'กำลังบันทึก...' : '📣 ประกาศเลย') + '</button>' +
