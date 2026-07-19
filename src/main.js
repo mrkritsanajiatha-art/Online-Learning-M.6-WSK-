@@ -59,6 +59,8 @@ var App = {
     feed: { stories: [], loaded: false },
     activity: { items: [], loaded: false },
     viewingUser: null,
+    // แอดมินสลับไปดู/เรียนแบบนักเรียนได้ (จำไว้ข้ามการรีเฟรช)
+    studentMode: localStorage.getItem('lms_student_mode') === '1',
     announcement: { data: null, loaded: false, show: false },
     announceAdmin: { items: [], loaded: false, image: null, busy: false },
     cropper: null,
@@ -280,11 +282,48 @@ var App = {
       } catch(e) {}
     }
     if (this.state.user) {
-      if (this.state.user.Role === 'Admin') this.navigate('admin');
+      if (this.isAdmin() && !this.state.studentMode) this.navigate('admin');
       else this.afterAuth();
     } else {
       this.render();
     }
+  },
+
+  isAdmin: function() {
+    return !!(this.state.user && this.state.user.Role === 'Admin');
+  },
+
+  // สลับระหว่างโหมดครู (แดชบอร์ดแอดมิน) กับโหมดนักเรียน (เรียนได้จริง)
+  toggleStudentMode: function() {
+    if (!this.isAdmin()) return;
+    var on = !this.state.studentMode;
+    this.state.studentMode = on;
+    localStorage.setItem('lms_student_mode', on ? '1' : '0');
+    if (on) {
+      this.state.dataLoaded = false;
+      this.toast('👀 โหมดนักเรียน — เรียนและเก็บ XP ได้เหมือนนักเรียนจริง');
+      this.afterAuth();
+    } else {
+      this.toast('🛠️ กลับสู่โหมดครู');
+      this.navigate('admin');
+    }
+  },
+
+  // แถบสลับโหมด ลอยอยู่กลางบน แคบและโปร่ง จึงไม่บังเนื้อหาที่กำลังเรียน
+  modeSwitch: function() {
+    if (!this.isAdmin()) return '';
+    var on = this.state.studentMode;
+    return '<div onclick="App.toggleStudentMode()" title="สลับโหมดครู / นักเรียน" ' +
+      'style="position:absolute; top:8px; left:50%; transform:translateX(-50%); z-index:8000; ' +
+      'display:flex; align-items:center; gap:7px; cursor:pointer; user-select:none; ' +
+      'padding:6px 12px; border-radius:999px; font-size:11px; font-weight:800; ' +
+      'background:' + (on ? 'rgba(91,164,245,0.92)' : 'rgba(61,43,92,0.82)') + '; color:white; ' +
+      'box-shadow:0 3px 10px rgba(40,20,70,0.28); backdrop-filter:blur(6px); white-space:nowrap;">' +
+        '<span>' + (on ? '👀 โหมดนักเรียน' : '🛠️ โหมดครู') + '</span>' +
+        '<span style="width:26px; height:15px; border-radius:999px; background:rgba(255,255,255,0.35); position:relative; flex-shrink:0;">' +
+          '<span style="position:absolute; top:2px; ' + (on ? 'right:2px' : 'left:2px') + '; width:11px; height:11px; border-radius:50%; background:white; transition:all 0.2s;"></span>' +
+        '</span>' +
+      '</div>';
   },
 
   afterAuth: function() {
@@ -615,8 +654,9 @@ var App = {
     var el = document.getElementById('app');
     if (!el) return;
     var self = this;
-    // การ์ดประกาศลอยทับทุกหน้า จึงต่อท้ายผลของ _buildHtml
+    // แถบสลับโหมดและการ์ดประกาศลอยทับทุกหน้า จึงต่อท้ายผลของ _buildHtml
     var html = this._buildHtml() +
+      (this.state.currentRoute === 'login' || this.state.currentRoute === 'register' ? '' : this.modeSwitch()) +
       (this.state.announcement.show ? this.viewAnnouncementCard() : '');
 
     function commit() { el.innerHTML = html; self.postRender(); }
@@ -2316,7 +2356,18 @@ var App = {
         '<button class="btn btn-danger" style="width:auto; padding:8px 16px; margin:0; font-size:12px;" onclick="App.state.user=null; App.navigate(\'login\')">ออกจากระบบ</button>' +
       '</div>' +
       
-      '<h3 style="color:var(--duo-text-light); font-size:14px; margin-top:0;">ประกาศถึงนักเรียน</h3>' +
+      '<h3 style="color:var(--duo-text-light); font-size:14px; margin-top:0;">ดูแอปแบบนักเรียน</h3>' +
+      '<div class="card action-card" style="border-color:var(--clay-blue); border-bottom-width:4px; margin-bottom:16px; cursor:pointer;" onclick="App.toggleStudentMode()">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<div style="font-size:32px;">👀</div>' +
+          '<div style="flex:1;">' +
+            '<h3 style="margin:0; font-size:16px; color:var(--clay-blue-shadow);">เข้าโหมดนักเรียน</h3>' +
+            '<p style="margin:4px 0 0 0; font-size:12px; color:var(--duo-text-light);">เห็นและเรียนได้เหมือนนักเรียนจริง สลับกลับได้ที่แถบด้านบน</p>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<h3 style="color:var(--duo-text-light); font-size:14px;">ประกาศถึงนักเรียน</h3>' +
       '<div class="card action-card" style="border-color:var(--clay-purple); border-bottom-width:4px; margin-bottom:16px; cursor:pointer;" onclick="App.navigate(\'adminAnnounce\')">' +
         '<div style="display:flex; align-items:center; gap:12px;">' +
           '<div style="font-size:32px;">📣</div>' +
@@ -2680,6 +2731,9 @@ var App = {
   logout: function() {
     this.state.user = null;
     this.state.dataLoaded = false;
+    // ออกจากระบบแล้วรีเซ็ตโหมด ครั้งหน้าแอดมินล็อกอินจะเข้าแดชบอร์ดครูตามปกติ
+    this.state.studentMode = false;
+    localStorage.removeItem('lms_student_mode');
     localStorage.removeItem('lms_user');
     this.navigate('login');
   },
@@ -2696,7 +2750,7 @@ var App = {
         if (response.success) {
           App.state.user = response.user;
           localStorage.setItem('lms_user', JSON.stringify(response.user));
-          if (response.user.Role === 'Admin') {
+          if (response.user.Role === 'Admin' && !App.state.studentMode) {
             App.navigate('admin');
           } else {
             App.afterAuth();
