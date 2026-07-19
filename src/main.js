@@ -435,6 +435,8 @@ var App = {
     if (foot) foot.innerHTML = this.announceFooterHtml();
     var hint = document.getElementById('announce-hint');
     if (hint) hint.innerHTML = this.announceHintHtml();
+    var close = document.getElementById('announce-close');
+    if (close) close.innerHTML = this.announceCloseHtml();
   },
 
   // จำสถานะช่องติ๊กไว้ เผื่อผู้ใช้ย้อนกลับไปดูใบก่อนหน้าแล้วกลับมา
@@ -473,6 +475,12 @@ var App = {
       '<button class="btn btn-primary" style="margin:0; font-size:14px;" onclick="App.closeAnnouncement()">เข้าใจแล้ว เริ่มเรียน 🐾</button>';
   },
 
+  // ปุ่มปิดโผล่เฉพาะใบสุดท้าย เพื่อให้นักเรียนได้อ่านครบก่อน
+  announceCloseHtml: function() {
+    if (!this.isLastSlide()) return '';
+    return '<button onclick="App.closeAnnouncement()" aria-label="ปิดประกาศ" style="position:absolute; top:12px; right:12px; width:40px; height:40px; min-height:0; margin:0; padding:0; border-radius:50%; border:none; background:rgba(255,255,255,0.96); color:#3D2B5C; font-size:19px; font-weight:800; line-height:1; cursor:pointer; box-shadow:0 4px 0 rgba(0,0,0,0.18), 0 6px 14px rgba(0,0,0,0.28); display:flex; align-items:center; justify-content:center; z-index:3; animation:popIn 0.3s cubic-bezier(0.34,1.56,0.64,1);">✕</button>';
+  },
+
   announceHintHtml: function() {
     var st = this.state.announcement;
     if (st.items.length < 2) return '';
@@ -501,7 +509,7 @@ var App = {
       '<div onclick="event.stopPropagation()" style="width:100%; max-width:320px; display:flex; flex-direction:column; align-items:center; gap:11px;">' +
         '<div id="announce-card" style="position:relative; width:100%; aspect-ratio:3/4; border-radius:26px; overflow:hidden; cursor:' + (many ? 'pointer' : 'default') + '; box-shadow:0 10px 0 rgba(90,40,150,0.35), 0 24px 48px rgba(60,20,110,0.45); animation:popIn 0.35s cubic-bezier(0.34,1.56,0.64,1); -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;">' +
           '<div id="announce-body" style="position:absolute; inset:0;">' + body + '</div>' +
-          '<button onclick="App.closeAnnouncement()" aria-label="ปิดประกาศ" style="position:absolute; top:12px; right:12px; width:40px; height:40px; min-height:0; margin:0; padding:0; border-radius:50%; border:none; background:rgba(255,255,255,0.96); color:#3D2B5C; font-size:19px; font-weight:800; line-height:1; cursor:pointer; box-shadow:0 4px 0 rgba(0,0,0,0.18), 0 6px 14px rgba(0,0,0,0.28); display:flex; align-items:center; justify-content:center; z-index:3;">✕</button>' +
+          '<div id="announce-close">' + this.announceCloseHtml() + '</div>' +
           // จุดบอกลำดับ อยู่ในกรอบล่างสุด ไม่บังเนื้อหาหลัก
           (many ? '<div id="announce-dots" style="position:absolute; left:0; right:0; bottom:12px; z-index:3; display:flex; gap:6px; align-items:center; justify-content:center;">' + this.announceDotsHtml() + '</div>' : '') +
         '</div>' +
