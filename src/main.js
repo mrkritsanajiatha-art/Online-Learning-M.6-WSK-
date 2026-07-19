@@ -62,6 +62,7 @@ var App = {
     // แอดมินสลับไปดู/เรียนแบบนักเรียนได้ (จำไว้ข้ามการรีเฟรช)
     studentMode: localStorage.getItem('lms_student_mode') === '1',
     myScores: { data: null, loaded: false },
+    grades: { result: null, loading: false, tried: false },
     announcement: { items: [], idx: 0, loaded: false, show: false, paused: false },
     announceAdmin: { items: [], loaded: false, image: null, busy: false },
     cropper: null,
@@ -627,6 +628,27 @@ var App = {
       var ex = this.state.weeklyGoal.goal;
       this.state.wgGoalEdit = ex ? { type: ex.goalType, target: ex.target } : Object.assign({}, this.state.wgPick);
       this.render();
+    } else if (route === 'grades') {
+      // เข้ามาแล้วดึงคะแนนให้เลยด้วยเลขประจำตัวในโปรไฟล์ ไม่ต้องกรอกเอง
+      this.state.grades = { result: null, loading: false, tried: false };
+      this.render();
+      var sid = (this.state.user && this.state.user.StudentId) || '';
+      if (sid) {
+        this.lookupGrade(sid);
+      } else {
+        // ล็อกอินค้างมาจากเวอร์ชันก่อน — ขอเลขประจำตัวจากฐานข้อมูลก่อน
+        google.script.run.withSuccessHandler(function(r) {
+          if (r && r.studentId) {
+            self.state.user.StudentId = r.studentId;
+            localStorage.setItem('lms_user', JSON.stringify(self.state.user));
+            self.lookupGrade(r.studentId);
+          } else if (self.state.currentRoute === 'grades') {
+            self.state.grades.tried = true; self.render(true);
+          }
+        }).withFailureHandler(function() {
+          self.state.grades.tried = true; self.render(true);
+        }).getStudentIdOf(this.state.user.UserID);
+      }
     } else if (route === 'myScores') {
       this.state.myScores = { data: null, loaded: false };
       this.render();
@@ -742,6 +764,7 @@ var App = {
     if (r === 'adminTable') return this.viewAdminTable();
     if (r === 'adminExport') return this.viewAdminExport();
     if (r === 'adminQuizBuilder') return this.viewAdminQuizBuilder();
+    if (r === 'grades') return this.viewGrades() + this.bottomNav('home');
     if (r === 'myScores') return this.viewMyScores() + this.bottomNav('home');
     if (r === 'adminAnnounce') return this.viewAdminAnnounce();
     if (r === 'placementTest') return this.viewPlacementTest();
@@ -1103,15 +1126,17 @@ var App = {
           '<div style="font-size:11px; color:var(--clay-text-light); font-weight:600;">Rank</div>' +
         '</div>' +
       '</div>' +
-      // เช็คคะแนน — วางไว้บนสุดเพื่อให้นักเรียนกดดูได้ทันทีที่เข้าแอป
-      '<div class="card action-card" style="background:linear-gradient(145deg,#E3F2FD,#D0E4FF); box-shadow:0 6px 0 rgba(60,130,220,0.22),0 10px 20px rgba(60,130,220,0.12); margin-bottom:16px; cursor:pointer;" onclick="App.navigate(\'myScores\')">' +
-        '<div style="display:flex; align-items:center; gap:12px;">' +
-          '<div style="font-size:36px;">📊</div>' +
-          '<div style="flex:1;">' +
-            '<div style="font-weight:800; font-size:15px; color:var(--clay-blue-shadow);">เช็คคะแนนของฉัน</div>' +
-            '<div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">ดูคะแนนรายบทและคะแนนพิเศษทั้งหมด</div>' +
-          '</div>' +
-          '<div style="width:36px; height:36px; border-radius:50%; background:white; box-shadow:0 4px 0 rgba(60,130,220,0.2); display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--clay-blue);">›</div>' +
+      // คะแนนกลางภาค + คะแนนในแอป — วางบนสุดให้นักเรียนกดได้ทันที
+      '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px;">' +
+        '<div class="card action-card" style="background:linear-gradient(145deg,#FFE9D6,#FFD9BC); box-shadow:0 6px 0 rgba(200,120,60,0.22),0 10px 20px rgba(200,120,60,0.12); margin:0; text-align:center; padding:16px 10px; cursor:pointer;" onclick="App.navigate(\'grades\')">' +
+          '<div style="font-size:32px;">📋</div>' +
+          '<div style="font-weight:800; font-size:13px; color:#B85C1E; margin-top:6px;">คะแนนกลางภาค</div>' +
+          '<div style="font-size:10px; color:var(--clay-text-light); margin-top:2px;">จากคุณครู</div>' +
+        '</div>' +
+        '<div class="card action-card" style="background:linear-gradient(145deg,#E3F2FD,#D0E4FF); box-shadow:0 6px 0 rgba(60,130,220,0.22),0 10px 20px rgba(60,130,220,0.12); margin:0; text-align:center; padding:16px 10px; cursor:pointer;" onclick="App.navigate(\'myScores\')">' +
+          '<div style="font-size:32px;">📊</div>' +
+          '<div style="font-weight:800; font-size:13px; color:var(--clay-blue-shadow); margin-top:6px;">คะแนนในแอป</div>' +
+          '<div style="font-size:10px; color:var(--clay-text-light); margin-top:2px;">รายบท + พิเศษ</div>' +
         '</div>' +
       '</div>' +
       // ===== HERO: สิ่งที่นักเรียนทำบ่อยที่สุด (จากข้อมูลการใช้งานจริง) =====
@@ -1199,6 +1224,105 @@ var App = {
           '<div style="font-weight:800; font-size:12px; color:#0E7C8B; margin-top:5px;">กิจกรรม</div>' +
         '</div>' +
       '</div>' +
+    '</div>';
+  },
+
+  /* ===== คะแนนกลางภาค (ดึงจากระบบเกรดของครู) ===== */
+
+  lookupGrade: function(studentId) {
+    var self = this;
+    this.state.grades = { result: null, loading: true, tried: true };
+    this.render(true);
+    google.script.run.withSuccessHandler(function(res) {
+      self.state.grades = { result: res, loading: false, tried: true };
+      if (self.state.currentRoute === 'grades') self.render(true);
+    }).withFailureHandler(function() {
+      self.state.grades = { result: { success: false, message: 'เชื่อมต่อระบบคะแนนไม่ได้ ลองใหม่อีกครั้งนะ' }, loading: false, tried: true };
+      if (self.state.currentRoute === 'grades') self.render(true);
+    }).getMidtermGrade(studentId);
+  },
+
+  submitGradeLookup: function() {
+    var el = document.getElementById('grade-sid');
+    var sid = el ? el.value.trim() : '';
+    if (!sid) { alert('กรุณากรอกเลขประจำตัวนักเรียน'); return; }
+    this.lookupGrade(sid);
+  },
+
+  viewGrades: function() {
+    var self = this;
+    var g = this.state.grades;
+    var u = this.state.user;
+    var myRoom = u.Class || '';
+    var roomCovered = api.GRADE_ROOMS.indexOf(myRoom) >= 0;
+
+    var head = '<button onclick="App.navigate(\'dashboard\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:14px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<h2 class="text-title" style="color:var(--bear-brown); margin:0 0 4px;">📋 คะแนนกลางภาค</h2>' +
+      '<p style="font-size:12px; color:var(--clay-text-light); margin:0 0 16px;">อ33101 ภาษาอังกฤษ · ภาคเรียนที่ 1/2569</p>';
+
+    if (g.loading) {
+      return '<div class="page-content">' + head +
+        '<div class="loader" style="height:auto; padding:40px 0;"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังค้นหาคะแนน...</div></div>' +
+      '</div>';
+    }
+
+    var r = g.result;
+
+    // เจอคะแนนแล้ว
+    if (r && r.success) {
+      var s = r.student;
+      var scoreCards = (r.scores || []).map(function(sc) {
+        var v = String(sc.value);
+        var isPass = /^pass$/i.test(v);
+        var isBlank = v === '-' || v === '' || v === 'null';
+        var col = isPass ? 'var(--clay-green-shadow)' : (isBlank ? 'var(--clay-text-light)' : 'var(--bear-orange)');
+        var bg = isPass ? 'linear-gradient(145deg,#E0FFE8,#C8F5D8)' : (isBlank ? 'linear-gradient(145deg,#F3F0FA,#E8E3F5)' : 'linear-gradient(145deg,#FFF3E0,#FFE8CC)');
+        var shown = isPass ? '✓' : (isBlank ? '—' : v);
+        return '<div style="background:' + bg + '; border-radius:18px; padding:14px 10px; text-align:center; box-shadow:0 5px 0 rgba(150,100,200,0.14);">' +
+          '<div style="font-size:10px; font-weight:800; color:var(--clay-text-light); line-height:1.5; min-height:30px; display:flex; align-items:center; justify-content:center; white-space:pre-line;">' + self.esc(sc.label) + '</div>' +
+          '<div style="font-size:' + (isPass ? '26px' : '24px') + '; font-weight:900; color:' + col + '; line-height:1.3; margin-top:2px;">' + self.esc(shown) + '</div>' +
+        '</div>';
+      }).join('');
+
+      return '<div class="page-content">' + head +
+        '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:26px; padding:18px 20px; margin-bottom:16px; box-shadow:0 8px 0 rgba(160,80,200,0.2),0 14px 28px rgba(160,80,200,0.15);">' +
+          '<div style="font-size:19px; font-weight:800; color:white; line-height:1.5;">' + this.esc((s.prefix || '') + s.firstName + ' ' + s.lastName) + '</div>' +
+          '<div style="display:flex; gap:7px; margin-top:9px; flex-wrap:wrap;">' +
+            '<span class="clay-pill" style="background:rgba(255,255,255,0.24); color:white;">ห้อง ' + this.esc(s.class) + '</span>' +
+            '<span class="clay-pill" style="background:rgba(255,255,255,0.24); color:white;">เลขที่ ' + this.esc(s.number) + '</span>' +
+            '<span class="clay-pill" style="background:rgba(255,255,255,0.24); color:white;">รหัส ' + this.esc(s.studentId) + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<div style="font-weight:800; font-size:14px; color:var(--clay-text-light); margin:0 4px 10px;">รายการคะแนน 📝</div>' +
+        '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">' + scoreCards + '</div>' +
+        (r.lastUpdate ? '<div style="font-size:11px; color:var(--clay-text-light); text-align:center; margin-top:16px;">อัปเดตล่าสุด ' + this.esc(r.lastUpdate) + '</div>' : '') +
+        '<button class="btn btn-outline" style="margin-top:16px;" onclick="App.state.grades={result:null,loading:false,tried:true}; App.render(true);">🔍 ค้นหาเลขประจำตัวอื่น</button>' +
+      '</div>';
+    }
+
+    // ยังไม่เจอ / ยังไม่ได้ค้น — ให้กรอกเลขประจำตัวเอง
+    var msg = '';
+    if (r && !r.success) {
+      msg = '<div class="card" style="background:linear-gradient(145deg,#FFE8E8,#FFD8D8); box-shadow:0 5px 0 rgba(200,80,80,0.18); padding:13px 15px; display:flex; gap:10px; align-items:flex-start;">' +
+        '<div style="font-size:20px;">⚠️</div>' +
+        '<div style="flex:1; font-size:13px; color:var(--clay-red-shadow); font-weight:700; line-height:1.6;">' + this.esc(r.message || 'ไม่พบข้อมูล') + '</div>' +
+      '</div>';
+    }
+
+    var roomNote = !roomCovered && myRoom
+      ? '<div class="card" style="background:linear-gradient(145deg,#FFF9D0,#FFF0A0); box-shadow:0 5px 0 rgba(180,160,60,0.18); padding:13px 15px; display:flex; gap:10px; align-items:flex-start;">' +
+          '<div style="font-size:20px;">ℹ️</div>' +
+          '<div style="flex:1; font-size:12px; color:#8a6d00; font-weight:700; line-height:1.7;">ระบบนี้มีคะแนนเฉพาะห้องที่ครูกฤษณะสอน (' + api.GRADE_ROOMS.join(', ') + ')<br>ห้อง ' + this.esc(myRoom) + ' ให้สอบถามคุณครูประจำวิชาโดยตรงนะ</div>' +
+        '</div>'
+      : '';
+
+    return '<div class="page-content">' + head + msg + roomNote +
+      '<div class="card">' +
+        '<label style="display:block; font-weight:800; margin-bottom:6px; font-size:13px;">เลขประจำตัวนักเรียน</label>' +
+        '<input type="tel" id="grade-sid" class="input-field" inputmode="numeric" maxlength="6" placeholder="เช่น 26717" value="' + this.esc((u && u.StudentId) || '') + '">' +
+        '<button class="btn btn-primary" style="margin-bottom:0;" onclick="App.submitGradeLookup()">🔍 ดูคะแนนของฉัน</button>' +
+      '</div>' +
+      '<div style="font-size:11px; color:var(--clay-text-light); text-align:center; margin-top:10px; line-height:1.7;">คะแนนมาจากระบบของคุณครูโดยตรง<br>ถ้าข้อมูลไม่ถูกต้อง แจ้งคุณครูได้เลย 🐾</div>' +
     '</div>';
   },
 

@@ -49,6 +49,7 @@ function mapUser(data) {
     Role: data.role || 'Student',
     Class: data.class_name,
     Number: data.student_number,
+    StudentId: data.student_id || '',
     ProfileImage: data.profile_image || '',
     Nickname: data.nickname || '',
     Motto: data.motto || '',
@@ -976,4 +977,42 @@ export async function getMyScoreReport(userId) {
     totals: { got, full, pct: full ? Math.round((got / full) * 100) : 0 },
     dailyCount, flashCount, bonus
   };
+}
+
+/* ============================================================
+   คะแนนกลางภาค — ดึงจาก Google Apps Script ของครู
+   (ระบบเดิมที่ doogradeengkrit-m6 ใช้อยู่ ตัวเดียวกัน)
+
+   หมายเหตุ: ทดสอบแล้วว่าฝั่ง Apps Script ค้นจาก "รหัสนักเรียน"
+   อย่างเดียว พารามิเตอร์ห้อง/วิชาถูกเพิกเฉย จึงส่งไปเท่าที่จำเป็น
+   และไม่ต้องให้นักเรียนเลือกห้องเองอีก
+   ============================================================ */
+const GRADE_API = 'https://script.google.com/macros/s/AKfycbwd7BSra2sNSqFwhRn8MesuiDiWehgrlhxEs0n6ybtZZAewoJpYUfJaItroQSTpAFL4bA/exec';
+
+// ห้องที่มีข้อมูลคะแนนในชีต (ห้องที่ครูกฤษณะสอน)
+export const GRADE_ROOMS = ['ม.6/2', 'ม.6/4', 'ม.6/6', 'ม.6/8', 'ม.6/9'];
+
+// นักเรียนที่ล็อกอินค้างไว้ตั้งแต่ก่อนอัปเดต จะไม่มี StudentId ใน localStorage
+// จึงมีทางดึงจากฐานข้อมูลให้อีกทาง
+export async function getStudentIdOf(userId) {
+  const { data } = await supabase.from('users').select('student_id').eq('id', String(userId).trim()).single();
+  return { success: true, studentId: (data && data.student_id) || '' };
+}
+
+export async function getMidtermGrade(studentId) {
+  const sid = String(studentId || '').trim();
+  if (!/^\d{4,6}$/.test(sid)) {
+    return { success: false, reason: 'bad_id', message: 'กรุณากรอกเลขประจำตัวนักเรียน 5 หลัก' };
+  }
+  try {
+    const url = GRADE_API + '?grade=m6&subject=eng_vocab&room=&lastname=&id=' + encodeURIComponent(sid);
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.status === 'success') {
+      return { success: true, student: data.student, scores: data.scores || [], lastUpdate: data.lastUpdate || '' };
+    }
+    return { success: false, reason: 'not_found', message: data.message || 'ไม่พบข้อมูลคะแนนของเลขประจำตัวนี้' };
+  } catch (e) {
+    return { success: false, reason: 'network', message: 'เชื่อมต่อระบบคะแนนไม่ได้ ลองใหม่อีกครั้งนะ' };
+  }
 }
