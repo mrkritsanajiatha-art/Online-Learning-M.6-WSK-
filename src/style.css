@@ -34,6 +34,23 @@
   /* ===== RESET ===== */
   * { box-sizing: border-box; }
 
+  /* ตัวอักษรไทยมีสระบน (ิ ี ึ ื ั) และสระล่าง (ุ ู) ซ้อนกันได้ถึง 2 ชั้น
+     จึงต้องการความสูงบรรทัดมากกว่าอังกฤษ ถ้าน้อยกว่า ~1.45 หัวหรือหางจะโดนตัด
+     โดยเฉพาะในกล่องที่ตั้ง overflow:hidden ไว้ */
+  html { line-height: 1.6; }
+
+  /* ปุ่มที่เขียน inline ไม่ได้ใช้คลาส .btn ก็ต้องมีที่ว่างพอสำหรับสระไทยเช่นกัน
+     (ค่าเริ่มต้นของเบราว์เซอร์คือ normal ≈ 1.2 ซึ่งเตี้ยเกินไป) */
+  button, input, select, textarea { font-family: var(--font-main); line-height: 1.6; }
+
+  /* ภาษาไทยไม่มีช่องว่างระหว่างคำ เบราว์เซอร์จึงหักบรรทัดกลางคำได้
+     ครอบชื่อคน/คำเฉพาะด้วยคลาสนี้เพื่อบังคับให้อยู่ติดกันเสมอ */
+  .no-break { white-space: nowrap; }
+
+  /* เกลี่ยบรรทัดให้สวยขึ้น ลดคำโดดเดี่ยวบรรทัดสุดท้าย
+     (เบราว์เซอร์รุ่นเก่าไม่รองรับก็ไม่กระทบ) */
+  p, h1, h2, h3, h4, .text-title, .speech-bubble, .quiz-option { text-wrap: pretty; }
+
   html, body {
     margin: 0;
     padding: 0;
@@ -89,6 +106,10 @@
     padding: 20px;
     padding-bottom: 100px;
   }
+  /* บางหน้าตั้ง .page-content เป็น flex column เพื่อจัดกึ่งกลาง
+     ลูกของ flex จะถูก "บีบ" ให้เตี้ยลงเองเมื่อเนื้อหายาวเกินจอ (flex-shrink ค่าเริ่มต้น = 1)
+     ทำให้ตัวหนังสือโดนตัดหัวตัดท้าย — สั่งห้ามบีบ ให้เลื่อนหน้าจอแทน */
+  .page-content > * { flex-shrink: 0; }
 
   /* ===== CLAYMORPHISM CARD ===== */
   .card {
@@ -129,7 +150,7 @@
     position: relative;
     font-size: 14px;
     color: var(--clay-text);
-    line-height: 1.5;
+    line-height: 1.65;
     box-shadow: 0 4px 0 rgba(200, 140, 80, 0.2), 0 8px 16px rgba(200,140,80,0.10);
   }
   .speech-bubble::before {
@@ -148,10 +169,12 @@
     font-family: var(--font-main);
     font-weight: 700;
     font-size: 15px;
+    line-height: 1.6;
     letter-spacing: 0.5px;
     border-radius: 18px;
     padding: 14px 24px;
     width: 100%;
+    min-height: 52px;
     cursor: pointer;
     transition: transform 0.1s ease, box-shadow 0.1s ease;
     text-align: center;
@@ -160,6 +183,9 @@
     user-select: none;
     border: none;
     outline: none;
+    /* ข้อความไทยยาวให้ตัดขึ้นบรรทัดใหม่ ไม่ล้นออกนอกปุ่ม */
+    white-space: normal;
+    overflow-wrap: break-word;
   }
   .btn:active { transform: translateY(4px); box-shadow: none !important; }
 
@@ -202,6 +228,7 @@
     box-sizing: border-box;
     margin-bottom: 12px;
     font-size: 15px;
+    line-height: 1.6;
     color: var(--clay-text);
     box-shadow: inset 0 3px 8px rgba(150,100,200,0.12), 0 2px 0 rgba(255,255,255,0.8);
     transition: box-shadow 0.2s, background 0.2s;
@@ -264,8 +291,8 @@
 
   /* ===== TYPOGRAPHY ===== */
   .text-center { text-align: center; }
-  .text-title { font-size: 22px; font-weight: 800; color: var(--clay-text); margin-top: 0; }
-  .text-subtitle { font-size: 14px; color: var(--clay-text-light); font-weight: 600; }
+  .text-title { font-size: 22px; line-height: 1.5; font-weight: 800; color: var(--clay-text); margin-top: 0; }
+  .text-subtitle { font-size: 14px; line-height: 1.6; color: var(--clay-text-light); font-weight: 600; }
 
   /* ===== LOADER ===== */
   .loader {
@@ -285,6 +312,8 @@
     color: var(--bear-orange);
     font-weight: 800;
     font-size: 1rem;
+    line-height: 1.6;
+    padding: 2px 0;
     background: linear-gradient(135deg, #FF8C42, #C084FC);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -334,10 +363,13 @@
     font-weight: 600;
     text-align: left;
     font-size: 14px;
+    line-height: 1.6;
     padding: 14px 18px;
     margin-bottom: 10px;
     border: none;
     border-radius: 18px;
+    white-space: normal;
+    overflow-wrap: break-word;
   }
   .quiz-option:active { transform: translateY(4px); box-shadow: 0 1px 0 var(--clay-gray-shadow); }
   .quiz-option.correct {
@@ -394,6 +426,7 @@
     border-radius: 14px;
     padding: 8px 14px;
     font-size: 13px;
+    line-height: 1.6;
     font-weight: 700;
     color: var(--bear-brown);
     box-shadow: 0 4px 0 rgba(200,140,80,0.2), 0 6px 12px rgba(200,140,80,0.10);
@@ -403,8 +436,9 @@
   .clay-pill {
     display: inline-block;
     border-radius: 999px;
-    padding: 4px 12px;
+    padding: 5px 12px;
     font-size: 12px;
+    line-height: 1.6;
     font-weight: 700;
   }
 

@@ -1,5 +1,23 @@
 import { supabase } from './supabaseClient.js';
 
+/* ============================================================
+   รอบการเรียน (LESSON ROUND)
+   ------------------------------------------------------------
+   บทเรียนให้ XP เฉพาะ "ครั้งแรกที่ทำ" เพื่อกัน XP เฟ้อ
+   เมื่อคุณครูเพิ่มเนื้อหาใหม่เข้าไปในบท จึงต้องเปิดรอบใหม่
+   ให้นักเรียนที่เคยทำของเดิมกลับมาทำแล้วได้ XP อีกครั้ง
+
+   วิธีเปิดรอบใหม่: เปลี่ยนวันที่ด้านล่างเป็นเวลาปัจจุบัน
+   ผลที่เกิด: คะแนนที่บันทึกไว้ "ก่อน" วันนี้จะไม่นับว่าเคยทำแล้ว
+              แต่ประวัติเดิมยังอยู่ครบในตาราง scores (ไม่มีการลบ)
+              และ XP ที่นักเรียนสะสมไว้แล้วไม่ถูกหักคืน
+
+   รอบที่ 2 — 19 ก.ค. 2026 21:00 น. (ไทย): เพิ่มข้อสอบใหม่ 97 ข้อ + คำศัพท์ 20 คำ
+   ตั้งเป็นเวลา "หลังดีพลอย" ไม่ใช่เที่ยงคืน เพราะมีนักเรียนทำบทเรียน
+   ระหว่างวันอยู่แล้ว ถ้าใช้เที่ยงคืนคนกลุ่มนั้นจะยังโดนบล็อก XP อยู่
+   ============================================================ */
+export const LESSON_ROUND_START = '2026-07-19T14:00:00Z';
+
 function mapUser(data) {
   return {
     UserID: data.id,
@@ -54,7 +72,7 @@ export async function registerStudent(userObj) {
 export async function getAppData(userId) {
   const { data: user } = await supabase.from('users').select('xp, level, streak').eq('id', userId).single();
   // Module 1 (display_order 1) is the Vocab pool for the Daily Quest — hidden from the lesson list
-  const { data: modules } = await supabase.from('modules').select('*').neq('display_order', 1).order('display_order', { ascending: true });
+  const { data: modules } = await supabase.from('modules').select('*').order('display_order', { ascending: true });
   return {
     success: true,
     dashboard: { xp: user?.xp || 0, level: user?.level || 'Beginner', streak: user?.streak || 0, badges: [], readiness: 100, recommendation: { weakness: 'None', module: 1 } },
@@ -68,8 +86,8 @@ export async function getDashboardData(userId) {
 }
 
 export async function getModules() {
-  // Module 1 (display_order 1) is the Vocab pool for the Daily Quest — hidden from the lesson list
-  const { data } = await supabase.from('modules').select('*').neq('display_order', 1).order('display_order', { ascending: true });
+  // Module 1 doubles as the Daily Quest vocab pool AND a full lesson unit (คำศัพท์กลางภาค)
+  const { data } = await supabase.from('modules').select('*').order('display_order', { ascending: true });
   return data?.map(m => ({ id: m.id, title: m.title, desc: m.description })) || [];
 }
 
@@ -353,11 +371,12 @@ export async function deleteShowcase(id, userId) {
 }
 
 export async function getCompletedModules(userId) {
-  // A unit is "completed" once its Post-Test has been finished (recorded in scores)
+  // A unit is "completed" once its Post-Test has been finished in the current round
   const { data } = await supabase.from('scores')
     .select('reference_id')
     .eq('user_id', String(userId).trim())
-    .eq('quiz_type', 'PostTest');
+    .eq('quiz_type', 'PostTest')
+    .gte('created_at', LESSON_ROUND_START);
   const ids = [...new Set((data || []).map(r => r.reference_id).filter(v => v != null))];
   return { success: true, data: ids };
 }
@@ -391,8 +410,11 @@ export async function submitQuizScore(userId, quizType, referenceId, score, maxS
     }
   } else {
     // All other learning activities (PreTest / Activity / PostTest / Quiz / Flashcards)
-    // → once ever per (type + reference_id)
-    let q = supabase.from('scores').select('id').eq('user_id', uid).eq('quiz_type', quizType);
+    // → once per (type + reference_id) ต่อหนึ่งรอบการเรียน
+    // นับเฉพาะที่ทำในรอบปัจจุบัน ของเก่าก่อนเปิดรอบใหม่จึงไม่บล็อก XP
+    let q = supabase.from('scores').select('id')
+      .eq('user_id', uid).eq('quiz_type', quizType)
+      .gte('created_at', LESSON_ROUND_START);
     if (referenceId !== null && referenceId !== undefined) q = q.eq('reference_id', referenceId);
     else q = q.is('reference_id', null);
     const { data: existing } = await q;
@@ -812,4 +834,58 @@ export async function getUserProfile(targetUserId) {
     rank: rank,
     english: engData
   };
+}
+
+/* ============================================================
+   ANNOUNCEMENTS (การ์ดประกาศตอนเข้าระบบ)
+   รูปเก็บเป็น data URL ใน TEXT column เหมือน profile_image
+   ============================================================ */
+
+// ประกาศที่กำลังแสดงอยู่ (เอาอันล่าสุดที่ยังเปิดใช้งาน)
+export async function getActiveAnnouncement() {
+  const { data, error } = await supabase.from('announcements')
+    .select('id, title, content, image, created_at')
+    .eq('active', true)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) return { success: false, message: error.message };
+  return { success: true, announcement: (data && data[0]) || null };
+}
+
+// รายการประกาศทั้งหมดสำหรับหน้าแอดมิน
+export async function adminListAnnouncements() {
+  const { data, error } = await supabase.from('announcements')
+    .select('id, title, content, image, active, created_at')
+    .order('created_at', { ascending: false });
+  if (error) return { success: false, message: error.message };
+  return { success: true, items: data || [] };
+}
+
+export async function adminCreateAnnouncement(title, content, imageDataUrl, author) {
+  const t = (title || '').trim();
+  if (!t) return { success: false, message: 'กรุณาใส่หัวข้อประกาศ' };
+  // ประกาศใหม่แทนที่อันเก่า — ปิดของเดิมทั้งหมดก่อน
+  await supabase.from('announcements').update({ active: false }).eq('active', true);
+  const { error } = await supabase.from('announcements').insert([{
+    title: t,
+    content: (content || '').trim(),
+    image: imageDataUrl || null,
+    author: author || null,
+    active: true
+  }]);
+  if (error) return { success: false, message: error.message };
+  return { success: true };
+}
+
+export async function adminSetAnnouncementActive(id, active) {
+  if (active) await supabase.from('announcements').update({ active: false }).eq('active', true);
+  const { error } = await supabase.from('announcements').update({ active: !!active }).eq('id', id);
+  if (error) return { success: false, message: error.message };
+  return { success: true };
+}
+
+export async function adminDeleteAnnouncement(id) {
+  const { error } = await supabase.from('announcements').delete().eq('id', id);
+  if (error) return { success: false, message: error.message };
+  return { success: true };
 }
