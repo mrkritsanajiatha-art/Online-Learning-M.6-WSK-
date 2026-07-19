@@ -700,7 +700,10 @@ var App = {
         '</select>' +
         '<input type="text" class="input-field" placeholder="ชื่อ" id="reg-firstname">' +
         '<input type="text" class="input-field" placeholder="นามสกุล" id="reg-lastname">' +
-        '<input type="text" class="input-field" placeholder="ห้อง (เช่น ม.6/1)" id="reg-class">' +
+        '<select class="input-field" id="reg-class">' +
+          '<option value="">-- เลือกห้องเรียน --</option>' +
+          this.classOptionsHtml() +
+        '</select>' +
         '<input type="number" class="input-field" placeholder="เลขที่" id="reg-number">' +
         '<input type="text" class="input-field" placeholder="รหัสนักเรียน" id="reg-studentid">' +
         '<input type="text" class="input-field" placeholder="Username" id="reg-username">' +
@@ -1946,6 +1949,15 @@ var App = {
   },
 
   esc: function(v) { return (v == null ? '' : String(v)).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); },
+
+  // <option> ห้องเรียน ม.6/1–ม.6/10 จากรายการกลางใน api.js
+  // selected = ค่าปัจจุบัน (ถ้าไม่ตรงมาตรฐานจะไม่มีอันไหนถูกเลือก)
+  classOptionsHtml: function(selected) {
+    var cur = api.normalizeClassName(selected) || selected || '';
+    return api.CLASS_OPTIONS.map(function(c) {
+      return '<option value="' + c + '"' + (c === cur ? ' selected' : '') + '>' + c + '</option>';
+    }).join('');
+  },
   fieldLabel: function(t) { return '<div style="font-size:12px; font-weight:700; color:var(--clay-text-light); margin:0 0 4px 2px;">' + t + '</div>'; },
 
   viewProfileEdit: function() {
@@ -1975,7 +1987,12 @@ var App = {
         this.fieldLabel('ชื่อเล่น') +
         '<input id="edit-nickname" class="input-field" value="' + this.esc(u.Nickname) + '" placeholder="เช่น กฤษณ์">' +
         '<div style="display:flex; gap:10px;">' +
-          '<div style="flex:1;">' + this.fieldLabel('ห้องเรียน') + '<input id="edit-class" class="input-field" style="margin-bottom:0;" value="' + this.esc(u.Class) + '" placeholder="เช่น ม.6/4"></div>' +
+          '<div style="flex:1;">' + this.fieldLabel('ห้องเรียน') +
+            '<select id="edit-class" class="input-field" style="margin-bottom:0;">' +
+              '<option value="">-- เลือกห้อง --</option>' +
+              this.classOptionsHtml(u.Class) +
+            '</select>' +
+          '</div>' +
           '<div style="width:96px;">' + this.fieldLabel('เลขที่') + '<input id="edit-number" type="number" class="input-field" style="margin-bottom:0;" value="' + this.esc(u.Number) + '" placeholder="เลขที่"></div>' +
         '</div>' +
       '</div>' +
@@ -2490,9 +2507,7 @@ var App = {
         '<label style="display:block; font-weight:bold; margin-bottom:8px; font-size:14px;">เลือกห้องเรียน:</label>' +
         '<select id="export-class" class="input-field" style="margin-bottom:16px;">' +
           '<option value="ALL">ทุกห้อง (ALL)</option>' +
-          '<option value="ม.6/1">ม.6/1</option>' +
-          '<option value="ม.6/2">ม.6/2</option>' +
-          '<option value="ม.6/3">ม.6/3</option>' +
+          this.classOptionsHtml() +
         '</select>' +
         '<button class="btn btn-primary" onclick="App.adminDownloadCSV()">ดาวน์โหลดไฟล์</button>' +
         '<div id="export-status" style="margin-top:12px; font-size:13px; font-weight:bold; color:var(--duo-blue); text-align:center;"></div>' +
@@ -2707,6 +2722,7 @@ var App = {
       password: document.getElementById('reg-password').value,
       confirmPassword: document.getElementById('reg-confirm-password').value
     };
+    if (!formData.className) { alert('กรุณาเลือกห้องเรียน'); return; }
     if (formData.password !== formData.confirmPassword) { alert('รหัสผ่านไม่ตรงกัน'); return; }
     var el = document.querySelector('.app-container');
     if (el) el.style.opacity = '0.6';

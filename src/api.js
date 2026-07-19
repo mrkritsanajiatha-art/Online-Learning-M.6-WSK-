@@ -18,6 +18,29 @@ import { supabase } from './supabaseClient.js';
    ============================================================ */
 export const LESSON_ROUND_START = '2026-07-19T14:00:00Z';
 
+/* ============================================================
+   ห้องเรียน — รายการกลางที่ใช้ร่วมกันทั้งแอป
+   เดิมให้พิมพ์เอง จึงมีทั้ง "M.6/1", "6/1", "ม6/7", "ม.6/1 "
+   และตัวที่มองไม่เห็นอย่าง zero-width space ปนมา ทำให้ตัวกรอง
+   มองเป็นคนละห้อง — ตอนนี้เลือกจากรายการนี้เท่านั้น
+   ============================================================ */
+export const CLASS_OPTIONS = Array.from({ length: 10 }, (_, i) => `ม.6/${i + 1}`);
+
+// ทำให้ค่าห้องที่พิมพ์มาแบบไหนก็ตาม กลายเป็นรูปแบบมาตรฐาน
+// คืนค่า null ถ้าจับคู่ไม่ได้ (ปล่อยไว้ให้คนตรวจ ดีกว่าเดาผิด)
+export function normalizeClassName(raw) {
+  if (!raw) return null;
+  const cleaned = String(raw)
+    .replace(/[​-‍﻿]/g, '') // ตัดอักขระล่องหน (zero-width)
+    .replace(/\s+/g, '')                   // ตัดช่องว่างทุกตำแหน่ง
+    .trim();
+  const m = cleaned.match(/^(?:ม\.?|M\.?|m\.?)?6[/\-.](\d{1,2})$/);
+  if (!m) return null;
+  const room = parseInt(m[1], 10);
+  if (room < 1 || room > 10) return null;
+  return `ม.6/${room}`;
+}
+
 function mapUser(data) {
   return {
     UserID: data.id,
@@ -58,7 +81,7 @@ export async function registerStudent(userObj) {
     prefix: userObj.prefix,
     first_name: userObj.firstname,
     last_name: userObj.lastname,
-    class_name: userObj.className,
+    class_name: normalizeClassName(userObj.className),
     student_number: userObj.number,
     student_id: userObj.studentId,
     username: userObj.username,
@@ -97,7 +120,10 @@ export async function getLeaderboard(className) {
     .select('id, first_name, last_name, class_name, xp, profile_image, role')
     .order('xp', { ascending: false });
   const students = (data || []).filter(u => (u.role || 'Student') !== 'Admin');
-  const classes = [...new Set(students.map(u => u.class_name).filter(Boolean))].sort();
+  // เรียงตามเลขห้อง ไม่ใช่ตามตัวอักษร ไม่งั้น ม.6/10 จะมาแทรกก่อน ม.6/2
+  const roomNo = (c) => { const m = String(c).match(/(\d+)$/); return m ? parseInt(m[1], 10) : 999; };
+  const classes = [...new Set(students.map(u => u.class_name).filter(Boolean))]
+    .sort((a, b) => roomNo(a) - roomNo(b) || String(a).localeCompare(b, 'th'));
   const filtered = className ? students.filter(u => u.class_name === className) : students;
   return {
     success: true,
@@ -460,7 +486,7 @@ export async function updateProfile(userId, f) {
     first_name: fn,
     last_name: s(f.lastName, 100),
     nickname: s(f.nickname, 60),
-    class_name: s(f.className, 50),
+    class_name: normalizeClassName(f.className),
     student_number: isNaN(num) ? null : num,
     motto: s(f.motto, 120),
     dream: s(f.dream, 160),
