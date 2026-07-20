@@ -594,17 +594,17 @@ var App = {
           if (self.state.currentRoute === 'dashboard') self.render(true);
         }).withFailureHandler(function() {}).getDashboardData(self.state.user.UserID);
       }
-    } else if (route === 'lessons') {
+    } else if (route === 'lessons' || route === 'midtermLessons') {
       this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res.success) self.state.completedModules = res.data;
-        if (self.state.currentRoute === 'lessons') self.render(true);
+        if (self.state.currentRoute === route) self.render(true);
       }).withFailureHandler(function() {}).getCompletedModules(this.state.user.UserID);
       if (!this.state.modules) {
         google.script.run.withSuccessHandler(function(res) {
           self.state.modules = res;
-          if (self.state.currentRoute === 'lessons') self.render(true);
-        }).withFailureHandler(function() { if (self.state.currentRoute === 'lessons') self.render(true); }).getModules();
+          if (self.state.currentRoute === route) self.render(true);
+        }).withFailureHandler(function() { if (self.state.currentRoute === route) self.render(true); }).getModules();
       }
     } else if (route === 'leaderboard') {
       this.render();
@@ -788,6 +788,7 @@ var App = {
     if (r === 'register') return this.viewRegister();
     if (r === 'dashboard') return this.viewDashboard() + this.bottomNav('home');
     if (r === 'lessons') return this.viewLessons() + this.bottomNav('lessons');
+    if (r === 'midtermLessons') return this.viewMidtermLessons() + this.bottomNav('lessons');
     if (r === 'moduleDetail') return this.viewModuleDetail();
     if (r === 'lesson') return this.viewLesson();
     if (r === 'quiz' || r === 'dailyQuest') return this.viewQuiz();
@@ -1614,58 +1615,25 @@ var App = {
   },
 
   viewLessons: function() {
-    var icons = ['&#x1F4D6;', '&#x1F4DD;', '&#x1F4AC;', '&#x1F9E0;'];
-    var bgColors = [
-      'linear-gradient(135deg, #e8f5e9, #c8e6c9)',
-      'linear-gradient(135deg, #e3f2fd, #bbdefb)',
-      'linear-gradient(135deg, #fce4ec, #f8bbd0)',
-      'linear-gradient(135deg, #fff3e0, #ffe0b2)'
-    ];
-    var borderColors = ['var(--duo-green)', 'var(--duo-blue)', 'var(--duo-red)', 'var(--bear-orange)'];
-    var shadowColors = ['var(--duo-green-shadow)', 'var(--duo-blue-shadow)', 'var(--duo-red-shadow)', 'var(--bear-brown)'];
-
     var mods = this.state.modules;
-    var modulesHtml = '';
+    var mainHtml;
 
     if (mods && mods.length > 0) {
       var completed = this.state.completedModules || [];
-      for (var i = 0; i < mods.length; i++) {
-        var m = mods[i];
-        var idx = i % 4;
-        // All units are open (progressive lock disabled per request)
-        var prevDone = true;
-        var isDone = completed.indexOf(m.id) >= 0;
-        var unitNo = i + 1; // display starts at Unit 1, not the DB id
-        var statusIcon = isDone
-          ? '<div style="width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,#4ECB71,#35AA57); box-shadow:0 3px 0 rgba(53,170,87,0.3); display:flex; align-items:center; justify-content:center; font-size:16px; color:white;">✓</div>'
-          : '<div style="width:32px; height:32px; border-radius:50%; background:white; box-shadow:0 3px 0 rgba(0,0,0,0.08); display:flex; align-items:center; justify-content:center; font-size:14px; color:var(--clay-text-light);">›</div>';
-
-        if (!prevDone) {
-          // LOCKED unit
-          modulesHtml += '<div class="card module-card" style="background:linear-gradient(145deg,#EFEAF7,#E2DCEF); box-shadow:0 6px 0 rgba(150,130,180,0.2),0 10px 20px rgba(100,60,160,0.06); cursor:not-allowed; opacity:0.75;" onclick="App.lockedUnitHint(' + unitNo + ')">' +
-            '<div style="display:flex; align-items:center; gap:16px;">' +
-              '<div style="width:56px; height:56px; border-radius:18px; background:rgba(255,255,255,0.7); display:flex; align-items:center; justify-content:center; font-size:26px; flex-shrink:0;">🔒</div>' +
-              '<div style="flex:1;">' +
-                '<div style="font-weight:800; font-size:16px; color:var(--clay-text-light);">Unit ' + unitNo + ': ' + m.title + '</div>' +
-                '<div style="margin-top:4px; font-size:12px; color:var(--clay-text-light);">เรียน Unit ' + (unitNo - 1) + ' ให้จบก่อน (ทำ Post-Test) เพื่อปลดล็อก 🔑</div>' +
-              '</div>' +
-            '</div>' +
-          '</div>';
-        } else {
-          modulesHtml += '<div class="card module-card" style="background:' + bgColors[idx] + '; box-shadow:0 6px 0 ' + shadowColors[idx].replace('var(--clay-green-shadow)','rgba(53,170,87,0.3)').replace('var(--clay-blue-shadow)','rgba(61,135,224,0.3)').replace('var(--clay-red-shadow)','rgba(224,72,72,0.3)').replace('var(--bear-brown)','rgba(124,79,42,0.3)') + ',0 10px 20px rgba(100,60,160,0.10); cursor:pointer;" onclick="App.showModuleDetail(' + m.id + ', ' + i + ')">' +
-            '<div style="display:flex; align-items:center; gap:16px;">' +
-              '<div style="width:56px; height:56px; border-radius:18px; background:white; box-shadow:0 4px 0 rgba(0,0,0,0.08); display:flex; align-items:center; justify-content:center; font-size:28px; flex-shrink:0;">' + icons[idx] + '</div>' +
-              '<div style="flex:1;">' +
-                '<div style="font-weight:800; font-size:16px; color:var(--clay-text);">Unit ' + unitNo + ': ' + m.title + (isDone ? ' <span style="font-size:11px; color:var(--clay-green-shadow);">เรียนจบแล้ว</span>' : '') + '</div>' +
-                '<div style="margin-top:4px; font-size:12px; color:var(--clay-text-light);">' + (m.desc || '') + '</div>' +
-              '</div>' +
-              statusIcon +
-            '</div>' +
-          '</div>';
-        }
-      }
+      var doneCount = mods.filter(function(m) { return completed.indexOf(m.id) >= 0; }).length;
+      var allDone = doneCount >= mods.length;
+      mainHtml = '<div class="card module-card" style="background:linear-gradient(135deg,#FF8C42,#C084FC); box-shadow:0 6px 0 rgba(160,80,200,0.3),0 10px 20px rgba(100,60,160,0.10); cursor:pointer;" onclick="App.navigate(\'midtermLessons\')">' +
+        '<div style="display:flex; align-items:center; gap:16px;">' +
+          '<div style="width:56px; height:56px; border-radius:18px; background:white; box-shadow:0 4px 0 rgba(0,0,0,0.08); display:flex; align-items:center; justify-content:center; font-size:28px; flex-shrink:0;">&#x1F4DA;</div>' +
+          '<div style="flex:1;">' +
+            '<div style="font-weight:800; font-size:16px; color:white;">บทเรียนกลางภาคเทอม 1/2569' + (allDone ? ' <span style="font-size:11px;">เรียนจบแล้ว</span>' : '') + '</div>' +
+            '<div style="margin-top:4px; font-size:12px; color:rgba(255,255,255,0.85);">รวมทุกเนื้อหา คำศัพท์ แบบฝึกหัด และแบบทดสอบไว้ในที่เดียว &middot; เรียนจบแล้ว ' + doneCount + '/' + mods.length + ' หมวด</div>' +
+          '</div>' +
+          '<div style="font-size:20px; color:white;">&rsaquo;</div>' +
+        '</div>' +
+      '</div>';
     } else {
-      modulesHtml = '<div class="loader"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลดบทเรียน...</div></div>';
+      mainHtml = '<div class="loader"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลดบทเรียน...</div></div>';
     }
 
     return '<div class="page-content">' +
@@ -1676,7 +1644,63 @@ var App = {
           '<div style="font-size:12px; color:rgba(255,255,255,0.85); margin-top:4px;">เลือกโมดูลที่อยากเรียนได้เลยนะ! 📚</div>' +
         '</div>' +
       '</div>' +
-      modulesHtml +
+      mainHtml +
+    '</div>';
+  },
+
+  // One module's 5-step learning path (Pre-Test / Vocab / Content / Activity / Post-Test).
+  // Every step still routes with the module's own id, so scores keep recording
+  // under the same reference_id as before — merging the lesson list touches no scores.
+  _moduleStepsHtml: function(m, unitNo) {
+    var mid = m.id;
+    var completed = this.state.completedModules || [];
+    var isDone = completed.indexOf(mid) >= 0;
+    return '<div style="font-weight:800; font-size:14px; color:var(--clay-text); margin:18px 0 8px;">หมวด ' + unitNo + ': ' + this.esc(m.title) + (isDone ? ' <span style="font-size:11px; color:var(--clay-green-shadow);">เรียนจบแล้ว</span>' : '') + '</div>' +
+      (m.desc ? '<div style="font-size:12px; color:var(--clay-text-light); margin-bottom:10px;">' + this.esc(m.desc) + '</div>' : '') +
+      '<div style="display:flex; flex-direction:column; gap:10px; margin-bottom:8px;">' +
+        '<div class="card" style="background:linear-gradient(145deg,#FFE0E0,#FFD0D0); box-shadow:0 6px 0 rgba(200,80,80,0.2),0 10px 20px rgba(200,80,80,0.1); cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px;" onclick="App.navigate(\'quiz\', \'' + mid + '|PreTest\')">' +
+          '<div style="width:48px; height:48px; border-radius:16px; background:white; box-shadow:0 4px 0 rgba(200,80,80,0.15); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">1️⃣</div>' +
+          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:#b03030;">ทดสอบก่อนเรียน</div><div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">Pre-Test — วัดความรู้เบื้องต้น</div></div>' +
+          '<div style="font-size:20px; color:#b03030;">›</div>' +
+        '</div>' +
+        '<div class="card" style="background:linear-gradient(145deg,#FFF3E0,#FFE8CC); box-shadow:0 6px 0 rgba(200,140,80,0.2),0 10px 20px rgba(200,140,80,0.1); cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px;" onclick="App.navigate(\'flashcards\', ' + mid + ')">' +
+          '<div style="width:48px; height:48px; border-radius:16px; background:white; box-shadow:0 4px 0 rgba(200,140,80,0.15); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">2️⃣</div>' +
+          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:var(--bear-brown);">คำศัพท์</div><div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">Flashcards — ท่องศัพท์สำคัญ</div></div>' +
+          '<div style="font-size:20px; color:var(--bear-brown);">›</div>' +
+        '</div>' +
+        '<div class="card" style="background:linear-gradient(145deg,#E3F2FD,#BBDEFB); box-shadow:0 6px 0 rgba(60,130,220,0.2),0 10px 20px rgba(60,130,220,0.1); cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px;" onclick="App.navigate(\'lesson\', ' + mid + ')">' +
+          '<div style="width:48px; height:48px; border-radius:16px; background:white; box-shadow:0 4px 0 rgba(60,130,220,0.15); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">3️⃣</div>' +
+          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:var(--clay-blue-shadow);">เนื้อหา</div><div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">Lesson Content — ทฤษฎีและตัวอย่าง</div></div>' +
+          '<div style="font-size:20px; color:var(--clay-blue-shadow);">›</div>' +
+        '</div>' +
+        '<div class="card" style="background:linear-gradient(145deg,#E8F5E9,#C8E6C9); box-shadow:0 6px 0 rgba(60,160,80,0.2),0 10px 20px rgba(60,160,80,0.1); cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px;" onclick="App.navigate(\'quiz\', \'' + mid + '|Activity\')">' +
+          '<div style="width:48px; height:48px; border-radius:16px; background:white; box-shadow:0 4px 0 rgba(60,160,80,0.15); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">4️⃣</div>' +
+          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:var(--clay-green-shadow);">แบบฝึกหัด</div><div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">Activity — ฝึกทำโจทย์</div></div>' +
+          '<div style="font-size:20px; color:var(--clay-green-shadow);">›</div>' +
+        '</div>' +
+        '<div class="card" style="background:linear-gradient(145deg,#F3E5F5,#E1BEE7); box-shadow:0 6px 0 rgba(150,80,200,0.2),0 10px 20px rgba(150,80,200,0.1); cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px;" onclick="App.navigate(\'quiz\', \'' + mid + '|PostTest\')">' +
+          '<div style="width:48px; height:48px; border-radius:16px; background:white; box-shadow:0 4px 0 rgba(150,80,200,0.15); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">5️⃣</div>' +
+          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:var(--clay-purple-shadow);">ทดสอบหลังเรียน</div><div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">Post-Test — วัดความรู้หลังเรียน</div></div>' +
+          '<div style="font-size:20px; color:var(--clay-purple-shadow);">›</div>' +
+        '</div>' +
+      '</div>';
+  },
+
+  // Every module's steps in one scrollable page — this IS the "merge" the teacher asked
+  // for: one lesson entry point instead of N separate Unit cards. Nothing in api.js
+  // changed, so scores/reference_id history is untouched.
+  viewMidtermLessons: function() {
+    var mods = this.state.modules || [];
+    var self = this;
+    var sections = mods.map(function(m, i) { return self._moduleStepsHtml(m, i + 1); }).join('');
+    return '<div class="page-content">' +
+      '<button onclick="App.navigate(\'lessons\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:24px; padding:20px; margin-bottom:16px; text-align:center; box-shadow:0 8px 0 rgba(160,80,200,0.2),0 14px 28px rgba(160,80,200,0.12);">' +
+        '<div style="font-size:56px; margin-bottom:8px;">' + this.bear + '</div>' +
+        '<h2 style="margin:0 0 6px 0; color:white; font-size:20px; font-weight:800;">บทเรียนกลางภาคเทอม 1/2569</h2>' +
+        '<p style="margin:0; font-size:13px; color:rgba(255,255,255,0.85);">รวมทุก Unit ไว้ในหน้าเดียว เลือกทำได้ทุกหมวด</p>' +
+      '</div>' +
+      sections +
     '</div>';
   },
 
