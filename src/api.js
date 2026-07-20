@@ -12,11 +12,11 @@ import { supabase } from './supabaseClient.js';
               แต่ประวัติเดิมยังอยู่ครบในตาราง scores (ไม่มีการลบ)
               และ XP ที่นักเรียนสะสมไว้แล้วไม่ถูกหักคืน
 
-   รอบที่ 2 — 19 ก.ค. 2026 21:00 น. (ไทย): เพิ่มข้อสอบใหม่ 97 ข้อ + คำศัพท์ 20 คำ
-   ตั้งเป็นเวลา "หลังดีพลอย" ไม่ใช่เที่ยงคืน เพราะมีนักเรียนทำบทเรียน
-   ระหว่างวันอยู่แล้ว ถ้าใช้เที่ยงคืนคนกลุ่มนั้นจะยังโดนบล็อก XP อยู่
+   รอบที่ 3 — 20 ก.ค. 2026 ~23:00 น. (ไทย): ชุดคำศัพท์ปลายภาคใหม่ 66 คำ
+   + คำถามใหม่ทั้งโมดูล 1 (96 ข้อ) + Grammar ใหม่ทุกโมดูล (40 ข้อ)
+   ตั้งเป็นเวลา "หลังดีพลอย" เพื่อไม่บล็อก XP คนที่ทำระหว่างวัน
    ============================================================ */
-export const LESSON_ROUND_START = '2026-07-19T14:00:00Z';
+export const LESSON_ROUND_START = '2026-07-20T16:00:00Z';
 
 /* ============================================================
    ห้องเรียน — รายการกลางที่ใช้ร่วมกันทั้งแอป
@@ -395,6 +395,33 @@ export async function adminPinShowcase(id, pinned) {
 export async function deleteShowcase(id, userId) {
   await supabase.from('showcase').delete().eq('id', id).eq('user_id', String(userId).trim());
   return { success: true };
+}
+
+/* ============================================================
+   ความคืบหน้ารายสเต็ปของแต่ละโมดูล (รอบปัจจุบัน)
+   ใช้ขับระบบล็อกตามลำดับ: Pre-test → คำศัพท์ → เนื้อหา →
+   แกรมม่า → แบบทดสอบ → Post-test
+   ============================================================ */
+const STEP_TYPES = ['PreTest', 'Flashcards', 'LessonRead', 'Grammar', 'Activity', 'PostTest'];
+
+export async function getModuleProgress(userId) {
+  const { data } = await supabase.from('scores')
+    .select('quiz_type, reference_id')
+    .eq('user_id', String(userId).trim())
+    .in('quiz_type', STEP_TYPES)
+    .gte('created_at', LESSON_ROUND_START);
+  const progress = {};
+  (data || []).forEach(r => {
+    if (r.reference_id == null) return;
+    if (!progress[r.reference_id]) progress[r.reference_id] = {};
+    progress[r.reference_id][r.quiz_type] = true;
+  });
+  return { success: true, progress };
+}
+
+// บันทึกว่าอ่านเนื้อหาบทเรียนแล้ว (ได้ 10 XP ครั้งแรกของรอบ)
+export async function markLessonRead(userId, moduleId) {
+  return submitQuizScore(userId, 'LessonRead', Number(moduleId), 1, 1, 0);
 }
 
 export async function getCompletedModules(userId) {
@@ -977,6 +1004,80 @@ export async function getMyScoreReport(userId) {
     totals: { got, full, pct: full ? Math.round((got / full) * 100) : 0 },
     dailyCount, flashCount, bonus
   };
+}
+
+/* ============================================================
+   วิเคราะห์พัฒนาการผู้เรียน — หน้า "พัฒนาการของฉัน"
+   (a) เทียบ Pre-test vs Post-test รายเลเวล ว่าพัฒนาขึ้นกี่ %
+   (b) แนวโน้ม XP/กิจกรรมย้อนหลัง 6 สัปดาห์
+   ============================================================ */
+export async function getLearningAnalytics(userId) {
+  const uid = String(userId).trim();
+  const [mRes, sRes] = await Promise.all([
+    supabase.from('modules').select('id, title, display_order').order('display_order', { ascending: true }),
+    supabase.from('scores').select('quiz_type, reference_id, score, max_score, created_at').eq('user_id', uid)
+  ]);
+  const modules = mRes.data || [];
+  const scores = sRes.data || [];
+
+  // ---- (a) Pre vs Post ต่อโมดูล (ครั้งที่ดีที่สุด) ----
+  const best = {};
+  scores.forEach(s => {
+    if (s.quiz_type !== 'PreTest' && s.quiz_type !== 'PostTest') return;
+    const key = s.quiz_type + '|' + s.reference_id;
+    const pct = s.max_score ? Math.round((s.score / s.max_score) * 100) : 0;
+    if (best[key] == null || pct > best[key]) best[key] = pct;
+  });
+  const units = modules.map((m, i) => {
+    const pre = best['PreTest|' + m.id];
+    const post = best['PostTest|' + m.id];
+    return {
+      no: i + 1, title: m.title,
+      prePct: pre == null ? null : pre,
+      postPct: post == null ? null : post,
+      delta: (pre != null && post != null) ? post - pre : null
+    };
+  });
+  const deltas = units.filter(u => u.delta != null).map(u => u.delta);
+  const summary = {
+    compared: deltas.length,
+    improved: deltas.filter(d => d > 0).length,
+    avgDelta: deltas.length ? Math.round(deltas.reduce((a, b) => a + b, 0) / deltas.length) : 0
+  };
+
+  // ---- (b) แนวโน้มรายสัปดาห์ (6 สัปดาห์ล่าสุด) ----
+  // XP ต่อแถวคิดตามสูตรเดียวกับที่ระบบให้จริง (ดู weekProgress)
+  const xpOf = (r) => {
+    const t = r.quiz_type, s = r.score || 0;
+    if (t === 'Bonus') return 0;
+    if (t === 'WordBridge') return s;
+    if (t && t.indexOf('english_') === 0) return s > 0 ? Math.max(1, Math.floor(s / 10)) : 0;
+    return s * 10;
+  };
+  const mondayOf = (dateLike) => {
+    const d = new Date(new Date(dateLike).getTime() + 7 * 3600 * 1000);
+    const diff = (d.getUTCDay() === 0 ? 6 : d.getUTCDay() - 1);
+    d.setUTCDate(d.getUTCDate() - diff);
+    return d.toISOString().split('T')[0];
+  };
+  const weeks = [];
+  const thisMonday = new Date(mondayOf(new Date()));
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(thisMonday);
+    d.setUTCDate(d.getUTCDate() - i * 7);
+    const ws = d.toISOString().split('T')[0];
+    weeks.push({ weekStart: ws, label: (d.getUTCDate()) + '/' + (d.getUTCMonth() + 1), xp: 0, count: 0 });
+  }
+  const byWeek = {};
+  weeks.forEach(w => { byWeek[w.weekStart] = w; });
+  scores.forEach(r => {
+    const w = byWeek[mondayOf(r.created_at)];
+    if (!w) return;
+    w.xp += xpOf(r);
+    w.count += 1;
+  });
+
+  return { success: true, units, summary, weekly: weeks };
 }
 
 /* ============================================================

@@ -51,6 +51,7 @@ var App = {
     leaderboardSearch: '',
     leaderboardClasses: [],
     completedModules: [],
+    moduleProgress: null,
     streakInfo: null,
     activeStory: null,
     storyKind: 'text',
@@ -62,6 +63,7 @@ var App = {
     // แอดมินสลับไปดู/เรียนแบบนักเรียนได้ (จำไว้ข้ามการรีเฟรช)
     studentMode: localStorage.getItem('lms_student_mode') === '1',
     myScores: { data: null, loaded: false },
+    myProgress: { data: null, loaded: false },
     grades: { result: null, loading: false, tried: false },
     announcement: { items: [], idx: 0, loaded: false, show: false, seenAll: false, hideChecked: false },
     announceAdmin: { items: [], loaded: false, image: null, busy: false },
@@ -88,17 +90,18 @@ var App = {
   get bearHappy() { return '<img src="' + mascot2Url + '" class="mascot-img-inline" />'; },
   get bearStar() { return '<img src="' + mascot2Url + '" class="mascot-img-inline" />'; },
 
-  // ===== LEVEL TIERS (XP-based, top out at 10,000) =====
+  // ===== LEVEL TIERS (XP-based, top out at 20,000) =====
   levelTiers: [
-    { min: 0,    name: 'Beginner', th: 'มือใหม่',       emoji: '🐣' },
-    { min: 500,  name: 'Explorer', th: 'นักสำรวจ',      emoji: '🧭' },
-    { min: 1500, name: 'Learner',  th: 'นักเรียนรู้',    emoji: '📘' },
-    { min: 3000, name: 'Skilled',  th: 'ชำนาญ',          emoji: '🎯' },
-    { min: 5000, name: 'Advanced', th: 'ขั้นสูง',        emoji: '🏅' },
-    { min: 7000, name: 'Expert',   th: 'ผู้เชี่ยวชาญ',   emoji: '💎' },
-    { min: 9000, name: 'Master',   th: 'ปรมาจารย์',      emoji: '👑' }
+    { min: 0,     name: 'Beginner', th: 'มือใหม่',       emoji: '🐣' },
+    { min: 500,   name: 'Explorer', th: 'นักสำรวจ',      emoji: '🧭' },
+    { min: 1500,  name: 'Learner',  th: 'นักเรียนรู้',    emoji: '📘' },
+    { min: 3000,  name: 'Skilled',  th: 'ชำนาญ',          emoji: '🎯' },
+    { min: 5000,  name: 'Advanced', th: 'ขั้นสูง',        emoji: '🏅' },
+    { min: 7000,  name: 'Expert',   th: 'ผู้เชี่ยวชาญ',   emoji: '💎' },
+    { min: 9000,  name: 'Master',   th: 'ปรมาจารย์',      emoji: '👑' },
+    { min: 14000, name: 'Champion', th: 'แชมป์เปี้ยน',    emoji: '🏆' }
   ],
-  XP_MAX: 10000,
+  XP_MAX: 20000,
 
   // ===== ENGLISH TGAT COURSE =====
   ENGLISH_MODULES: [
@@ -600,6 +603,10 @@ var App = {
         if (res.success) self.state.completedModules = res.data;
         if (self.state.currentRoute === route) self.render(true);
       }).withFailureHandler(function() {}).getCompletedModules(this.state.user.UserID);
+      google.script.run.withSuccessHandler(function(res) {
+        if (res && res.success) self.state.moduleProgress = res.progress;
+        if (self.state.currentRoute === route) self.render(true);
+      }).withFailureHandler(function() {}).getModuleProgress(this.state.user.UserID);
       if (!this.state.modules) {
         google.script.run.withSuccessHandler(function(res) {
           self.state.modules = res;
@@ -639,6 +646,14 @@ var App = {
     } else if (route === 'lesson') {
       this.state.currentModuleId = params || 1;
       this.render();
+      // นับเป็นสเต็ป "เนื้อหา" ที่ทำแล้ว (10 XP ครั้งแรกของรอบ) — ปลดล็อกสเต็ปถัดไป
+      (function(mid) {
+        google.script.run.withSuccessHandler(function() {
+          if (!self.state.moduleProgress) self.state.moduleProgress = {};
+          if (!self.state.moduleProgress[mid]) self.state.moduleProgress[mid] = {};
+          self.state.moduleProgress[mid].LessonRead = true;
+        }).withFailureHandler(function() {}).markLessonRead(self.state.user.UserID, mid);
+      })(Number(this.state.currentModuleId));
     } else if (route === 'flashcards') {
       var fmId = params || 1;
       this.state.flashcards.moduleId = fmId;
@@ -701,6 +716,16 @@ var App = {
         self.state.myScores = { data: null, loaded: true };
         if (self.state.currentRoute === 'myScores') self.render(true);
       }).getMyScoreReport(this.state.user.UserID);
+    } else if (route === 'myProgress') {
+      this.state.myProgress = { data: null, loaded: false };
+      this.render();
+      google.script.run.withSuccessHandler(function(res) {
+        self.state.myProgress = { data: (res && res.success) ? res : null, loaded: true };
+        if (self.state.currentRoute === 'myProgress') self.render(true);
+      }).withFailureHandler(function() {
+        self.state.myProgress = { data: null, loaded: true };
+        if (self.state.currentRoute === 'myProgress') self.render(true);
+      }).getLearningAnalytics(this.state.user.UserID);
     } else if (route === 'adminAnnounce') {
       this.state.announceAdmin = { items: [], loaded: false, image: null, busy: false };
       this.render();
@@ -809,6 +834,7 @@ var App = {
     if (r === 'adminQuizBuilder') return this.viewAdminQuizBuilder();
     if (r === 'grades') return this.viewGrades() + this.bottomNav('home');
     if (r === 'myScores') return this.viewMyScores() + this.bottomNav('home');
+    if (r === 'myProgress') return this.viewMyProgress() + this.bottomNav('home');
     if (r === 'adminAnnounce') return this.viewAdminAnnounce();
     if (r === 'placementTest') return this.viewPlacementTest();
     if (r === 'englishCourse') return this.viewEnglishCourse() + this.bottomNav('home');
@@ -1168,17 +1194,22 @@ var App = {
           '<div style="font-size:11px; color:var(--clay-text-light); font-weight:600;">Rank</div>' +
         '</div>' +
       '</div>' +
-      // คะแนนกลางภาค + คะแนนในแอป — วางบนสุดให้นักเรียนกดได้ทันที
-      '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px;">' +
-        '<div class="card action-card" style="background:linear-gradient(145deg,#FFE9D6,#FFD9BC); box-shadow:0 6px 0 rgba(200,120,60,0.22),0 10px 20px rgba(200,120,60,0.12); margin:0; text-align:center; padding:16px 10px; cursor:pointer;" onclick="App.navigate(\'grades\')">' +
-          '<div style="font-size:32px;">📋</div>' +
-          '<div style="font-weight:800; font-size:13px; color:#B85C1E; margin-top:6px;">คะแนนกลางภาค</div>' +
+      // คะแนนกลางภาค + คะแนนในแอป + พัฒนาการ — วางบนสุดให้นักเรียนกดได้ทันที
+      '<div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:16px;">' +
+        '<div class="card action-card" style="background:linear-gradient(145deg,#FFE9D6,#FFD9BC); box-shadow:0 6px 0 rgba(200,120,60,0.22),0 10px 20px rgba(200,120,60,0.12); margin:0; text-align:center; padding:14px 8px; cursor:pointer;" onclick="App.navigate(\'grades\')">' +
+          '<div style="font-size:28px;">📋</div>' +
+          '<div style="font-weight:800; font-size:12px; color:#B85C1E; margin-top:6px;">คะแนนกลางภาค</div>' +
           '<div style="font-size:10px; color:var(--clay-text-light); margin-top:2px;">จากคุณครู</div>' +
         '</div>' +
-        '<div class="card action-card" style="background:linear-gradient(145deg,#E3F2FD,#D0E4FF); box-shadow:0 6px 0 rgba(60,130,220,0.22),0 10px 20px rgba(60,130,220,0.12); margin:0; text-align:center; padding:16px 10px; cursor:pointer;" onclick="App.navigate(\'myScores\')">' +
-          '<div style="font-size:32px;">📊</div>' +
-          '<div style="font-weight:800; font-size:13px; color:var(--clay-blue-shadow); margin-top:6px;">คะแนนในแอป</div>' +
+        '<div class="card action-card" style="background:linear-gradient(145deg,#E3F2FD,#D0E4FF); box-shadow:0 6px 0 rgba(60,130,220,0.22),0 10px 20px rgba(60,130,220,0.12); margin:0; text-align:center; padding:14px 8px; cursor:pointer;" onclick="App.navigate(\'myScores\')">' +
+          '<div style="font-size:28px;">📊</div>' +
+          '<div style="font-weight:800; font-size:12px; color:var(--clay-blue-shadow); margin-top:6px;">คะแนนในแอป</div>' +
           '<div style="font-size:10px; color:var(--clay-text-light); margin-top:2px;">รายบท + พิเศษ</div>' +
+        '</div>' +
+        '<div class="card action-card" style="background:linear-gradient(145deg,#F3E8FF,#E4D4FF); box-shadow:0 6px 0 rgba(150,80,200,0.22),0 10px 20px rgba(150,80,200,0.12); margin:0; text-align:center; padding:14px 8px; cursor:pointer;" onclick="App.navigate(\'myProgress\')">' +
+          '<div style="font-size:28px;">📈</div>' +
+          '<div style="font-weight:800; font-size:12px; color:var(--clay-purple-shadow); margin-top:6px;">พัฒนาการ</div>' +
+          '<div style="font-size:10px; color:var(--clay-text-light); margin-top:2px;">ก่อน-หลังเรียน</div>' +
         '</div>' +
       '</div>' +
       // ===== HERO: สิ่งที่นักเรียนทำบ่อยที่สุด (จากข้อมูลการใช้งานจริง) =====
@@ -1453,6 +1484,96 @@ var App = {
     '</div>';
   },
 
+  /* ===== พัฒนาการของฉัน — วิเคราะห์การเรียนรู้ ===== */
+  viewMyProgress: function() {
+    var self = this;
+    var st = this.state.myProgress;
+    var back = '<button onclick="App.navigate(\'dashboard\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:14px; font-weight:700;">&#x2190; กลับ</button>';
+
+    if (!st.loaded) {
+      return '<div class="page-content">' + back +
+        '<div class="loader" style="height:auto; padding:50px 0;"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังวิเคราะห์พัฒนาการ...</div></div>' +
+      '</div>';
+    }
+    if (!st.data) {
+      return '<div class="page-content">' + back +
+        '<div class="card" style="text-align:center;"><div style="font-size:40px;">😢</div><div style="font-size:14px; color:var(--clay-text-light); font-weight:700; margin-top:8px;">โหลดข้อมูลไม่สำเร็จ ลองใหม่อีกครั้งนะ</div></div>' +
+      '</div>';
+    }
+
+    var d = st.data;
+
+    // ---- สรุปภาพรวม ----
+    var sm = d.summary;
+    var headline;
+    if (sm.compared === 0) {
+      headline = 'ทำ Pre-test และ Post-test ของเลเวลเดียวกันให้ครบ แล้วพี่หมีน้อยจะวิเคราะห์พัฒนาการให้นะ 🐾';
+    } else if (sm.avgDelta > 0) {
+      headline = 'เก่งขึ้นเฉลี่ย +' + sm.avgDelta + '% จาก Pre-test → Post-test (' + sm.improved + '/' + sm.compared + ' เลเวลที่พัฒนาขึ้น) 🎉';
+    } else if (sm.avgDelta === 0) {
+      headline = 'คะแนนก่อนเรียนและหลังเรียนใกล้เคียงกัน ลองทบทวนเนื้อหาแล้วทำ Post-test ใหม่ดูนะ 💪';
+    } else {
+      headline = 'Post-test ยังต่ำกว่า Pre-test เฉลี่ย ' + sm.avgDelta + '% ลองกลับไปทบทวนเนื้อหาอีกรอบนะ พี่หมีน้อยเป็นกำลังใจให้ 💪';
+    }
+    var summary = '<div style="background:linear-gradient(135deg,#5BA4F5,#C084FC); border-radius:26px; padding:20px; margin-bottom:16px; box-shadow:0 8px 0 rgba(100,80,200,0.2),0 14px 28px rgba(100,80,200,0.15);">' +
+      '<div style="display:flex; align-items:center; gap:12px;">' +
+        '<div style="font-size:44px;">' + this.bear + '</div>' +
+        '<div style="font-size:13px; color:white; font-weight:700; line-height:1.6;">' + headline + '</div>' +
+      '</div>' +
+    '</div>';
+
+    // ---- (a) Pre vs Post รายเลเวล ----
+    var unitBars = d.units.map(function(u) {
+      var bar = function(label, pct, color) {
+        return '<div style="display:flex; align-items:center; gap:8px; margin-top:6px;">' +
+          '<div style="width:34px; font-size:10px; font-weight:800; color:var(--clay-text-light); flex-shrink:0;">' + label + '</div>' +
+          '<div style="flex:1; height:10px; border-radius:99px; background:var(--clay-gray); overflow:hidden;">' +
+            (pct == null ? '' : '<div style="width:' + pct + '%; height:100%; border-radius:99px; background:' + color + '; transition:width 0.6s;"></div>') +
+          '</div>' +
+          '<div style="width:44px; text-align:right; font-size:12px; font-weight:800; color:' + (pct == null ? 'var(--clay-text-light)' : color) + '; flex-shrink:0;">' + (pct == null ? 'ยังไม่ทำ' : pct + '%') + '</div>' +
+        '</div>';
+      };
+      var deltaTag = '';
+      if (u.delta != null) {
+        var up = u.delta > 0, same = u.delta === 0;
+        deltaTag = '<span class="clay-pill" style="background:' + (up ? 'var(--clay-green)' : (same ? 'var(--clay-gray)' : '#FFCDD2')) + '; color:' + (up ? 'white' : (same ? 'var(--clay-text-light)' : '#C62828')) + '; font-size:11px;">' + (up ? '▲ +' : (same ? '· ' : '▼ ')) + u.delta + '%</span>';
+      }
+      return '<div class="card" style="padding:13px 16px;">' +
+        '<div style="display:flex; align-items:center; gap:9px;">' +
+          '<div style="font-size:13px; font-weight:800; color:var(--clay-text); flex:1;">Level ' + u.no + ': ' + self.esc(u.title) + '</div>' + deltaTag +
+        '</div>' +
+        bar('Pre', u.prePct, '#FF8C42') +
+        bar('Post', u.postPct, 'var(--clay-green-shadow)') +
+      '</div>';
+    }).join('');
+
+    // ---- (b) แนวโน้มรายสัปดาห์ ----
+    var maxXp = Math.max.apply(null, d.weekly.map(function(w) { return w.xp; }).concat([1]));
+    var weekBars = d.weekly.map(function(w) {
+      var h = Math.max(w.xp > 0 ? 8 : 3, Math.round((w.xp / maxXp) * 90));
+      return '<div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:4px;">' +
+        '<div style="font-size:10px; font-weight:800; color:var(--clay-purple-shadow);">' + (w.xp > 0 ? w.xp : '') + '</div>' +
+        '<div style="width:70%; max-width:34px; height:' + h + 'px; border-radius:8px 8px 3px 3px; background:' + (w.xp > 0 ? 'linear-gradient(180deg,#C084FC,#5BA4F5)' : 'var(--clay-gray)') + ';"></div>' +
+        '<div style="font-size:10px; font-weight:700; color:var(--clay-text-light);">' + w.label + '</div>' +
+        '<div style="font-size:9px; color:var(--clay-text-light);">' + w.count + ' กิจกรรม</div>' +
+      '</div>';
+    }).join('');
+
+    return '<div class="page-content">' + back +
+      '<h2 class="text-title" style="color:var(--bear-brown); margin:0 0 4px;">📈 พัฒนาการของฉัน</h2>' +
+      '<p style="font-size:12px; color:var(--clay-text-light); margin:0 0 14px;">วิเคราะห์จากคะแนนที่ทำจริงในแอป</p>' +
+      summary +
+      '<div style="font-weight:800; font-size:14px; color:var(--clay-text-light); margin:0 4px 10px;">ก่อนเรียน vs หลังเรียน 🎯</div>' +
+      unitBars +
+      '<div style="font-weight:800; font-size:14px; color:var(--clay-text-light); margin:16px 4px 10px;">ความสม่ำเสมอ 6 สัปดาห์ล่าสุด ⚡</div>' +
+      '<div class="card" style="padding:16px 12px;">' +
+        '<div style="display:flex; align-items:flex-end; min-height:130px;">' + weekBars + '</div>' +
+        '<div style="font-size:10px; color:var(--clay-text-light); text-align:center; margin-top:8px;">ตัวเลขบนแท่ง = XP ที่ได้ในสัปดาห์นั้น</div>' +
+      '</div>' +
+      '<div style="font-size:11px; color:var(--clay-text-light); text-align:center; margin-top:16px; line-height:1.7;">ยิ่งเรียนสม่ำเสมอ กราฟยิ่งสวย 🐾<br>ทำ Post-test ให้ครบทุกเลเวลเพื่อดูพัฒนาการเต็มรูปแบบ</div>' +
+    '</div>';
+  },
+
   goalMeta: { lessons: { emoji:'📚', label:'เรียนบทเรียน', unit:'บท' }, xp: { emoji:'⚡', label:'สะสม XP', unit:'XP' }, vocab: { emoji:'🔤', label:'ท่องคำศัพท์', unit:'ครั้ง' } },
 
   dashWeeklyGoalCard: function() {
@@ -1626,8 +1747,8 @@ var App = {
         '<div style="display:flex; align-items:center; gap:16px;">' +
           '<div style="width:56px; height:56px; border-radius:18px; background:white; box-shadow:0 4px 0 rgba(0,0,0,0.08); display:flex; align-items:center; justify-content:center; font-size:28px; flex-shrink:0;">&#x1F4DA;</div>' +
           '<div style="flex:1;">' +
-            '<div style="font-weight:800; font-size:16px; color:white;">บทเรียนกลางภาคเทอม 1/2569' + (allDone ? ' <span style="font-size:11px;">เรียนจบแล้ว</span>' : '') + '</div>' +
-            '<div style="margin-top:4px; font-size:12px; color:rgba(255,255,255,0.85);">รวมทุกเนื้อหา คำศัพท์ แบบฝึกหัด และแบบทดสอบไว้ในที่เดียว &middot; เรียนจบแล้ว ' + doneCount + '/' + mods.length + ' หมวด</div>' +
+            '<div style="font-weight:800; font-size:16px; color:white;">บทเรียนปลายภาคเทอม 1/2569' + (allDone ? ' <span style="font-size:11px;">เรียนจบแล้ว</span>' : '') + '</div>' +
+            '<div style="margin-top:4px; font-size:12px; color:rgba(255,255,255,0.85);">เรียนเป็นเลเวลตามลำดับสเต็ป Pre-test ถึง Post-test &middot; ผ่านแล้ว ' + doneCount + '/' + mods.length + ' เลเวล</div>' +
           '</div>' +
           '<div style="font-size:20px; color:white;">&rsaquo;</div>' +
         '</div>' +
@@ -1648,57 +1769,78 @@ var App = {
     '</div>';
   },
 
-  // One module's 5-step learning path (Pre-Test / Vocab / Content / Activity / Post-Test).
-  // Every step still routes with the module's own id, so scores keep recording
-  // under the same reference_id as before — merging the lesson list touches no scores.
-  _moduleStepsHtml: function(m, unitNo) {
-    var mid = m.id;
-    var completed = this.state.completedModules || [];
-    var isDone = completed.indexOf(mid) >= 0;
-    return '<div style="font-weight:800; font-size:14px; color:var(--clay-text); margin:18px 0 8px;">หมวด ' + unitNo + ': ' + this.esc(m.title) + (isDone ? ' <span style="font-size:11px; color:var(--clay-green-shadow);">เรียนจบแล้ว</span>' : '') + '</div>' +
-      (m.desc ? '<div style="font-size:12px; color:var(--clay-text-light); margin-bottom:10px;">' + this.esc(m.desc) + '</div>' : '') +
-      '<div style="display:flex; flex-direction:column; gap:10px; margin-bottom:8px;">' +
-        '<div class="card" style="background:linear-gradient(145deg,#FFE0E0,#FFD0D0); box-shadow:0 6px 0 rgba(200,80,80,0.2),0 10px 20px rgba(200,80,80,0.1); cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px;" onclick="App.navigate(\'quiz\', \'' + mid + '|PreTest\')">' +
-          '<div style="width:48px; height:48px; border-radius:16px; background:white; box-shadow:0 4px 0 rgba(200,80,80,0.15); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">1️⃣</div>' +
-          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:#b03030;">ทดสอบก่อนเรียน</div><div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">Pre-Test — วัดความรู้เบื้องต้น</div></div>' +
-          '<div style="font-size:20px; color:#b03030;">›</div>' +
-        '</div>' +
-        '<div class="card" style="background:linear-gradient(145deg,#FFF3E0,#FFE8CC); box-shadow:0 6px 0 rgba(200,140,80,0.2),0 10px 20px rgba(200,140,80,0.1); cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px;" onclick="App.navigate(\'flashcards\', ' + mid + ')">' +
-          '<div style="width:48px; height:48px; border-radius:16px; background:white; box-shadow:0 4px 0 rgba(200,140,80,0.15); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">2️⃣</div>' +
-          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:var(--bear-brown);">คำศัพท์</div><div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">Flashcards — ท่องศัพท์สำคัญ</div></div>' +
-          '<div style="font-size:20px; color:var(--bear-brown);">›</div>' +
-        '</div>' +
-        '<div class="card" style="background:linear-gradient(145deg,#E3F2FD,#BBDEFB); box-shadow:0 6px 0 rgba(60,130,220,0.2),0 10px 20px rgba(60,130,220,0.1); cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px;" onclick="App.navigate(\'lesson\', ' + mid + ')">' +
-          '<div style="width:48px; height:48px; border-radius:16px; background:white; box-shadow:0 4px 0 rgba(60,130,220,0.15); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">3️⃣</div>' +
-          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:var(--clay-blue-shadow);">เนื้อหา</div><div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">Lesson Content — ทฤษฎีและตัวอย่าง</div></div>' +
-          '<div style="font-size:20px; color:var(--clay-blue-shadow);">›</div>' +
-        '</div>' +
-        '<div class="card" style="background:linear-gradient(145deg,#E8F5E9,#C8E6C9); box-shadow:0 6px 0 rgba(60,160,80,0.2),0 10px 20px rgba(60,160,80,0.1); cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px;" onclick="App.navigate(\'quiz\', \'' + mid + '|Activity\')">' +
-          '<div style="width:48px; height:48px; border-radius:16px; background:white; box-shadow:0 4px 0 rgba(60,160,80,0.15); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">4️⃣</div>' +
-          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:var(--clay-green-shadow);">แบบฝึกหัด</div><div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">Activity — ฝึกทำโจทย์</div></div>' +
-          '<div style="font-size:20px; color:var(--clay-green-shadow);">›</div>' +
-        '</div>' +
-        '<div class="card" style="background:linear-gradient(145deg,#F3E5F5,#E1BEE7); box-shadow:0 6px 0 rgba(150,80,200,0.2),0 10px 20px rgba(150,80,200,0.1); cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px;" onclick="App.navigate(\'quiz\', \'' + mid + '|PostTest\')">' +
-          '<div style="width:48px; height:48px; border-radius:16px; background:white; box-shadow:0 4px 0 rgba(150,80,200,0.15); display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">5️⃣</div>' +
-          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:var(--clay-purple-shadow);">ทดสอบหลังเรียน</div><div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">Post-Test — วัดความรู้หลังเรียน</div></div>' +
-          '<div style="font-size:20px; color:var(--clay-purple-shadow);">›</div>' +
-        '</div>' +
-      '</div>';
+  // Step definitions for one module's learning path — order = lock order.
+  LESSON_STEPS: [
+    { key: 'PreTest',    num: '1️⃣', title: 'ทดสอบก่อนเรียน', sub: 'Pre-Test — วัดความรู้เบื้องต้น',   color: '#b03030',                    bg: 'linear-gradient(145deg,#FFE0E0,#FFD0D0)', sh: 'rgba(200,80,80,0.2)',   nav: function(mid) { return "App.navigate('quiz', '" + mid + "|PreTest')"; } },
+    { key: 'Flashcards', num: '2️⃣', title: 'คำศัพท์',          sub: 'Flashcards — ท่องศัพท์สำคัญ',     color: 'var(--bear-brown)',          bg: 'linear-gradient(145deg,#FFF3E0,#FFE8CC)', sh: 'rgba(200,140,80,0.2)',  nav: function(mid) { return "App.navigate('flashcards', " + mid + ")"; } },
+    { key: 'LessonRead', num: '3️⃣', title: 'เนื้อหาบทเรียน',   sub: 'Lesson Content — ทฤษฎีและตัวอย่าง', color: 'var(--clay-blue-shadow)',  bg: 'linear-gradient(145deg,#E3F2FD,#BBDEFB)', sh: 'rgba(60,130,220,0.2)',  nav: function(mid) { return "App.navigate('lesson', " + mid + ")"; } },
+    { key: 'Grammar',    num: '4️⃣', title: 'แกรมม่า',          sub: 'Grammar — ฝึกไวยากรณ์',           color: '#3949AB',                    bg: 'linear-gradient(145deg,#E8EAF6,#C5CAE9)', sh: 'rgba(57,73,171,0.2)',   nav: function(mid) { return "App.navigate('quiz', '" + mid + "|Grammar')"; } },
+    { key: 'Activity',   num: '5️⃣', title: 'แบบทดสอบ',         sub: 'Activity — ฝึกทำโจทย์',           color: 'var(--clay-green-shadow)',   bg: 'linear-gradient(145deg,#E8F5E9,#C8E6C9)', sh: 'rgba(60,160,80,0.2)',   nav: function(mid) { return "App.navigate('quiz', '" + mid + "|Activity')"; } },
+    { key: 'PostTest',   num: '6️⃣', title: 'ทดสอบหลังเรียน',   sub: 'Post-Test — วัดความรู้หลังเรียน', color: 'var(--clay-purple-shadow)',  bg: 'linear-gradient(145deg,#F3E5F5,#E1BEE7)', sh: 'rgba(150,80,200,0.2)',  nav: function(mid) { return "App.navigate('quiz', '" + mid + "|PostTest')"; } }
+  ],
+
+  lockedStepHint: function() {
+    this.toast('🔒 ทำสเต็ปก่อนหน้าให้เสร็จก่อน แล้วจะปลดล็อกให้เองนะ');
   },
 
-  // Every module's steps in one scrollable page — this IS the "merge" the teacher asked
-  // for: one lesson entry point instead of N separate Unit cards. Nothing in api.js
-  // changed, so scores/reference_id history is untouched.
+  // One module's step list with sequential locking. Steps still route with the
+  // module's own id, so scores keep recording under the same reference_id.
+  _moduleStepsHtml: function(m, unitNo, unlocked) {
+    var mid = m.id;
+    var prog = (this.state.moduleProgress || {})[mid] || {};
+    var doneCount = 0;
+    var stepsHtml = '';
+    var prevDone = true; // first step of an unlocked module is always open
+
+    for (var i = 0; i < this.LESSON_STEPS.length; i++) {
+      var s = this.LESSON_STEPS[i];
+      var done = !!prog[s.key];
+      if (done) doneCount++;
+      var open = unlocked && prevDone;
+
+      if (open) {
+        stepsHtml += '<div class="card" style="background:' + s.bg + '; box-shadow:0 6px 0 ' + s.sh + ',0 10px 20px ' + s.sh + '; cursor:pointer; display:flex; align-items:center; gap:14px; padding:16px;" onclick="' + s.nav(mid) + '">' +
+          '<div style="width:48px; height:48px; border-radius:16px; background:white; box-shadow:0 4px 0 ' + s.sh + '; display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;">' + s.num + '</div>' +
+          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:' + s.color + ';">' + s.title + (done ? ' <span style="font-size:11px; color:var(--clay-green-shadow);">✓ ทำแล้ว</span>' : '') + '</div><div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">' + s.sub + '</div></div>' +
+          '<div style="font-size:20px; color:' + s.color + ';">' + (done ? '✓' : '›') + '</div>' +
+        '</div>';
+      } else {
+        stepsHtml += '<div class="card" style="background:linear-gradient(145deg,#EFEAF7,#E2DCEF); box-shadow:0 4px 0 rgba(150,130,180,0.15); cursor:not-allowed; opacity:0.7; display:flex; align-items:center; gap:14px; padding:16px;" onclick="App.lockedStepHint()">' +
+          '<div style="width:48px; height:48px; border-radius:16px; background:rgba(255,255,255,0.7); display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0;">🔒</div>' +
+          '<div style="flex:1;"><div style="font-weight:800; font-size:15px; color:var(--clay-text-light);">' + s.title + '</div><div style="font-size:12px; color:var(--clay-text-light); margin-top:3px;">ทำสเต็ปก่อนหน้าให้เสร็จเพื่อปลดล็อก</div></div>' +
+        '</div>';
+      }
+      prevDone = done;
+    }
+
+    var badge = unlocked
+      ? '<span class="clay-pill" style="background:' + (doneCount >= this.LESSON_STEPS.length ? 'var(--clay-green)' : 'var(--clay-gray)') + '; color:' + (doneCount >= this.LESSON_STEPS.length ? 'white' : 'var(--clay-text-light)') + '; font-size:11px;">' + doneCount + '/' + this.LESSON_STEPS.length + (doneCount >= this.LESSON_STEPS.length ? ' ✓' : '') + '</span>'
+      : '<span class="clay-pill" style="background:var(--clay-gray); color:var(--clay-text-light); font-size:11px;">🔒 ล็อกอยู่</span>';
+
+    return '<div style="display:flex; align-items:center; gap:9px; margin:20px 0 4px;">' +
+        '<div style="font-weight:800; font-size:14px; color:var(--clay-text); flex:1;">Level ' + unitNo + ': ' + this.esc(m.title) + '</div>' + badge +
+      '</div>' +
+      (m.desc ? '<div style="font-size:12px; color:var(--clay-text-light); margin-bottom:10px;">' + this.esc(m.desc) + '</div>' : '') +
+      '<div style="display:flex; flex-direction:column; gap:10px; margin-bottom:8px;">' + stepsHtml + '</div>';
+  },
+
+  // Every module's steps in one scrollable page, ordered as levels: a module
+  // unlocks only after the previous module's Post-Test is done (current round).
   viewMidtermLessons: function() {
     var mods = this.state.modules || [];
     var self = this;
-    var sections = mods.map(function(m, i) { return self._moduleStepsHtml(m, i + 1); }).join('');
+    var prog = this.state.moduleProgress || {};
+    var sections = mods.map(function(m, i) {
+      var prevMod = i > 0 ? mods[i - 1] : null;
+      var unlocked = !prevMod || !!((prog[prevMod.id] || {}).PostTest);
+      return self._moduleStepsHtml(m, i + 1, unlocked);
+    }).join('');
     return '<div class="page-content">' +
       '<button onclick="App.navigate(\'lessons\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
       '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:24px; padding:20px; margin-bottom:16px; text-align:center; box-shadow:0 8px 0 rgba(160,80,200,0.2),0 14px 28px rgba(160,80,200,0.12);">' +
         '<div style="font-size:56px; margin-bottom:8px;">' + this.bear + '</div>' +
-        '<h2 style="margin:0 0 6px 0; color:white; font-size:20px; font-weight:800;">บทเรียนกลางภาคเทอม 1/2569</h2>' +
-        '<p style="margin:0; font-size:13px; color:rgba(255,255,255,0.85);">รวมทุก Unit ไว้ในหน้าเดียว เลือกทำได้ทุกหมวด</p>' +
+        '<h2 style="margin:0 0 6px 0; color:white; font-size:20px; font-weight:800;">บทเรียนปลายภาคเทอม 1/2569</h2>' +
+        '<p style="margin:0; font-size:13px; color:rgba(255,255,255,0.85);">เรียนเป็นเลเวลตามลำดับ ทำสเต็ปให้ครบเพื่อปลดล็อกด่านต่อไป 🗝️</p>' +
       '</div>' +
       sections +
     '</div>';
@@ -1781,7 +1923,7 @@ var App = {
   viewLesson: function() {
     var mid = this.state.currentModuleId;
     return '<div class="page-content">' +
-      '<button onclick="App.navigate(\'moduleDetail\')" style="background:none; border:none; font-size:18px; color:var(--duo-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<button onclick="App.navigate(\'midtermLessons\')" style="background:none; border:none; font-size:18px; color:var(--duo-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
       '<h2 class="text-title" style="color:var(--bear-brown); margin-top:0;">&#x1F4D6; เนื้อหาบทเรียน</h2>' +
       '<div class="card" style="min-height: 300px; display:flex; flex-direction:column; justify-content:center; align-items:center;">' +
         '<div style="font-size:64px; margin-bottom:16px;">' + this.bear + '</div>' +
@@ -1832,8 +1974,8 @@ var App = {
           extraNote +
         '</div>' +
         nextModBtn +
-        '<button class="btn btn-primary" style="margin-bottom:8px;" onclick="App.navigate(\'lessons\')">กลับหน้ารวมบทเรียน</button>' +
-        '<button class="btn btn-outline" onclick="App.navigate(\'dashboard\')">หน้าหลัก</button>' +
+        '<button class="btn btn-primary" style="margin-bottom:8px;" onclick="App.navigate(\'dashboard\')">หน้าหลัก</button>' +
+        '<button class="btn btn-outline" onclick="App.navigate(\'lessons\')">กลับหน้ารวมบทเรียน</button>' +
       '</div>';
     }
 
@@ -1879,6 +2021,7 @@ var App = {
     if (qState.quizType === 'PreTest') typeLabel = '<span style="background:linear-gradient(135deg,#FFE0E0,#FFD0D0); color:#b03030; font-size:11px; font-weight:800; padding:4px 10px; border-radius:10px; margin-bottom:12px; display:inline-block;">📋 Pre-Test</span>';
     else if (qState.quizType === 'PostTest') typeLabel = '<span style="background:linear-gradient(135deg,#F3E5F5,#E1BEE7); color:var(--clay-purple-shadow); font-size:11px; font-weight:800; padding:4px 10px; border-radius:10px; margin-bottom:12px; display:inline-block;">🎓 Post-Test</span>';
     else if (qState.quizType === 'Activity') typeLabel = '<span style="background:linear-gradient(135deg,#E8F5E9,#C8E6C9); color:var(--clay-green-shadow); font-size:11px; font-weight:800; padding:4px 10px; border-radius:10px; margin-bottom:12px; display:inline-block;">✏️ Activity</span>';
+    else if (qState.quizType === 'Grammar') typeLabel = '<span style="background:linear-gradient(135deg,#E8EAF6,#C5CAE9); color:#3949AB; font-size:11px; font-weight:800; padding:4px 10px; border-radius:10px; margin-bottom:12px; display:inline-block;">📐 Grammar</span>';
 
     return '<div class="page-content" style="padding-top: 16px; padding-bottom:100px; display:flex; flex-direction:column;">' +
       '<div style="display:flex; align-items:center; gap:12px; margin-bottom: 16px;">' +
@@ -1915,7 +2058,8 @@ var App = {
                 ? '<div style="font-size:18px; font-weight:800; color:var(--clay-text-light);">+0 XP</div><div style="font-size:12px; color:var(--clay-blue-shadow); font-weight:700; margin-top:4px;">✓ เคยรับ XP จากชุดคำศัพท์นี้แล้ว · ทบทวนได้ไม่จำกัด</div>'
                 : '<div style="font-size:22px; font-weight:800; color:var(--bear-orange);">+' + fState.awarded + ' XP</div>')) +
         '</div>' +
-        '<button class="btn btn-primary" onclick="App.navigate(\'lessons\')">กลับหน้าบทเรียน</button>' +
+        '<button class="btn btn-primary" style="margin-bottom:8px;" onclick="App.navigate(\'dashboard\')">หน้าหลัก</button>' +
+        '<button class="btn btn-outline" onclick="App.navigate(\'lessons\')">กลับหน้าบทเรียน</button>' +
       '</div>';
     }
 
