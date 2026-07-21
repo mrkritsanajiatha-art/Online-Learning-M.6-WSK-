@@ -100,7 +100,7 @@ export async function getAppData(userId) {
   return {
     success: true,
     dashboard: { xp: user?.xp || 0, level: user?.level || 'Beginner', streak: user?.streak || 0, badges: [], readiness: 100, recommendation: { weakness: 'None', module: 1 } },
-    modules: modules?.map(m => ({ id: m.id, title: m.title, desc: m.description })) || []
+    modules: modules?.map(m => ({ id: m.id, title: m.title, desc: m.description, order: m.display_order })) || []
   };
 }
 
@@ -109,10 +109,14 @@ export async function getDashboardData(userId) {
   return { success: true, data: { xp: user?.xp || 0, level: user?.level || 'Beginner', streak: user?.streak || 0, badges: [], readiness: 100, recommendation: { weakness: 'None', module: 1 } } };
 }
 
+/* display_order ทำหน้าที่แบ่งกลุ่มบทเรียน (ดู LESSON_GROUPS ใน main.js)
+     1   = คลังคำศัพท์ของ Daily Quest เท่านั้น ไม่แสดงเป็นบทเรียน
+     2-4 = บทเรียนกลางภาค (เก็บไว้ทบทวน)
+     5+  = บทเรียนปลายภาค (รอบปัจจุบัน)
+   จึงต้องส่ง display_order กลับไปด้วย ไม่งั้นหน้าบทเรียนแยกกลุ่มไม่ได้ */
 export async function getModules() {
-  // Module 1 doubles as the Daily Quest vocab pool AND a full lesson unit (คำศัพท์กลางภาค)
   const { data } = await supabase.from('modules').select('*').order('display_order', { ascending: true });
-  return data?.map(m => ({ id: m.id, title: m.title, desc: m.description })) || [];
+  return data?.map(m => ({ id: m.id, title: m.title, desc: m.description, order: m.display_order })) || [];
 }
 
 export async function getLeaderboard(className) {
@@ -417,6 +421,26 @@ export async function getModuleProgress(userId) {
     progress[r.reference_id][r.quiz_type] = true;
   });
   return { success: true, progress };
+}
+
+/* สเต็ปไหนของโมดูลไหน "มีเนื้อหาจริง" บ้าง
+   บางโมดูลไม่มีครบทุกสเต็ป (เช่น ชุดทบทวนกลางภาคไม่มีข้อสอบแกรมม่า)
+   ถ้าไม่เช็คก่อน นักเรียนจะไปติดสเต็ปว่างแล้วปลดล็อกสเต็ปถัดไปไม่ได้เลย
+   LessonRead ไม่ต้องเช็ค เพราะเป็นหน้าเนื้อหาที่เปิดอ่านได้เสมอ */
+export async function getModuleStepAvailability() {
+  const [qRes, fRes] = await Promise.all([
+    supabase.from('quiz_bank').select('module_id, quiz_type'),
+    supabase.from('flashcards').select('module_id')
+  ]);
+  const avail = {};
+  const mark = (mid, key) => {
+    if (mid == null) return;
+    if (!avail[mid]) avail[mid] = {};
+    avail[mid][key] = true;
+  };
+  (qRes.data || []).forEach(r => mark(r.module_id, r.quiz_type));
+  (fRes.data || []).forEach(r => mark(r.module_id, 'Flashcards'));
+  return { success: true, avail };
 }
 
 // บันทึกว่าอ่านเนื้อหาบทเรียนแล้ว (ได้ 10 XP ครั้งแรกของรอบ)

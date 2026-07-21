@@ -52,6 +52,8 @@ var App = {
     leaderboardClasses: [],
     completedModules: [],
     moduleProgress: null,
+    lessonGroup: 'final',   // กลุ่มบทเรียนที่กำลังเปิดอยู่ ('midterm' | 'final')
+    stepAvail: null,        // สเต็ปที่แต่ละโมดูลมีเนื้อหาจริง { moduleId: { PreTest:true, ... } }
     streakInfo: null,
     activeStory: null,
     storyKind: 'text',
@@ -597,7 +599,8 @@ var App = {
           if (self.state.currentRoute === 'dashboard') self.render(true);
         }).withFailureHandler(function() {}).getDashboardData(self.state.user.UserID);
       }
-    } else if (route === 'lessons' || route === 'midtermLessons') {
+    } else if (route === 'lessons' || route === 'lessonGroup') {
+      if (route === 'lessonGroup' && params) this.state.lessonGroup = String(params);
       this.render();
       google.script.run.withSuccessHandler(function(res) {
         if (res.success) self.state.completedModules = res.data;
@@ -607,6 +610,12 @@ var App = {
         if (res && res.success) self.state.moduleProgress = res.progress;
         if (self.state.currentRoute === route) self.render(true);
       }).withFailureHandler(function() {}).getModuleProgress(this.state.user.UserID);
+      if (!this.state.stepAvail) {
+        google.script.run.withSuccessHandler(function(res) {
+          if (res && res.success) self.state.stepAvail = res.avail;
+          if (self.state.currentRoute === route) self.render(true);
+        }).withFailureHandler(function() {}).getModuleStepAvailability();
+      }
       if (!this.state.modules) {
         google.script.run.withSuccessHandler(function(res) {
           self.state.modules = res;
@@ -813,7 +822,7 @@ var App = {
     if (r === 'register') return this.viewRegister();
     if (r === 'dashboard') return this.viewDashboard() + this.bottomNav('home');
     if (r === 'lessons') return this.viewLessons() + this.bottomNav('lessons');
-    if (r === 'midtermLessons') return this.viewMidtermLessons() + this.bottomNav('lessons');
+    if (r === 'lessonGroup') return this.viewLessonGroup() + this.bottomNav('lessons');
     if (r === 'moduleDetail') return this.viewModuleDetail();
     if (r === 'lesson') return this.viewLesson();
     if (r === 'quiz' || r === 'dailyQuest') return this.viewQuiz();
@@ -1735,24 +1744,50 @@ var App = {
     '</div>';
   },
 
+  /* ===== กลุ่มบทเรียน =====
+     แบ่งด้วย display_order ที่ส่งมาจาก getModules():
+       1   = คลังคำศัพท์ Daily Quest เท่านั้น (ไม่โผล่ในหน้าบทเรียน)
+       2-4 = กลางภาค — เก็บไว้ให้ทบทวน
+       5+  = ปลายภาค — รอบที่กำลังเรียน                                   */
+  LESSON_GROUPS: [
+    { key: 'midterm', emoji: '&#x1F4D8;', title: 'บทเรียนกลางภาคเทอม 1/2569', sub: 'เก็บไว้ทบทวนย้อนหลัง',
+      grad: 'linear-gradient(135deg,#5BA4F5,#7E7BF5)', sh: 'rgba(90,110,220,0.3)',
+      inGroup: function(o) { return o >= 2 && o < 5; } },
+    { key: 'final', emoji: '&#x1F4D7;', title: 'บทเรียนปลายภาคเทอม 1/2569', sub: 'เรียนเป็นเลเวลตามลำดับสเต็ป',
+      grad: 'linear-gradient(135deg,#FF8C42,#C084FC)', sh: 'rgba(160,80,200,0.3)',
+      inGroup: function(o) { return o >= 5; } }
+  ],
+
+  groupModules: function(key) {
+    var g = null, gs = this.LESSON_GROUPS;
+    for (var i = 0; i < gs.length; i++) { if (gs[i].key === key) g = gs[i]; }
+    if (!g) return [];
+    return (this.state.modules || []).filter(function(m) { return g.inGroup(Number(m.order)); });
+  },
+
   viewLessons: function() {
     var mods = this.state.modules;
     var mainHtml;
 
     if (mods && mods.length > 0) {
       var completed = this.state.completedModules || [];
-      var doneCount = mods.filter(function(m) { return completed.indexOf(m.id) >= 0; }).length;
-      var allDone = doneCount >= mods.length;
-      mainHtml = '<div class="card module-card" style="background:linear-gradient(135deg,#FF8C42,#C084FC); box-shadow:0 6px 0 rgba(160,80,200,0.3),0 10px 20px rgba(100,60,160,0.10); cursor:pointer;" onclick="App.navigate(\'midtermLessons\')">' +
-        '<div style="display:flex; align-items:center; gap:16px;">' +
-          '<div style="width:56px; height:56px; border-radius:18px; background:white; box-shadow:0 4px 0 rgba(0,0,0,0.08); display:flex; align-items:center; justify-content:center; font-size:28px; flex-shrink:0;">&#x1F4DA;</div>' +
-          '<div style="flex:1;">' +
-            '<div style="font-weight:800; font-size:16px; color:white;">บทเรียนปลายภาคเทอม 1/2569' + (allDone ? ' <span style="font-size:11px;">เรียนจบแล้ว</span>' : '') + '</div>' +
-            '<div style="margin-top:4px; font-size:12px; color:rgba(255,255,255,0.85);">เรียนเป็นเลเวลตามลำดับสเต็ป Pre-test ถึง Post-test &middot; ผ่านแล้ว ' + doneCount + '/' + mods.length + ' เลเวล</div>' +
+      var self = this;
+      mainHtml = this.LESSON_GROUPS.map(function(g) {
+        var list = self.groupModules(g.key);
+        if (!list.length) return '';
+        var doneCount = list.filter(function(m) { return completed.indexOf(m.id) >= 0; }).length;
+        var allDone = doneCount >= list.length;
+        return '<div class="card module-card" style="background:' + g.grad + '; box-shadow:0 6px 0 ' + g.sh + ',0 10px 20px rgba(100,60,160,0.10); cursor:pointer; margin-bottom:12px;" onclick="App.navigate(\'lessonGroup\', \'' + g.key + '\')">' +
+          '<div style="display:flex; align-items:center; gap:16px;">' +
+            '<div style="width:56px; height:56px; border-radius:18px; background:white; box-shadow:0 4px 0 rgba(0,0,0,0.08); display:flex; align-items:center; justify-content:center; font-size:28px; flex-shrink:0;">' + g.emoji + '</div>' +
+            '<div style="flex:1;">' +
+              '<div style="font-weight:800; font-size:16px; color:white;">' + g.title + (allDone ? ' <span style="font-size:11px;">เรียนจบแล้ว</span>' : '') + '</div>' +
+              '<div style="margin-top:4px; font-size:12px; color:rgba(255,255,255,0.85);">' + g.sub + ' &middot; ผ่านแล้ว ' + doneCount + '/' + list.length + ' เลเวล</div>' +
+            '</div>' +
+            '<div style="font-size:20px; color:white;">&rsaquo;</div>' +
           '</div>' +
-          '<div style="font-size:20px; color:white;">&rsaquo;</div>' +
-        '</div>' +
-      '</div>';
+        '</div>';
+      }).join('');
     } else {
       mainHtml = '<div class="loader"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลดบทเรียน...</div></div>';
     }
@@ -1785,15 +1820,25 @@ var App = {
 
   // One module's step list with sequential locking. Steps still route with the
   // module's own id, so scores keep recording under the same reference_id.
+  // สเต็ปที่โมดูลนี้มีเนื้อหาจริง — ข้ามอันที่ว่าง ไม่งั้นนักเรียนจะติดล็อก
+  _stepsOf: function(mid) {
+    var avail = (this.state.stepAvail || {})[mid];
+    if (!avail) return this.LESSON_STEPS;           // ยังโหลดไม่เสร็จ → แสดงครบไว้ก่อน
+    return this.LESSON_STEPS.filter(function(s) {
+      return s.key === 'LessonRead' || !!avail[s.key];
+    });
+  },
+
   _moduleStepsHtml: function(m, unitNo, unlocked) {
     var mid = m.id;
     var prog = (this.state.moduleProgress || {})[mid] || {};
+    var steps = this._stepsOf(mid);
     var doneCount = 0;
     var stepsHtml = '';
     var prevDone = true; // first step of an unlocked module is always open
 
-    for (var i = 0; i < this.LESSON_STEPS.length; i++) {
-      var s = this.LESSON_STEPS[i];
+    for (var i = 0; i < steps.length; i++) {
+      var s = steps[i];
       var done = !!prog[s.key];
       if (done) doneCount++;
       var open = unlocked && prevDone;
@@ -1814,7 +1859,7 @@ var App = {
     }
 
     var badge = unlocked
-      ? '<span class="clay-pill" style="background:' + (doneCount >= this.LESSON_STEPS.length ? 'var(--clay-green)' : 'var(--clay-gray)') + '; color:' + (doneCount >= this.LESSON_STEPS.length ? 'white' : 'var(--clay-text-light)') + '; font-size:11px;">' + doneCount + '/' + this.LESSON_STEPS.length + (doneCount >= this.LESSON_STEPS.length ? ' ✓' : '') + '</span>'
+      ? '<span class="clay-pill" style="background:' + (doneCount >= steps.length ? 'var(--clay-green)' : 'var(--clay-gray)') + '; color:' + (doneCount >= steps.length ? 'white' : 'var(--clay-text-light)') + '; font-size:11px;">' + doneCount + '/' + steps.length + (doneCount >= steps.length ? ' ✓' : '') + '</span>'
       : '<span class="clay-pill" style="background:var(--clay-gray); color:var(--clay-text-light); font-size:11px;">🔒 ล็อกอยู่</span>';
 
     return '<div style="display:flex; align-items:center; gap:9px; margin:20px 0 4px;">' +
@@ -1824,22 +1869,30 @@ var App = {
       '<div style="display:flex; flex-direction:column; gap:10px; margin-bottom:8px;">' + stepsHtml + '</div>';
   },
 
-  // Every module's steps in one scrollable page, ordered as levels: a module
-  // unlocks only after the previous module's Post-Test is done (current round).
-  viewMidtermLessons: function() {
-    var mods = this.state.modules || [];
+  // One group's modules as levels: a module unlocks only after the previous
+  // module's Post-Test is done (current round). Locking runs within the group.
+  viewLessonGroup: function() {
+    var key = this.state.lessonGroup || 'final';
+    var g = null, gs = this.LESSON_GROUPS;
+    for (var i = 0; i < gs.length; i++) { if (gs[i].key === key) g = gs[i]; }
+    if (!g) g = gs[gs.length - 1];
+
+    var mods = this.groupModules(key);
     var self = this;
     var prog = this.state.moduleProgress || {};
-    var sections = mods.map(function(m, i) {
-      var prevMod = i > 0 ? mods[i - 1] : null;
-      var unlocked = !prevMod || !!((prog[prevMod.id] || {}).PostTest);
-      return self._moduleStepsHtml(m, i + 1, unlocked);
-    }).join('');
+    var sections = mods.length
+      ? mods.map(function(m, i) {
+          var prevMod = i > 0 ? mods[i - 1] : null;
+          var unlocked = !prevMod || !!((prog[prevMod.id] || {}).PostTest);
+          return self._moduleStepsHtml(m, i + 1, unlocked);
+        }).join('')
+      : '<div class="loader"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลดบทเรียน...</div></div>';
+
     return '<div class="page-content">' +
       '<button onclick="App.navigate(\'lessons\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
-      '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:24px; padding:20px; margin-bottom:16px; text-align:center; box-shadow:0 8px 0 rgba(160,80,200,0.2),0 14px 28px rgba(160,80,200,0.12);">' +
+      '<div style="background:' + g.grad + '; border-radius:24px; padding:20px; margin-bottom:16px; text-align:center; box-shadow:0 8px 0 ' + g.sh + ',0 14px 28px rgba(160,80,200,0.12);">' +
         '<div style="font-size:56px; margin-bottom:8px;">' + this.bear + '</div>' +
-        '<h2 style="margin:0 0 6px 0; color:white; font-size:20px; font-weight:800;">บทเรียนปลายภาคเทอม 1/2569</h2>' +
+        '<h2 style="margin:0 0 6px 0; color:white; font-size:20px; font-weight:800;">' + g.title + '</h2>' +
         '<p style="margin:0; font-size:13px; color:rgba(255,255,255,0.85);">เรียนเป็นเลเวลตามลำดับ ทำสเต็ปให้ครบเพื่อปลดล็อกด่านต่อไป 🗝️</p>' +
       '</div>' +
       sections +
@@ -1923,7 +1976,7 @@ var App = {
   viewLesson: function() {
     var mid = this.state.currentModuleId;
     return '<div class="page-content">' +
-      '<button onclick="App.navigate(\'midtermLessons\')" style="background:none; border:none; font-size:18px; color:var(--duo-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<button onclick="App.navigate(\'lessonGroup\')" style="background:none; border:none; font-size:18px; color:var(--duo-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
       '<h2 class="text-title" style="color:var(--bear-brown); margin-top:0;">&#x1F4D6; เนื้อหาบทเรียน</h2>' +
       '<div class="card" style="min-height: 300px; display:flex; flex-direction:column; justify-content:center; align-items:center;">' +
         '<div style="font-size:64px; margin-bottom:16px;">' + this.bear + '</div>' +
