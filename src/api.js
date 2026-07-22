@@ -177,6 +177,115 @@ export async function getDailyQuest() {
   return { success: true, data: combined.map(mapQ) };
 }
 
+/* ============================================================
+   Daily Spin — วงล้อสุ่ม XP ประจำวัน (แทน Daily Quest เดิม)
+   หมุนวงล้อ → ได้รางวัลค้างไว้ → ตอบคำถามถูกจึงได้ XP จริง
+   เก็บผลลง scores ด้วย quiz_type='DailySpin' (แถวละ 1 รอบ)
+   จึงไม่ต้อง migration และไม่ชนกับ unique index scores_once_per_ref
+   ที่ครอบเฉพาะ PreTest/PostTest/Activity/Quiz/Flashcards
+   ============================================================ */
+export const SPIN_SEGMENTS = [
+  { xp: 5 }, { xp: 10 }, { xp: 15 }, { xp: 10 },
+  { free: true }, { xp: 20 }, { xp: 5 }, { xp: 15 }
+];                                        // XP รวม 80 / 8 ช่อง = เฉลี่ย 10 XP + 1 ช่องหมุนฟรี
+export const SPIN_MAX_ROUNDS = 10;
+export const SPIN_DAILY_XP_CAP = 100;
+export const SPIN_MAX_FREE = 3;           // เพดานหมุนฟรี/วัน กันหมุนวนไม่จบ
+
+// แถวหมุนฟรีใช้ reference_id = 1 เป็นเครื่องหมาย เพื่อไม่ให้ถูกนับเป็นรอบที่ใช้ไป
+const FREE_REF = 1;
+
+// อ่านแถว DailySpin ของ "วันนี้" (วันไทย) — กรองฝั่ง JS เหมือน submitQuizScore
+// เพื่อเลี่ยงปัญหา timezone ตอนเทียบ created_at ใน query
+async function readSpinToday(uid) {
+  const today = bangkokDate();
+  const { data } = await supabase.from('scores')
+    .select('score, reference_id, created_at')
+    .eq('user_id', uid).eq('quiz_type', 'DailySpin')
+    .order('created_at', { ascending: false }).limit(80);
+  const rows = (data || []).filter(r => bangkokDate(r.created_at) === today);
+  const freeUsed = rows.filter(r => r.reference_id === FREE_REF).length;
+  const roundsUsed = rows.length - freeUsed;   // หมุนฟรีไม่กินรอบ
+  const xpToday = rows.reduce((t, r) => t + (r.score || 0), 0);
+  return { roundsUsed, freeUsed, xpToday };
+}
+
+function spinStatePayload(roundsUsed, freeUsed, xpToday) {
+  return {
+    success: true,
+    roundsUsed,
+    freeUsed,
+    xpToday,
+    roundsLeft: Math.max(0, SPIN_MAX_ROUNDS - roundsUsed),
+    freeLeft: Math.max(0, SPIN_MAX_FREE - freeUsed),
+    xpLeft: Math.max(0, SPIN_DAILY_XP_CAP - xpToday),
+    maxRounds: SPIN_MAX_ROUNDS,
+    maxFree: SPIN_MAX_FREE,
+    xpCap: SPIN_DAILY_XP_CAP,
+    segments: SPIN_SEGMENTS
+  };
+}
+
+export async function getDailySpinState(userId) {
+  const uid = String(userId).trim();
+  const { roundsUsed, freeUsed, xpToday } = await readSpinToday(uid);
+  return spinStatePayload(roundsUsed, freeUsed, xpToday);
+}
+
+// สุ่มช่องที่วงล้อจะไปหยุด — ยังไม่เขียน DB และยังไม่ให้ XP
+export async function rollDailySpin(userId) {
+  const uid = String(userId).trim();
+  const { roundsUsed, freeUsed, xpToday } = await readSpinToday(uid);
+  if (roundsUsed >= SPIN_MAX_ROUNDS) {
+    return Object.assign(spinStatePayload(roundsUsed, freeUsed, xpToday), { exhausted: true });
+  }
+  const segmentIndex = Math.floor(Math.random() * SPIN_SEGMENTS.length);
+  const seg = SPIN_SEGMENTS[segmentIndex];
+  return Object.assign(spinStatePayload(roundsUsed, freeUsed, xpToday), {
+    exhausted: false,
+    segmentIndex,
+    // โควตาหมุนฟรีหมดแล้ว ช่อง FREE จะจ่ายเป็น 10 XP แทน (บอกผู้เล่นตรง ๆ ในหน้าเกม)
+    prize: seg.free ? (freeUsed < SPIN_MAX_FREE ? 0 : 10) : seg.xp,
+    isFree: !!seg.free && freeUsed < SPIN_MAX_FREE
+  });
+}
+
+// จุดเดียวที่ให้ XP — อ่านโควตาใหม่ทุกครั้ง กันเปิดสองแท็บ/กดรัว
+export async function claimDailySpin(userId, segmentIndex, correct) {
+  const uid = String(userId).trim();
+  const { roundsUsed, freeUsed, xpToday } = await readSpinToday(uid);
+  if (roundsUsed >= SPIN_MAX_ROUNDS) {
+    return Object.assign(spinStatePayload(roundsUsed, freeUsed, xpToday), { exhausted: true, awarded: 0, capped: false });
+  }
+
+  const idx = Number(segmentIndex);
+  const seg = (idx >= 0 && idx < SPIN_SEGMENTS.length) ? SPIN_SEGMENTS[idx] : { xp: 0 };
+  // ตอบถูกเท่านั้นถึงได้รางวัล — ตอบผิดตัดรอบทิ้งเสมอ (แม้จะหมุนติดช่องฟรี)
+  const wonFree = !!(correct && seg.free && freeUsed < SPIN_MAX_FREE);
+  const prize = correct ? (seg.free ? (wonFree ? 0 : 10) : seg.xp) : 0;
+  const awarded = Math.max(0, Math.min(prize, SPIN_DAILY_XP_CAP - xpToday));
+
+  // เขียนแถวเสมอ (แม้ awarded = 0) — แถวปกติ = ตัด 1 รอบ, แถวฟรี = ไม่กินรอบ
+  const { error: insErr } = await supabase.from('scores').insert([{
+    user_id: uid, quiz_type: 'DailySpin',
+    reference_id: wonFree ? FREE_REF : null,
+    score: awarded, max_score: SPIN_DAILY_XP_CAP, time_spent: 0
+  }]);
+  if (insErr) return { success: false, message: insErr.message };
+
+  if (awarded > 0) await supabase.rpc('add_xp', { p_uid: uid, p_amount: awarded });
+
+  return Object.assign(
+    spinStatePayload(roundsUsed + (wonFree ? 0 : 1), freeUsed + (wonFree ? 1 : 0), xpToday + awarded),
+    {
+      exhausted: false,
+      awarded,
+      wonFree,
+      capped: awarded < prize   // โดนเพดาน 100 XP/วัน ตัด
+    }
+  );
+}
+
 export async function getQuizQuestions(moduleId, quizType) {
   let query = supabase.from('quiz_bank').select('*').eq('module_id', moduleId);
   if (quizType) query = query.eq('quiz_type', quizType);
@@ -1013,7 +1122,12 @@ export async function getMyScoreReport(userId) {
     return { id: m.id, no: i + 1, title: m.title, parts, doneCount: parts.filter(p => p.done).length };
   });
 
-  const dailyCount = scores.filter(s => s.quiz_type === 'Daily').length;
+  // นับเป็น "จำนวนวันที่เล่นประจำวัน" ไม่ใช่จำนวนแถว — DailySpin เขียนได้ถึง 10 แถว/วัน
+  // รวมของเดิม (quiz_type='Daily') ไว้ด้วย สถิติเก่าของนักเรียนจึงไม่หายไป
+  const dailyCount = new Set(
+    scores.filter(s => s.quiz_type === 'Daily' || s.quiz_type === 'DailySpin')
+          .map(s => bangkokDate(s.created_at))
+  ).size;
   const flashCount = scores.filter(s => s.quiz_type === 'Flashcards').length;
   const bonus = Math.min(100, scores.filter(s => s.quiz_type === 'Bonus').reduce((t, s) => t + (s.score || 0), 0));
 

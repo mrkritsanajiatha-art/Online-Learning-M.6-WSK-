@@ -36,6 +36,121 @@ window.google = {
   }
 };
 
+/* กราฟิกวงล้อประจำวัน — วาดเป็น SVG ในโค้ดทั้งหมด ไม่ใช้ไฟล์ภาพภายนอก
+   ข้อดี: คมทุกความละเอียด, เปลี่ยนสีตามธีมได้, ไม่เพิ่มขนาด bundle เลย
+   สีอ้างอิงจากตัวแปรใน style.css (ม่วง #C084FC / ส้ม #FF8C42 / ทอง #FFD166) */
+var spinArt = {
+
+  // ลูกแก้ว EXP ที่ลอยอยู่บนการ์ดรางวัล
+  orb: function() {
+    return '<svg viewBox="0 0 100 100" class="spin-art-orb" aria-hidden="true">' +
+      '<defs>' +
+        '<radialGradient id="sa-orb" cx="34%" cy="26%" r="78%">' +
+          '<stop offset="0%" stop-color="#F3E8FF"/>' +
+          '<stop offset="42%" stop-color="#C084FC"/>' +
+          '<stop offset="100%" stop-color="#7C3AED"/>' +
+        '</radialGradient>' +
+      '</defs>' +
+      '<circle cx="50" cy="52" r="41" fill="url(#sa-orb)"/>' +
+      '<circle cx="50" cy="52" r="41" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="3"/>' +
+      '<ellipse cx="36" cy="30" rx="15" ry="9" fill="#fff" opacity=".6" transform="rotate(-28 36 30)"/>' +
+      '<text x="50" y="63" text-anchor="middle" font-size="27" font-weight="900" fill="#fff" font-family="inherit">XP</text>' +
+    '</svg>';
+  },
+
+  // ดวงตราผลลัพธ์แบบขอบหยัก + ริบบิ้น (ok = ถูก / ผิด)
+  badge: function(ok) {
+    var main = ok ? '#4CAF50' : '#EF5350';
+    var dark = ok ? '#2E7D32' : '#C62828';
+    var light = ok ? '#81C784' : '#EF9A9A';
+    // ตราวางบนครึ่งบน ริบบิ้นอยู่ใต้ตราสนิท ไม่ทับกัน
+    var bumps = '';
+    for (var i = 0; i < 18; i++) {
+      var a = (i / 18) * Math.PI * 2;
+      bumps += '<circle cx="' + (60 + Math.cos(a) * 32).toFixed(1) + '" cy="' + (42 + Math.sin(a) * 32).toFixed(1) + '" r="6" fill="' + main + '"/>';
+    }
+    var mark = ok
+      ? '<path d="M46 43 L56 53 L76 31" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>'
+      : '<path d="M48 30 L72 54 M72 30 L48 54" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round"/>';
+    return '<svg viewBox="0 0 120 116" class="spin-art-badge" aria-hidden="true">' +
+      bumps +
+      '<circle cx="60" cy="42" r="32" fill="' + main + '"/>' +
+      '<circle cx="60" cy="42" r="26" fill="none" stroke="' + light + '" stroke-width="2.5" stroke-opacity=".85"/>' +
+      mark +
+      '<path d="M10 84 h100 l-9 12 9 12 h-100 l9-12 z" fill="' + dark + '"/>' +
+      '<text x="60" y="101" text-anchor="middle" font-size="16" font-weight="900" fill="#fff" font-family="inherit" letter-spacing="1">' +
+        (ok ? 'CORRECT!' : 'WRONG!') + '</text>' +
+    '</svg>';
+  },
+
+  // หีบสมบัติเปิดออก — ใช้บนหน้าสรุปจบวัน
+  chest: function() {
+    return '<svg viewBox="0 0 120 110" class="spin-art-chest" aria-hidden="true">' +
+      '<defs>' +
+        '<linearGradient id="sa-gold" x1="0" y1="0" x2="0" y2="1">' +
+          '<stop offset="0%" stop-color="#FFE08A"/><stop offset="100%" stop-color="#E0A020"/>' +
+        '</linearGradient>' +
+        '<linearGradient id="sa-body" x1="0" y1="0" x2="0" y2="1">' +
+          '<stop offset="0%" stop-color="#A855F7"/><stop offset="100%" stop-color="#6D28D9"/>' +
+        '</linearGradient>' +
+        '<radialGradient id="sa-shine" cx="50%" cy="50%">' +
+          '<stop offset="0%" stop-color="#FFF7CC" stop-opacity=".95"/>' +
+          '<stop offset="100%" stop-color="#FFD166" stop-opacity="0"/>' +
+        '</radialGradient>' +
+      '</defs>' +
+      // ฝาเปิดอ้าไปด้านหลัง
+      '<path d="M22 44 q38 -30 76 0 v10 q-38 -22 -76 0 z" fill="url(#sa-body)"/>' +
+      '<path d="M22 44 q38 -30 76 0" fill="none" stroke="url(#sa-gold)" stroke-width="6" stroke-linecap="round"/>' +
+      // แสงพุ่งออกจากหีบ
+      '<ellipse cx="60" cy="58" rx="40" ry="20" fill="url(#sa-shine)"/>' +
+      // ตัวหีบ
+      '<rect x="20" y="54" width="80" height="42" rx="9" fill="url(#sa-body)"/>' +
+      '<rect x="20" y="54" width="80" height="10" rx="5" fill="url(#sa-gold)"/>' +
+      '<rect x="20" y="86" width="80" height="10" rx="5" fill="url(#sa-gold)"/>' +
+      '<rect x="52" y="60" width="16" height="30" rx="4" fill="url(#sa-gold)"/>' +
+      '<circle cx="60" cy="75" r="6" fill="#8B5A00"/>' +
+      '<circle cx="60" cy="75" r="2.6" fill="#FFE08A"/>' +
+    '</svg>';
+  },
+
+  // ดาวกระจาย — วางเป็นฉากหลังของหน้าสรุป (ตำแหน่ง/ขนาดคงที่ ไม่สุ่ม จะได้ไม่กระพริบตอน re-render)
+  starBurst: function() {
+    // ดาวเล็กและจาง เป็นแค่ฉากหลัง ห้ามแย่งสายตาจากตัวเลข XP
+    var pts = [
+      [10, 22, 6, 0], [28, 9, 4, 0.4], [50, 16, 3.4, 0.8], [72, 8, 5, 0.2],
+      [90, 24, 5.5, 0.6], [6, 52, 4, 1.0], [95, 55, 4.4, 0.3],
+      [16, 80, 3.6, 0.7], [84, 84, 4.6, 0.9], [40, 92, 3.2, 0.5]
+    ];
+    var star = function(x, y, r, delay) {
+      var d = 'M' + x + ' ' + (y - r) +
+              ' Q' + (x + r * 0.16) + ' ' + (y - r * 0.16) + ' ' + (x + r) + ' ' + y +
+              ' Q' + (x + r * 0.16) + ' ' + (y + r * 0.16) + ' ' + x + ' ' + (y + r) +
+              ' Q' + (x - r * 0.16) + ' ' + (y + r * 0.16) + ' ' + (x - r) + ' ' + y +
+              ' Q' + (x - r * 0.16) + ' ' + (y - r * 0.16) + ' ' + x + ' ' + (y - r) + ' Z';
+      return '<path d="' + d + '" fill="#FFD166" class="spin-art-twinkle" style="animation-delay:' + delay + 's;"/>';
+    };
+    var out = '';
+    for (var i = 0; i < pts.length; i++) out += star(pts[i][0], pts[i][1], pts[i][2], pts[i][3]);
+    return '<svg viewBox="0 0 100 100" preserveAspectRatio="none" class="spin-art-stars" aria-hidden="true">' + out + '</svg>';
+  },
+
+  // ประกายรอบรางวัลใหญ่ (ช่อง 20 XP)
+  sparkle: function() {
+    var star = function(x, y, r, delay, color) {
+      var d = 'M' + x + ' ' + (y - r) +
+              ' Q' + (x + r * 0.18) + ' ' + (y - r * 0.18) + ' ' + (x + r) + ' ' + y +
+              ' Q' + (x + r * 0.18) + ' ' + (y + r * 0.18) + ' ' + x + ' ' + (y + r) +
+              ' Q' + (x - r * 0.18) + ' ' + (y + r * 0.18) + ' ' + (x - r) + ' ' + y +
+              ' Q' + (x - r * 0.18) + ' ' + (y - r * 0.18) + ' ' + x + ' ' + (y - r) + ' Z';
+      return '<path d="' + d + '" fill="' + color + '" class="spin-art-twinkle" style="animation-delay:' + delay + 's;"/>';
+    };
+    return '<svg viewBox="0 0 100 100" class="spin-art-sparkle" aria-hidden="true">' +
+      star(16, 26, 11, 0, '#FFD166') + star(84, 30, 9, 0.35, '#FFF3C4') +
+      star(24, 74, 8, 0.7, '#C084FC') + star(80, 72, 10, 0.5, '#FFD166') +
+      star(50, 8, 7, 0.9, '#FFF3C4') +
+    '</svg>';
+  }
+};
 
 var App = {
   state: {
@@ -73,6 +188,15 @@ var App = {
     cropperOpen: false,
     editAvatar: null,
     quiz: { questions: [], currentIndex: 0, score: 0, moduleId: 1, submitted: false, awarded: 0, alreadyDone: false },
+    // วงล้อประจำวัน — phase: idle | spinning | question | result | done
+    dailySpin: {
+      questions: [], loading: true, stateLoaded: false, qIndex: 0,
+      roundsUsed: 0, freeUsed: 0, freeLeft: 3, xpToday: 0,
+      maxRounds: 10, maxFree: 3, xpCap: 100, segments: [], restAngle: 0,
+      phase: 'idle', segmentIndex: null, prize: 0, isFree: false,
+      awarded: 0, capped: false, wonFree: false,
+      answering: false, correct: false
+    },
     flashcards: { cards: [], currentIndex: 0, moduleId: 1, submitted: false, awarded: 0, alreadyDone: false },
     admin: { tables: [], currentTable: '', headers: [], data: [], editingRow: -1 },
     dataLoaded: false,
@@ -629,15 +753,36 @@ var App = {
         if (self.state.currentRoute === 'leaderboard') self.render(true);
       }).withFailureHandler(function() {}).getLeaderboard(self.state.leaderboardFilter || null);
     } else if (route === 'dailyQuest') {
-      this.state.quiz.moduleId = 'Daily';
-      this.state.quiz.currentIndex = 0; this.state.quiz.score = 0;
-      this.state.quiz.submitted = false; this.state.quiz.awarded = 0; this.state.quiz.alreadyDone = false;
-      this.state.quiz.questions = [];
+      // วงล้อประจำวัน — ใช้คำถามชุดเดิมของ Daily Quest ข้อละ 1 รอบ
+      this.state.dailySpin = {
+        questions: [], loading: true, stateLoaded: false, qIndex: 0,
+        roundsUsed: 0, freeUsed: 0, freeLeft: 3, xpToday: 0,
+        maxRounds: 10, maxFree: 3, xpCap: 100, segments: [], restAngle: 0,
+        phase: 'idle', segmentIndex: null, prize: 0, isFree: false,
+        awarded: 0, capped: false, wonFree: false,
+        answering: false, correct: false
+      };
       this.render();
       google.script.run.withSuccessHandler(function(res) {
-        if (res.success) self.state.quiz.questions = res.data;
+        if (res && res.success) self.state.dailySpin.questions = res.data;
+        self.state.dailySpin.loading = false;
         if (self.state.currentRoute === 'dailyQuest') self.render(true);
-      }).withFailureHandler(function() { if (self.state.currentRoute === 'dailyQuest') self.render(true); }).getDailyQuest();
+      }).withFailureHandler(function() {
+        self.state.dailySpin.loading = false;
+        if (self.state.currentRoute === 'dailyQuest') self.render(true);
+      }).getDailyQuest();
+      google.script.run.withSuccessHandler(function(res) {
+        if (res && res.success) {
+          self.applySpinState(res);
+          // เริ่มที่ข้อถัดจากรอบที่เล่นไปแล้ว กลับเข้ามากลางวันจะได้ไม่เจอข้อเดิม
+          self.state.dailySpin.qIndex = res.roundsUsed || 0;
+        }
+        self.state.dailySpin.stateLoaded = true;
+        if (self.state.currentRoute === 'dailyQuest') self.render(true);
+      }).withFailureHandler(function() {
+        self.state.dailySpin.stateLoaded = true;
+        if (self.state.currentRoute === 'dailyQuest') self.render(true);
+      }).getDailySpinState(this.state.user.UserID);
     } else if (route === 'quiz') {
       var paramStr = String(params || '1');
       var parts = paramStr.split('|');
@@ -825,7 +970,8 @@ var App = {
     if (r === 'lessonGroup') return this.viewLessonGroup() + this.bottomNav('lessons');
     if (r === 'moduleDetail') return this.viewModuleDetail();
     if (r === 'lesson') return this.viewLesson();
-    if (r === 'quiz' || r === 'dailyQuest') return this.viewQuiz();
+    if (r === 'dailyQuest') return this.viewDailySpin();
+    if (r === 'quiz') return this.viewQuiz();
     if (r === 'flashcards') return this.viewFlashcards();
     if (r === 'profile') return this.viewProfile() + this.bottomNav('profile');
     if (r === 'profileEdit') return this.viewProfileEdit() + this.bottomNav('profile');
@@ -1044,7 +1190,7 @@ var App = {
       B2: { emoji: '🏅', colorLight: '#F3E8FF', label: 'Upper-Intermediate', th: 'ขั้นสูง', desc: 'ใกล้พร้อมสอบ TGAT แล้ว!' },
     };
     var recs = {
-      A1: ['Flashcards ทุกวัน — Vocab 1-5 ก่อนเลย', 'ฝึก Present Simple & Past Simple ให้แม่น', 'Daily Quest ทุกวัน เน้นข้อ Vocab'],
+      A1: ['Flashcards ทุกวัน — Vocab 1-5 ก่อนเลย', 'ฝึก Present Simple & Past Simple ให้แม่น', 'หมุนวงล้อประจำวันทุกวัน เน้นข้อ Vocab'],
       A2: ['เรียน Tenses ให้ครบก่อน (12 Tenses)', 'ขยาย Vocabulary ให้ได้ 1,500+ คำ', 'ฝึก Functional English ให้คล่อง'],
       B1: ['เน้น Grammar: Passive, Conditionals, Wish', 'ฝึก Vocabulary ระดับ Academic Word List', 'ทำโจทย์ TGAT เก่าให้ชิน Pattern ข้อสอบ'],
       B2: ['Mock Test TGAT/A-Level จับเวลาทุกสัปดาห์', 'ฝึก Reading Comprehension แบบยาว', 'เน้น Error Identification & Sentence Completion'],
@@ -1223,13 +1369,13 @@ var App = {
       '</div>' +
       // ===== HERO: สิ่งที่นักเรียนทำบ่อยที่สุด (จากข้อมูลการใช้งานจริง) =====
       '<div style="font-weight:800; font-size:14px; color:var(--clay-text-light); margin:2px 4px 10px;">วันนี้เรียนอะไรดี 🐾</div>' +
-      // Daily Quest — อันดับ 1 ของการใช้งาน
+      // วงล้อประจำวัน — อันดับ 1 ของการใช้งาน
       '<div class="card action-card" style="background:linear-gradient(145deg,#E0EEFF,#CCE0FF); box-shadow:0 6px 0 rgba(60,130,220,0.2),0 10px 20px rgba(60,130,220,0.10); margin-bottom:12px; cursor:pointer;" onclick="App.navigate(\'dailyQuest\')">' +
         '<div style="display:flex; align-items:center; gap:12px;">' +
-          '<div style="font-size:40px;">' + this.bear + '</div>' +
+          '<div style="font-size:40px;">🎡</div>' +
           '<div style="flex:1;">' +
-            '<div style="font-weight:800; font-size:15px; color:var(--clay-blue-shadow);">⭐ แบบฝึกหัดประจำวัน</div>' +
-            '<div style="font-size:12px; color:var(--clay-text-light); margin-top:4px;">โจทย์สุ่ม 10 ข้อ รับ XP พิเศษวันละครั้ง!</div>' +
+            '<div style="font-weight:800; font-size:15px; color:var(--clay-blue-shadow);">🎡 วงล้อประจำวัน</div>' +
+            '<div style="font-size:12px; color:var(--clay-text-light); margin-top:4px;">หมุนลุ้น XP วันละ 10 ครั้ง ตอบถูกรับเลย!</div>' +
           '</div>' +
           '<div style="width:36px; height:36px; border-radius:50%; background:white; box-shadow:0 4px 0 rgba(60,130,220,0.2); display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--clay-blue);">▶</div>' +
         '</div>' +
@@ -1481,7 +1627,7 @@ var App = {
         '<div class="stat-card" style="background:linear-gradient(145deg,#E0EEFF,#CCE0FF); box-shadow:0 5px 0 rgba(60,130,220,0.18);">' +
           '<div style="font-size:22px;">📅</div>' +
           '<div style="font-weight:800; font-size:17px; color:var(--clay-blue-shadow);">' + d.dailyCount + '</div>' +
-          '<div style="font-size:10px; color:var(--clay-text-light); font-weight:700;">แบบฝึกประจำวัน</div>' +
+          '<div style="font-size:10px; color:var(--clay-text-light); font-weight:700;">วันที่เล่นประจำวัน</div>' +
         '</div>' +
         '<div class="stat-card" style="background:linear-gradient(145deg,#FFF3E0,#FFE8CC); box-shadow:0 5px 0 rgba(200,140,80,0.18);">' +
           '<div style="font-size:22px;">🔤</div>' +
@@ -1985,6 +2131,439 @@ var App = {
     '</div>';
   },
 
+  /* ===== เสียงประกอบวงล้อ =====
+     สังเคราะห์สดด้วย Web Audio API ไม่ต้องโหลดไฟล์เสียง (bundle จึงไม่โต)
+     AudioContext สร้างตอนผู้ใช้กดปุ่มครั้งแรกเท่านั้น ตามข้อบังคับ autoplay ของเบราว์เซอร์
+     ปิดเสียงได้และจำค่าไว้ — สำคัญมากเพราะเด็กเปิดในห้องเรียนพร้อมกัน */
+  SFX: {
+    ctx: null,
+    muted: localStorage.getItem('lms_sfx_muted') === '1',
+    lastTick: 0,
+
+    ready: function() {
+      if (this.muted) return null;
+      if (!this.ctx) {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        try { this.ctx = new AC(); } catch (e) { return null; }
+      }
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+      return this.ctx;
+    },
+
+    // โน้ตสั้น ๆ หนึ่งตัว (ใช้ประกอบกันเป็นเสียงต่าง ๆ)
+    note: function(o) {
+      var ctx = this.ready();
+      if (!ctx) return;
+      var t0 = ctx.currentTime + (o.delay || 0);
+      var dur = o.dur || 0.12;
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.type = o.type || 'sine';
+      osc.frequency.setValueAtTime(o.f, t0);
+      if (o.f2) osc.frequency.exponentialRampToValueAtTime(o.f2, t0 + dur);
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(o.vol || 0.18, t0 + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.03);
+    },
+
+    // เสียง "แต๊ก" ตอนหมุดผ่านเข็ม — เว้นระยะขั้นต่ำกันเสียงรัวจนแตกตอนวงล้อหมุนเร็ว
+    tick: function() {
+      var now = Date.now();
+      if (now - this.lastTick < 38) return;
+      this.lastTick = now;
+      this.note({ f: 1250 + Math.random() * 260, dur: 0.035, type: 'square', vol: 0.07 });
+    },
+
+    launch: function() { this.note({ f: 180, f2: 760, dur: 0.3, type: 'triangle', vol: 0.13 }); },
+    win: function() {
+      [523, 659, 784].forEach(function(f, i) { App.SFX.note({ f: f, dur: 0.16, delay: i * 0.075, type: 'triangle', vol: 0.16 }); });
+    },
+    bigWin: function() {
+      [523, 659, 784, 1046, 1318].forEach(function(f, i) { App.SFX.note({ f: f, dur: 0.2, delay: i * 0.07, type: 'triangle', vol: 0.17 }); });
+    },
+    freeSpin: function() {
+      [784, 988, 1175, 1568, 1175, 1568].forEach(function(f, i) { App.SFX.note({ f: f, dur: 0.16, delay: i * 0.08, type: 'sine', vol: 0.16 }); });
+    },
+    wrong: function() {
+      [340, 250].forEach(function(f, i) { App.SFX.note({ f: f, dur: 0.2, delay: i * 0.13, type: 'sawtooth', vol: 0.09 }); });
+    },
+
+    toggle: function() {
+      this.muted = !this.muted;
+      localStorage.setItem('lms_sfx_muted', this.muted ? '1' : '0');
+      if (!this.muted) this.note({ f: 880, dur: 0.1, type: 'triangle', vol: 0.15 });
+    }
+  },
+
+  toggleSpinSound: function() {
+    this.SFX.toggle();
+    this.render(true);
+  },
+
+  /* ===== วงล้อประจำวัน (Daily Spin) =====
+     กติกา: หมุนวงล้อ → เห็นรางวัลค้างไว้ → ตอบคำถามถูกจึงได้ XP จริง
+     10 รอบ/วัน · ช่องวงล้อเฉลี่ย 10 XP · เพดานรวม 100 XP/วัน
+     ช่อง FREE = ตอบถูกแล้วได้หมุนใหม่โดยไม่เสียรอบ (สูงสุด 3 ครั้ง/วัน)
+     คำถามใช้ชุดเดิมของ Daily Quest (getDailyQuest) วนใช้ซ้ำเมื่อได้หมุนฟรี */
+  viewDailySpin: function() {
+    var s = this.state.dailySpin;
+
+    if (s.loading || !s.stateLoaded) {
+      return '<div class="loader">' +
+        '<div class="loader-bear">' + this.bear + '</div>' +
+        '<div class="loader-text">กำลังเตรียมวงล้อ...</div>' +
+      '</div>';
+    }
+    if (!s.questions.length) {
+      return '<div class="loader">' +
+        '<div class="loader-bear">' + this.bear + '</div>' +
+        '<div class="loader-text">ยังไม่มีข้อสอบในระบบ</div>' +
+        '<button class="btn btn-outline" style="width:auto; padding:12px 24px; margin-top:16px;" onclick="App.navigate(\'dashboard\')">กลับหน้าหลัก</button>' +
+      '</div>';
+    }
+
+    var segs = (s.segments && s.segments.length) ? s.segments
+             : [{ xp: 5 }, { xp: 10 }, { xp: 15 }, { xp: 10 }, { free: true }, { xp: 20 }, { xp: 5 }, { xp: 15 }];
+    var maxRounds = s.maxRounds || 10;
+    var outOfRounds = s.roundsUsed >= maxRounds;
+    var xpPct = Math.min(100, Math.round((s.xpToday / (s.xpCap || 100)) * 100));
+
+    var soundBtn = '<button class="spin-sound-btn" onclick="App.toggleSpinSound()" title="เปิด/ปิดเสียง">' +
+      (this.SFX.muted ? '🔇' : '🔊') + '</button>';
+
+    var header =
+      '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">' +
+        '<button onclick="App.navigate(\'dashboard\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; font-weight:700;">&#x2190; กลับ</button>' +
+        soundBtn +
+      '</div>' +
+      '<div class="card" style="padding:14px 16px; margin-bottom:16px;">' +
+        '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">' +
+          '<div style="font-weight:800; font-size:15px; color:var(--clay-purple-shadow);">🎡 วงล้อประจำวัน</div>' +
+          '<div style="font-weight:800; font-size:13px; color:var(--clay-blue-shadow);">รอบ ' + Math.min(s.roundsUsed + (outOfRounds ? 0 : 1), maxRounds) + '/' + maxRounds + '</div>' +
+        '</div>' +
+        '<div style="height:12px; border-radius:8px; background:var(--clay-gray, #EDE7F6); overflow:hidden; box-shadow:inset 0 2px 4px rgba(90,60,140,0.12);">' +
+          '<div style="height:100%; width:' + xpPct + '%; border-radius:8px; background:linear-gradient(90deg,#7ED957,#4CAF50); transition:width .4s;"></div>' +
+        '</div>' +
+        '<div style="display:flex; justify-content:space-between; margin-top:6px; font-size:11px; font-weight:700;">' +
+          '<span style="color:' + (s.freeLeft > 0 ? '#C8901E' : 'var(--clay-text-light)') + ';">🎁 หมุนฟรีเหลือ ' + (s.freeLeft != null ? s.freeLeft : 3) + '/' + (s.maxFree || 3) + '</span>' +
+          '<span style="color:var(--clay-text-light);">XP วันนี้ ' + s.xpToday + '/' + (s.xpCap || 100) + '</span>' +
+        '</div>' +
+      '</div>';
+
+    // ----- จบวันแล้ว -----
+    if (s.phase === 'done' || (outOfRounds && s.phase !== 'result')) {
+      return '<div class="page-content" style="padding-bottom:100px;">' + header +
+        '<div class="card spin-done-card" style="text-align:center; padding:28px 20px;">' +
+          '<div class="spin-done-stars">' + spinArt.starBurst() + '</div>' +
+          '<div class="spin-done-chest mascot-bounce">' + spinArt.chest() + '</div>' +
+          '<h2 class="text-title" style="color:var(--bear-brown); margin:0 0 6px;">หมุนครบแล้ววันนี้!</h2>' +
+          '<div style="font-size:26px; font-weight:900; color:var(--bear-orange); margin:10px 0 4px;">+' + s.xpToday + ' XP</div>' +
+          '<p style="font-size:13px; color:var(--clay-text-light); margin:0;">พรุ่งนี้กลับมาหมุนใหม่ได้อีก 10 ครั้งนะ 🐾</p>' +
+        '</div>' +
+        '<button class="btn btn-primary" style="margin-top:16px;" onclick="App.navigate(\'dashboard\')">กลับหน้าหลัก</button>' +
+      '</div>';
+    }
+
+    // ----- วงล้อ -----
+    var slice = 360 / segs.length;
+    var stops = [];
+    var labels = '';
+    for (var i = 0; i < segs.length; i++) {
+      var isFree = !!segs[i].free;
+      var c = isFree ? '#FFD166' : (i % 2 === 0 ? '#B794F6' : '#FFF3E0');
+      stops.push(c + ' ' + (i * slice) + 'deg ' + ((i + 1) * slice) + 'deg');
+      var txtColor = isFree ? '#8A5A00' : (i % 2 === 0 ? '#FFFFFF' : '#7B4BB7');
+      var txt = isFree ? 'FREE' : segs[i].xp;
+      var mid = i * slice + slice / 2;
+      // พลิกตัวอักษร 180° เมื่อช่องนั้นไปอยู่ครึ่งล่างของจอ ไม่งั้นอ่านกลับหัว
+      // (คิดจากมุมที่วงล้อค้างอยู่จริง ป้ายจึงอ่านออกเสมอหลังหมุนจบ)
+      var onScreen = ((mid + (s.restAngle || 0)) % 360 + 360) % 360;
+      var flip = (onScreen > 95 && onScreen < 265) ? ' rotate(180deg)' : '';
+      labels += '<div class="spin-seg-label' + (isFree ? ' is-free' : '') + '" style="transform:rotate(' + mid + 'deg);">' +
+        '<span style="color:' + txtColor + '; transform:translateX(-50%)' + flip + ';">' + txt + '</span>' +
+      '</div>';
+    }
+    var wheelInner = '<div class="spin-wheel-face" style="background:conic-gradient(' + stops.join(',') + ');">' + labels + '</div>';
+
+    // มุมค้างไว้หลังหมุนจบ (ระหว่างหมุนไม่ re-render ปล่อยให้ rAF คุมเอง)
+    var rotateStyle = (s.restAngle ? ' style="transform:rotate(' + s.restAngle + 'deg);"' : '');
+
+    var wheelBlock =
+      '<div class="spin-stage">' +
+        '<div class="spin-pointer" id="spin-pointer"></div>' +
+        '<div class="spin-wheel' + (s.phase === 'idle' ? ' is-idle' : '') + '">' +
+          '<div class="spin-wheel-rotor" id="spin-rotor"' + rotateStyle + '>' + wheelInner + '</div>' +
+          '<div class="spin-hub">' +
+            '<img src="' + mascot2Url + '" class="spin-hub-img" alt="" />' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    // ----- ปุ่ม / คำถาม / ผล ตาม phase -----
+    var body = '';
+
+    if (s.phase === 'idle') {
+      body = '<div class="spin-btn-wrap"><button class="spin-btn" onclick="App.startSpin()"><span>SPIN</span></button></div>' +
+        '<div style="font-size:12px; color:var(--clay-text-light); text-align:center; margin-top:10px; line-height:1.7;">หมุนให้ได้รางวัลก่อน แล้วตอบคำถามให้ถูก<br>ถึงจะรับ XP ไปได้จริง ๆ นะ</div>';
+
+    } else if (s.phase === 'spinning') {
+      body = '<div style="text-align:center; margin-top:20px; font-size:16px; font-weight:800; color:var(--clay-purple-shadow);">กำลังหมุน... 🌀</div>';
+
+    } else if (s.phase === 'question') {
+      var q = this.spinQuestion();
+      var opts = q._shuffled;
+      if (!opts) {
+        opts = q.options.slice();
+        for (var k = opts.length - 1; k > 0; k--) {
+          var r2 = Math.floor(Math.random() * (k + 1));
+          var tmp = opts[k]; opts[k] = opts[r2]; opts[r2] = tmp;
+        }
+        q._shuffled = opts;
+      }
+      var optHtml = '';
+      for (var m = 0; m < opts.length; m++) {
+        optHtml += '<button class="btn quiz-option" onclick="App.answerSpinQuestion(this, ' + m + ')">' + this.esc(opts[m]) + '</button>';
+      }
+      var bigWin = s.prize >= 20;
+      var prizeCard = s.isFree
+        ? '<div class="card spin-prize-card spin-prize-free" style="margin-top:16px; text-align:center;">' +
+            '<div style="font-size:12px; font-weight:800; color:#8A5A00;">หมุนติดช่องพิเศษ!</div>' +
+            '<div style="font-size:30px; font-weight:900; color:#B26A00; margin:6px 0 4px; letter-spacing:1px;">🎁 FREE SPIN</div>' +
+            '<div style="font-size:12px; color:#8A5A00;">ตอบถูก = ได้หมุนใหม่ฟรี ไม่เสียรอบ 🔓</div>' +
+          '</div>'
+        : '<div class="card spin-prize-card" style="margin-top:16px; text-align:center; background:linear-gradient(145deg,#FFF8E1,#FFECB3); box-shadow:0 6px 0 rgba(200,150,60,0.2);">' +
+            '<div style="font-size:12px; font-weight:800; color:#8D6E00;">หมุนได้รางวัล</div>' +
+            '<div class="spin-prize-orbwrap">' +
+              (bigWin ? '<div class="spin-prize-sparkle">' + spinArt.sparkle() + '</div>' : '') +
+              '<div class="spin-prize-orb">' + spinArt.orb() + '</div>' +
+            '</div>' +
+            '<div style="font-size:28px; font-weight:900; color:var(--bear-orange); margin:2px 0 4px;">' + s.prize + ' XP</div>' +
+            '<div style="font-size:12px; color:var(--clay-text-light);">ตอบให้ถูกเพื่อรับรางวัลนี้ 🔓</div>' +
+          '</div>';
+      body = prizeCard +
+        '<div class="card" style="margin-top:12px;">' +
+          '<div style="font-size:16px; font-weight:800; color:var(--clay-text); line-height:1.7;">' + this.esc(q.text) + '</div>' +
+        '</div>' +
+        '<div id="spin-options" style="margin-top:4px;">' + optHtml + '</div>';
+
+    } else if (s.phase === 'result') {
+      var qr = this.spinQuestion();
+      var isLast = s.roundsUsed >= maxRounds;
+      var okColor = s.correct ? 'var(--clay-green-shadow)' : 'var(--clay-red-shadow, #C62828)';
+      body =
+        '<div class="card" style="margin-top:16px; text-align:center; background:' +
+          (s.wonFree ? 'linear-gradient(145deg,#FFF6D9,#FFE7A8)'
+                     : (s.correct ? 'linear-gradient(145deg,#E8F5E9,#C8E6C9)' : 'linear-gradient(145deg,#FFEBEE,#FFCDD2)')) + ';">' +
+          '<div class="spin-result-badge">' + spinArt.badge(s.correct) + '</div>' +
+          '<div style="font-size:18px; font-weight:900; color:' + (s.wonFree ? '#B26A00' : okColor) + ';">' +
+            (s.wonFree ? 'ได้หมุนฟรี! 🎁' : (s.correct ? 'ถูกต้อง! 🎉' : 'ยังไม่ถูกนะ 😢')) + '</div>' +
+          (s.wonFree
+            ? '<div style="font-size:15px; font-weight:800; color:#8A5A00; margin:6px 0;">รอบนี้ไม่ถูกนับ หมุนใหม่ได้เลย</div>'
+            : '<div style="font-size:30px; font-weight:900; color:' + (s.awarded > 0 ? 'var(--bear-orange)' : 'var(--clay-text-light)') + '; margin:6px 0;">+' + s.awarded + ' XP</div>') +
+          (s.capped ? '<div style="font-size:11px; color:var(--clay-text-light); font-weight:700;">* ชนเพดาน ' + (s.xpCap || 100) + ' XP ต่อวันแล้ว</div>' : '') +
+          (!s.correct ? '<div style="font-size:13px; color:var(--clay-text); margin-top:6px;">คำตอบที่ถูก: <b>' + this.esc(qr.correctAnswer) + '</b></div>' : '') +
+          (qr.explanation ? '<div style="font-size:12px; color:var(--clay-text-light); margin-top:6px; line-height:1.7;">' + this.esc(qr.explanation) + '</div>' : '') +
+        '</div>' +
+        '<button class="btn btn-primary" style="margin-top:16px;" onclick="App.nextSpinRound()">' +
+          (s.wonFree ? 'หมุนฟรีเลย! 🎁' : (isLast ? 'ดูสรุปวันนี้ 🏁' : 'หมุนรอบต่อไป 🎡')) + '</button>';
+    }
+
+    return '<div class="page-content" style="padding-bottom:100px;">' + header + wheelBlock + body + '</div>';
+  },
+
+  // คำถามของรอบปัจจุบัน — วนใช้ซ้ำเมื่อได้หมุนฟรีจนเกินจำนวนข้อที่โหลดมา
+  spinQuestion: function() {
+    var s = this.state.dailySpin;
+    return s.questions[s.qIndex % s.questions.length];
+  },
+
+  applySpinState: function(res) {
+    var s = this.state.dailySpin;
+    ['roundsUsed', 'freeUsed', 'xpToday', 'maxRounds', 'maxFree', 'xpCap', 'freeLeft', 'roundsLeft']
+      .forEach(function(k) { if (typeof res[k] === 'number') s[k] = res[k]; });
+    if (res.segments && res.segments.length) s.segments = res.segments;
+  },
+
+  /* หมุนวงล้อด้วย requestAnimationFrame แทน CSS transition
+     เพื่อให้รู้มุมทุกเฟรม → ตีเสียง "แต๊ก" ตรงจังหวะที่หมุดผ่านเข็มได้จริง
+     และดีดเข็มให้สะบัดตามแรง เหมือนวงล้อจริง */
+  startSpin: function() {
+    var self = this;
+    var s = this.state.dailySpin;
+    if (s.phase !== 'idle') return;
+    s.phase = 'spinning';
+    s.restAngle = s.restAngle || 0;
+    this.render(true);
+    this.SFX.launch();
+
+    google.script.run.withSuccessHandler(function(res) {
+      if (!res || !res.success) { s.phase = 'idle'; self.render(true); return; }
+      self.applySpinState(res);
+      if (res.exhausted) { s.phase = 'done'; self.render(true); return; }
+
+      s.segmentIndex = res.segmentIndex;
+      s.prize = res.prize;
+      s.isFree = !!res.isFree;
+      self.animateSpin();
+    }).withFailureHandler(function() {
+      s.phase = 'idle';
+      self.toast('เชื่อมต่อไม่ได้ ลองใหม่อีกครั้งนะ');
+      self.render(true);
+    }).rollDailySpin(this.state.user.UserID);
+  },
+
+  animateSpin: function() {
+    var self = this;
+    var s = this.state.dailySpin;
+    var total = (s.segments && s.segments.length) || 8;
+    var slice = 360 / total;
+    var rotor = document.getElementById('spin-rotor');
+    var pointer = document.getElementById('spin-pointer');
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // จุดที่เข็มจะค้าง: ไม่ใช่กลางช่องเป๊ะ แต่ค่อนไปทางหมุดที่เพิ่งผ่าน (15-40% ของช่อง)
+    // ทำให้ตอนสปริงกลับวงล้อข้ามหมุดอีกครั้ง ได้เสียง "ต๊อก" ปิดท้ายเสมอ เหมือนวงล้อจริง
+    var landF = 0.15 + Math.random() * 0.25;
+    var want = s.segmentIndex * slice + landF * slice;
+    var from = s.restAngle || 0;
+    var turns = 5 + Math.floor(Math.random() * 3);            // สุ่มจำนวนรอบ 5-7
+    var target = from + turns * 360 + (((360 - want) - (from % 360)) + 360) % 360;
+
+    var settled = false;
+    var finish = function() {
+      if (settled) return;
+      settled = true;
+      s.restAngle = target % 360;
+      if (rotor) rotor.style.transform = 'rotate(' + s.restAngle + 'deg)';
+      s.phase = 'question';
+      self.render(true);
+    };
+
+    if (!rotor) { finish(); return; }
+
+    // โหมดลดการเคลื่อนไหว: ยังหมุนอยู่ (ไม่งั้นเกมหมดความหมาย) แต่สั้นลง
+    // รอบเดียว ไม่มีการสปริงเลยหมุด และไม่ดีดเข็ม
+    if (reduce) {
+      turns = 1;
+      target = from + 360 + (((360 - want) - (from % 360)) + 360) % 360;
+    }
+    var DUR = reduce ? 1100 : 3800;
+    var OVERSHOOT = reduce ? 0 : slice * 0.5;    // เลยหมุดไปแล้วสปริงกลับ ได้เสียง "ต๊อก" ปิดท้าย
+    var SETTLE_AT = reduce ? 1 : 0.88;           // สัดส่วนเวลาที่เริ่มสปริงกลับ
+
+    // มุมของวงล้อ ณ เวลา t (0..1) — ใช้ร่วมกันทั้งการวาดและการจองจังหวะเสียง
+    var angleAt = function(t) {
+      if (t < SETTLE_AT || SETTLE_AT >= 1) {
+        // ชะลอตัวแบบแรงเสียดทาน แล้วเลยเป้าหมายไปเล็กน้อย
+        // เลขชี้กำลัง 2.4 ทำให้ชะลอตัวยืดยาว ไม่ช้าฮวบตั้งแต่ต้น
+        // หมุดจึงยังผ่านเข็มเรื่อย ๆ ไม่เงียบยาวก่อนหยุด (เว้นช่วงท้ายราว 0.4 วิ)
+        var u = Math.min(1, t / SETTLE_AT);
+        return from + (target + OVERSHOOT - from) * (1 - Math.pow(1 - u, 2.4));
+      }
+      // สปริงกลับเข้าหมุด
+      var v = (t - SETTLE_AT) / (1 - SETTLE_AT);
+      return (target + OVERSHOOT) + (target - (target + OVERSHOOT)) * (1 - Math.pow(1 - v, 3));
+    };
+
+    this.scheduleSpinTicks(angleAt, slice, DUR);
+
+    var t0 = performance.now();
+    var lastAngle = from;
+    var frame = function(now) {
+      var t = Math.min(1, (now - t0) / DUR);
+      var angle = angleAt(t);
+
+      // ดีดเข็มตอนหมุดผ่าน (เฉพาะภาพ — เสียงจองไว้ล่วงหน้าแล้ว จึงไม่พึ่งเฟรมเรต)
+      if (pointer && !reduce && Math.floor(angle / slice) !== Math.floor(lastAngle / slice)) {
+        pointer.style.transform = 'translateX(-50%) rotate(-17deg)';
+        setTimeout(function() { if (pointer) pointer.style.transform = 'translateX(-50%) rotate(0deg)'; }, 70);
+      }
+      lastAngle = angle;
+      rotor.style.transform = 'rotate(' + angle + 'deg)';
+
+      if (t < 1) requestAnimationFrame(frame);
+      else finish();
+    };
+    requestAnimationFrame(frame);
+
+    // กันเหนียว: เบราว์เซอร์หยุดส่ง requestAnimationFrame เมื่อสลับแท็บ/พักจอ
+    // ถ้าไม่มีตัวนี้ วงล้อจะค้างที่ "กำลังหมุน..." ตลอดไป กลับมาแล้วเล่นต่อไม่ได้
+    setTimeout(finish, DUR + 600);
+  },
+
+  /* จองเสียง "แต๊ก" ทุกครั้งที่หมุดจะผ่านเข็ม ล่วงหน้าทั้งชุด
+     ผูกกับนาฬิกาของ AudioContext ไม่ใช่เฟรมของหน้าจอ จังหวะจึงตรงเป๊ะเสมอ
+     แม้เครื่องช้าหรือเบราว์เซอร์ลดเฟรมเรตลง (rAF ถูก throttle) */
+  scheduleSpinTicks: function(angleAt, slice, durMs) {
+    if (!this.SFX.ready()) return;
+    var STEP = 6;        // ความละเอียดในการหาเวลาที่ข้ามเส้นแบ่งช่อง (ms)
+    var MIN_GAP = 38;    // เว้นระยะขั้นต่ำ กันเสียงรัวจนแตกตอนวงล้อหมุนเร็ว
+    var last = angleAt(0);
+    var lastFired = -999;
+    for (var ms = STEP; ms <= durMs; ms += STEP) {
+      var a = angleAt(ms / durMs);
+      if (Math.floor(a / slice) !== Math.floor(last / slice) && ms - lastFired >= MIN_GAP) {
+        this.SFX.note({ f: 1250 + Math.random() * 260, dur: 0.035, type: 'square', vol: 0.07, delay: ms / 1000 });
+        lastFired = ms;
+      }
+      last = a;
+    }
+  },
+
+  answerSpinQuestion: function(btnElem, optIdx) {
+    var self = this;
+    var s = this.state.dailySpin;
+    if (s.phase !== 'question' || s.answering) return;
+    s.answering = true;
+
+    var q = this.spinQuestion();
+    var chosen = (q._shuffled && q._shuffled[optIdx] !== undefined) ? q._shuffled[optIdx] : optIdx;
+    var correct = chosen === q.correctAnswer;
+    s.correct = correct;
+
+    // ล็อกตัวเลือกทันที กันกดรัวได้ XP ซ้ำ
+    btnElem.classList.add(correct ? 'correct' : 'incorrect');
+    var box = document.getElementById('spin-options');
+    if (box) box.style.pointerEvents = 'none';
+
+    google.script.run.withSuccessHandler(function(res) {
+      s.answering = false;
+      if (!res || !res.success) { s.phase = 'result'; s.awarded = 0; s.wonFree = false; self.render(true); return; }
+      self.applySpinState(res);
+      s.awarded = res.awarded || 0;
+      s.capped = !!res.capped;
+      s.wonFree = !!res.wonFree;
+      s.phase = 'result';
+      if (s.wonFree) { self.SFX.freeSpin(); self.celebrate(50); }
+      else if (s.awarded >= 20) { self.SFX.bigWin(); self.celebrate(60); }
+      else if (s.awarded > 0) { self.SFX.win(); self.celebrate(40); }
+      else self.SFX.wrong();
+      self.render(true);
+    }).withFailureHandler(function() {
+      s.answering = false;
+      s.awarded = 0; s.capped = false; s.wonFree = false; s.phase = 'result';
+      self.toast('บันทึกไม่สำเร็จ รอบนี้ยังไม่ได้ XP');
+      self.render(true);
+    }).claimDailySpin(this.state.user.UserID, s.segmentIndex, correct);
+  },
+
+  nextSpinRound: function() {
+    var s = this.state.dailySpin;
+    s.qIndex++;                                   // ข้อถัดไป (วนซ้ำได้เมื่อหมุนฟรีจนเกินจำนวนข้อ)
+    if (s.roundsUsed >= (s.maxRounds || 10)) {
+      s.phase = 'done';
+    } else {
+      s.phase = 'idle';
+      s.segmentIndex = null; s.prize = 0; s.awarded = 0;
+      s.capped = false; s.correct = false; s.wonFree = false; s.isFree = false;
+    }
+    this.render(true);
+  },
   viewQuiz: function() {
     var qState = this.state.quiz;
     if (qState.questions.length === 0) {
@@ -2001,9 +2580,7 @@ var App = {
                 qState.score >= qState.questions.length * 0.5 ? 'ดีมากเลย! ทำต่อไปนะ!' : 'พยายามอีกนิด พี่หมีน้อยเชื่อในตัวเธอ!';
       var extraNote = '';
       var nextModBtn = '';
-      if (qState.moduleId === 'Daily') {
-        extraNote = '<div style="font-size:12px; color:var(--duo-text-light); margin-top:8px;">* Daily Quest จะได้ XP แค่วันละ 1 ครั้ง ทำซ้ำเพื่อทบทวนได้แต่ไม่ได้คะแนนเพิ่ม</div>';
-      } else if (qState.quizType) {
+      if (qState.quizType) {
         extraNote = '<div style="font-size:12px; color:var(--duo-text-light); margin-top:8px;">* แต่ละพาร์ทจะได้ XP เฉพาะครั้งแรกที่ทำ ทำซ้ำได้เพื่อทบทวน</div>';
       } else {
         var nextMid = Number(qState.moduleId) + 1;
@@ -3428,9 +4005,8 @@ var App = {
     var self = this;
     this.state.quiz.currentIndex++;
     if (this.state.quiz.currentIndex >= this.state.quiz.questions.length) {
-      var isDailyQuest = this.state.quiz.moduleId === 'Daily';
-      var effectiveType = isDailyQuest ? 'Daily' : (this.state.quiz.quizType || 'Quiz');
-      var effectiveRef = isDailyQuest ? null : Number(this.state.quiz.moduleId);
+      var effectiveType = this.state.quiz.quizType || 'Quiz';
+      var effectiveRef = Number(this.state.quiz.moduleId);
       var potentialXp = this.state.quiz.score * 10;
       this.state.quiz.submitted = false;
       google.script.run.withSuccessHandler(function(res) {

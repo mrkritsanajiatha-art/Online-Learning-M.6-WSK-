@@ -630,3 +630,264 @@
     vertical-align: middle;
     margin-left: 5px;
   }
+
+  /* ===== DAILY SPIN — วงล้อประจำวัน =====
+     วงล้อวาดด้วย conic-gradient ไม่ใช้ไฟล์ภาพ จึงคมทุกความละเอียด
+     และเปลี่ยนจำนวนช่อง/ค่า XP ได้จากข้อมูลฝั่งเซิร์ฟเวอร์ทันที */
+  .spin-stage {
+    position: relative;
+    width: 100%;
+    max-width: 300px;
+    margin: 4px auto 0;
+    aspect-ratio: 1 / 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .spin-wheel {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: var(--clay-white);
+    padding: 8px;
+    box-shadow: 0 10px 0 rgba(150,100,200,0.22), 0 16px 32px rgba(100,60,160,0.20);
+  }
+  .spin-wheel.is-idle { animation: spin-idle-glow 2.2s ease-in-out infinite; }
+
+  /* ไม่ใส่ transition — main.js ตั้ง transform เองทุกเฟรมด้วย requestAnimationFrame
+     (transition จะไปสู้กับ rAF ทำให้หมุนกระตุก และเสียง tick หลุดจังหวะ) */
+  .spin-wheel-rotor {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    overflow: hidden;
+    will-change: transform;
+  }
+  .spin-wheel-face {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+  }
+  .spin-wheel-img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+  /* ป้าย XP: หมุนแท่งจากจุดศูนย์กลางไปตามมุมกลางช่อง */
+  .spin-seg-label {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 0;
+    height: 50%;
+    transform-origin: bottom center;
+  }
+  .spin-seg-label span {
+    position: absolute;
+    top: 14%;
+    left: 50%;
+    /* transform ตั้งจาก main.js (ช่องครึ่งล่างพลิก 180° ให้อ่านออก) */
+    font-size: 17px;
+    font-weight: 900;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.15);
+  }
+
+  .spin-pointer {
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    transform-origin: 50% 15%;
+    transition: transform 0.07s ease-out;
+    width: 0;
+    height: 0;
+    border-left: 15px solid transparent;
+    border-right: 15px solid transparent;
+    border-top: 30px solid var(--bear-orange);
+    filter: drop-shadow(0 4px 4px rgba(200,110,40,0.45));
+    z-index: 3;
+  }
+  .spin-pointer-img {
+    position: absolute;
+    top: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 46px;
+    z-index: 3;
+  }
+
+  .spin-hub {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: var(--clay-white);
+    box-shadow: 0 5px 0 rgba(150,100,200,0.22), 0 8px 16px rgba(100,60,160,0.18);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    z-index: 2;
+  }
+
+  @keyframes spin-idle-glow {
+    0%, 100% { box-shadow: 0 10px 0 rgba(150,100,200,0.22), 0 16px 32px rgba(100,60,160,0.20); }
+    50%      { box-shadow: 0 10px 0 rgba(150,100,200,0.22), 0 16px 40px rgba(192,132,252,0.55); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spin-wheel-rotor { transition: transform 0.3s ease-out; }
+    .spin-wheel.is-idle { animation: none; }
+  }
+
+  /* ===== DAILY SPIN — กราฟิกที่วาดเป็น SVG ในโค้ด (ไม่มีไฟล์ภาพภายนอก) ===== */
+  .spin-hub-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    padding: 8px;
+    border-radius: 50%;
+    filter: drop-shadow(0 2px 3px rgba(90,60,140,0.28));
+  }
+
+  /* ปุ่ม SPIN — claymorphism ล้วน ๆ ด้วย CSS วงแหวนทองครอบเนื้อม่วง */
+  .spin-btn-wrap { text-align: center; margin-top: 22px; }
+  .spin-btn {
+    position: relative;
+    border: none;
+    cursor: pointer;
+    width: 190px;
+    max-width: 68%;
+    padding: 7px;
+    border-radius: 40px;
+    background: linear-gradient(160deg, #FFE08A, #E8A32A);
+    box-shadow: 0 8px 0 #B87A12, 0 14px 24px rgba(160,110,20,0.35);
+    animation: spin-btn-pulse 1.7s ease-in-out infinite;
+    transition: transform 0.1s, box-shadow 0.1s;
+    font-family: inherit;
+  }
+  .spin-btn span {
+    display: block;
+    border-radius: 33px;
+    padding: 13px 0 15px;
+    background: linear-gradient(165deg, #B77CF5, #8B44E0);
+    box-shadow: inset 0 3px 6px rgba(255,255,255,0.45), inset 0 -4px 8px rgba(70,20,130,0.4);
+    font-size: 27px;
+    font-weight: 900;
+    letter-spacing: 3px;
+    color: #FFE9A8;
+    text-shadow: 0 2px 0 #6B21A8, 0 3px 5px rgba(0,0,0,0.25);
+  }
+  .spin-btn:active {
+    transform: translateY(6px);
+    box-shadow: 0 2px 0 #B87A12, 0 5px 10px rgba(160,110,20,0.3);
+    animation: none;
+  }
+  @keyframes spin-btn-pulse {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.045); }
+  }
+
+  /* การ์ดรางวัล: ลูกแก้ว EXP + ประกายรอบ ๆ ตอนได้รางวัลใหญ่ */
+  .spin-prize-card { position: relative; }
+  .spin-prize-orbwrap {
+    position: relative;
+    width: 108px;
+    height: 86px;
+    margin: 4px auto 0;
+  }
+  .spin-prize-orb {
+    position: relative;
+    width: 78px;
+    margin: 0 auto;
+    z-index: 1;
+    filter: drop-shadow(0 5px 7px rgba(120,70,190,0.35));
+  }
+  .spin-prize-orb svg { width: 100%; height: auto; display: block; }
+  .spin-prize-sparkle {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 128px;
+    height: 128px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .spin-prize-sparkle svg { width: 100%; height: 100%; }
+
+  .spin-result-badge {
+    width: 104px;
+    margin: 0 auto 6px;
+    filter: drop-shadow(0 5px 6px rgba(60,40,90,0.28));
+  }
+  .spin-result-badge svg { width: 100%; height: auto; display: block; }
+
+  .spin-done-card { position: relative; overflow: hidden; }
+  .spin-done-stars {
+    position: absolute;
+    inset: 0;
+    opacity: 0.4;
+    pointer-events: none;
+  }
+  .spin-done-stars svg { width: 100%; height: 100%; }
+  .spin-done-chest {
+    position: relative;
+    width: 150px;
+    margin: 0 auto 10px;
+    filter: drop-shadow(0 8px 10px rgba(120,70,190,0.35));
+  }
+  .spin-done-chest svg { width: 100%; height: auto; display: block; }
+
+  /* ดาว/ประกายกะพริบสลับจังหวะกัน */
+  .spin-art-twinkle {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: spin-twinkle 1.9s ease-in-out infinite;
+  }
+  @keyframes spin-twinkle {
+    0%, 100% { opacity: 0.45; transform: scale(0.82); }
+    50%      { opacity: 1;    transform: scale(1.12); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spin-btn { animation: none; }
+    .spin-art-twinkle { animation: none; opacity: 0.9; }
+  }
+
+  /* ===== DAILY SPIN — ช่องหมุนฟรี / ปุ่มเสียง ===== */
+  .spin-seg-label.is-free span {
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    text-shadow: 0 1px 2px rgba(255,255,255,0.5);
+  }
+
+  .spin-sound-btn {
+    background: var(--clay-white);
+    border: none;
+    border-radius: 14px;
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+    cursor: pointer;
+    box-shadow: 0 4px 0 rgba(150,100,200,0.18), 0 6px 12px rgba(100,60,160,0.10);
+  }
+  .spin-sound-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(150,100,200,0.18); }
+
+  .spin-prize-free {
+    background: linear-gradient(145deg, #FFF3D0, #FFE08A);
+    box-shadow: 0 6px 0 rgba(200,150,40,0.28), 0 10px 22px rgba(200,150,40,0.18);
+    animation: spin-free-glow 1.3s ease-in-out infinite;
+  }
+  @keyframes spin-free-glow {
+    0%, 100% { box-shadow: 0 6px 0 rgba(200,150,40,0.28), 0 10px 22px rgba(200,150,40,0.18); }
+    50%      { box-shadow: 0 6px 0 rgba(200,150,40,0.28), 0 10px 30px rgba(255,190,60,0.65); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spin-prize-free { animation: none; }
+    .spin-pointer { transition: none; }
+  }
