@@ -194,7 +194,7 @@ var App = {
       roundsUsed: 0, freeUsed: 0, freeLeft: 3, xpToday: 0,
       maxRounds: 10, maxFree: 3, xpCap: 100, segments: [], restAngle: 0,
       phase: 'idle', segmentIndex: null, prize: 0, isFree: false,
-      awarded: 0, capped: false, wonFree: false,
+      awarded: 0, capped: false, wonFree: false, consolation: false,
       answering: false, correct: false
     },
     flashcards: { cards: [], currentIndex: 0, moduleId: 1, submitted: false, awarded: 0, alreadyDone: false },
@@ -759,7 +759,7 @@ var App = {
         roundsUsed: 0, freeUsed: 0, freeLeft: 3, xpToday: 0,
         maxRounds: 10, maxFree: 3, xpCap: 100, segments: [], restAngle: 0,
         phase: 'idle', segmentIndex: null, prize: 0, isFree: false,
-        awarded: 0, capped: false, wonFree: false,
+        awarded: 0, capped: false, wonFree: false, consolation: false,
         answering: false, correct: false
       };
       this.render();
@@ -2309,7 +2309,7 @@ var App = {
 
     if (s.phase === 'idle') {
       body = '<div class="spin-btn-wrap"><button class="spin-btn" onclick="App.startSpin()"><span>SPIN</span></button></div>' +
-        '<div style="font-size:12px; color:var(--clay-text-light); text-align:center; margin-top:10px; line-height:1.7;">หมุนให้ได้รางวัลก่อน แล้วตอบคำถามให้ถูก<br>ถึงจะรับ XP ไปได้จริง ๆ นะ</div>';
+        '<div style="font-size:12px; color:var(--clay-text-light); text-align:center; margin-top:10px; line-height:1.7;">หมุนให้ได้รางวัลก่อน แล้วตอบคำถามให้ถูก<br>ตอบผิดก็ยังได้ 3 XP ติดมือกลับไปนะ 💪</div>';
 
     } else if (s.phase === 'spinning') {
       body = '<div style="text-align:center; margin-top:20px; font-size:16px; font-weight:800; color:var(--clay-purple-shadow);">กำลังหมุน... 🌀</div>';
@@ -2364,7 +2364,8 @@ var App = {
             (s.wonFree ? 'ได้หมุนฟรี! 🎁' : (s.correct ? 'ถูกต้อง! 🎉' : 'ยังไม่ถูกนะ 😢')) + '</div>' +
           (s.wonFree
             ? '<div style="font-size:15px; font-weight:800; color:#8A5A00; margin:6px 0;">รอบนี้ไม่ถูกนับ หมุนใหม่ได้เลย</div>'
-            : '<div style="font-size:30px; font-weight:900; color:' + (s.awarded > 0 ? 'var(--bear-orange)' : 'var(--clay-text-light)') + '; margin:6px 0;">+' + s.awarded + ' XP</div>') +
+            : '<div style="font-size:30px; font-weight:900; color:' + (s.correct ? 'var(--bear-orange)' : '#B0779B') + '; margin:6px 0;">+' + s.awarded + ' XP</div>' +
+              (s.consolation ? '<div style="font-size:12px; font-weight:800; color:var(--clay-text-light); margin-top:-2px;">XP ปลอบใจ — ตั้งใจอีกนิดรอบหน้านะ 💪</div>' : '')) +
           (s.capped ? '<div style="font-size:11px; color:var(--clay-text-light); font-weight:700;">* ชนเพดาน ' + (s.xpCap || 100) + ' XP ต่อวันแล้ว</div>' : '') +
           (!s.correct ? '<div style="font-size:13px; color:var(--clay-text); margin-top:6px;">คำตอบที่ถูก: <b>' + this.esc(qr.correctAnswer) + '</b></div>' : '') +
           (qr.explanation ? '<div style="font-size:12px; color:var(--clay-text-light); margin-top:6px; line-height:1.7;">' + this.esc(qr.explanation) + '</div>' : '') +
@@ -2538,8 +2539,10 @@ var App = {
       s.awarded = res.awarded || 0;
       s.capped = !!res.capped;
       s.wonFree = !!res.wonFree;
+      s.consolation = !!res.consolation;
       s.phase = 'result';
       if (s.wonFree) { self.SFX.freeSpin(); self.celebrate(50); }
+      else if (!s.correct) self.SFX.wrong();          // ได้ XP ปลอบใจก็ยังคือตอบผิด
       else if (s.awarded >= 20) { self.SFX.bigWin(); self.celebrate(60); }
       else if (s.awarded > 0) { self.SFX.win(); self.celebrate(40); }
       else self.SFX.wrong();
@@ -2560,7 +2563,7 @@ var App = {
     } else {
       s.phase = 'idle';
       s.segmentIndex = null; s.prize = 0; s.awarded = 0;
-      s.capped = false; s.correct = false; s.wonFree = false; s.isFree = false;
+      s.capped = false; s.correct = false; s.wonFree = false; s.isFree = false; s.consolation = false;
     }
     this.render(true);
   },

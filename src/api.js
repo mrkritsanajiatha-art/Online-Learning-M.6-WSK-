@@ -179,7 +179,7 @@ export async function getDailyQuest() {
 
 /* ============================================================
    Daily Spin — วงล้อสุ่ม XP ประจำวัน (แทน Daily Quest เดิม)
-   หมุนวงล้อ → ได้รางวัลค้างไว้ → ตอบคำถามถูกจึงได้ XP จริง
+   หมุนวงล้อ → ได้รางวัลค้างไว้ → ตอบถูกได้เต็ม / ตอบผิดได้ XP ปลอบใจ
    เก็บผลลง scores ด้วย quiz_type='DailySpin' (แถวละ 1 รอบ)
    จึงไม่ต้อง migration และไม่ชนกับ unique index scores_once_per_ref
    ที่ครอบเฉพาะ PreTest/PostTest/Activity/Quiz/Flashcards
@@ -191,6 +191,9 @@ export const SPIN_SEGMENTS = [
 export const SPIN_MAX_ROUNDS = 10;
 export const SPIN_DAILY_XP_CAP = 100;
 export const SPIN_MAX_FREE = 3;           // เพดานหมุนฟรี/วัน กันหมุนวนไม่จบ
+// ตอบผิดยังได้ XP ปลอบใจ — เด็กที่ตั้งใจเล่นจะได้ไม่รู้สึกว่าเสียเที่ยวเปล่า
+// (ยังนับรวมในเพดาน 100 XP/วันเหมือนกัน เพดานรวมจึงไม่เปลี่ยน)
+export const SPIN_CONSOLATION_XP = 3;
 
 // แถวหมุนฟรีใช้ reference_id = 1 เป็นเครื่องหมาย เพื่อไม่ให้ถูกนับเป็นรอบที่ใช้ไป
 const FREE_REF = 1;
@@ -260,9 +263,9 @@ export async function claimDailySpin(userId, segmentIndex, correct) {
 
   const idx = Number(segmentIndex);
   const seg = (idx >= 0 && idx < SPIN_SEGMENTS.length) ? SPIN_SEGMENTS[idx] : { xp: 0 };
-  // ตอบถูกเท่านั้นถึงได้รางวัล — ตอบผิดตัดรอบทิ้งเสมอ (แม้จะหมุนติดช่องฟรี)
+  // ตอบถูกถึงได้รางวัลเต็ม — ตอบผิดได้ XP ปลอบใจและตัดรอบทิ้ง (แม้จะหมุนติดช่องฟรี)
   const wonFree = !!(correct && seg.free && freeUsed < SPIN_MAX_FREE);
-  const prize = correct ? (seg.free ? (wonFree ? 0 : 10) : seg.xp) : 0;
+  const prize = correct ? (seg.free ? (wonFree ? 0 : 10) : seg.xp) : SPIN_CONSOLATION_XP;
   const awarded = Math.max(0, Math.min(prize, SPIN_DAILY_XP_CAP - xpToday));
 
   // เขียนแถวเสมอ (แม้ awarded = 0) — แถวปกติ = ตัด 1 รอบ, แถวฟรี = ไม่กินรอบ
@@ -281,6 +284,7 @@ export async function claimDailySpin(userId, segmentIndex, correct) {
       exhausted: false,
       awarded,
       wonFree,
+      consolation: !correct && awarded > 0,   // XP ที่ได้มาจากการปลอบใจ ไม่ใช่รางวัล
       capped: awarded < prize   // โดนเพดาน 100 XP/วัน ตัด
     }
   );
