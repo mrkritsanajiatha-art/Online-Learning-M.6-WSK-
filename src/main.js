@@ -192,9 +192,9 @@ var App = {
     dailySpin: {
       questions: [], loading: true, stateLoaded: false, qIndex: 0,
       roundsUsed: 0, freeUsed: 0, freeLeft: 3, xpToday: 0,
-      maxRounds: 10, maxFree: 3, xpCap: 100, segments: [], restAngle: 0,
+      maxRounds: 5, maxFree: 3, segments: [], restAngle: 0,
       phase: 'idle', segmentIndex: null, prize: 0, isFree: false,
-      awarded: 0, capped: false, wonFree: false, consolation: false,
+      awarded: 0, wonFree: false, consolation: false,
       answering: false, correct: false
     },
     flashcards: { cards: [], currentIndex: 0, moduleId: 1, submitted: false, awarded: 0, alreadyDone: false },
@@ -757,9 +757,9 @@ var App = {
       this.state.dailySpin = {
         questions: [], loading: true, stateLoaded: false, qIndex: 0,
         roundsUsed: 0, freeUsed: 0, freeLeft: 3, xpToday: 0,
-        maxRounds: 10, maxFree: 3, xpCap: 100, segments: [], restAngle: 0,
+        maxRounds: 5, maxFree: 3, segments: [], restAngle: 0,
         phase: 'idle', segmentIndex: null, prize: 0, isFree: false,
-        awarded: 0, capped: false, wonFree: false, consolation: false,
+        awarded: 0, wonFree: false, consolation: false,
         answering: false, correct: false
       };
       this.render();
@@ -1375,7 +1375,7 @@ var App = {
           '<div style="font-size:40px;">🎡</div>' +
           '<div style="flex:1;">' +
             '<div style="font-weight:800; font-size:15px; color:var(--clay-blue-shadow);">🎡 วงล้อประจำวัน</div>' +
-            '<div style="font-size:12px; color:var(--clay-text-light); margin-top:4px;">หมุนลุ้น XP วันละ 10 ครั้ง ตอบถูกรับเลย!</div>' +
+            '<div style="font-size:12px; color:var(--clay-text-light); margin-top:4px;">หมุนลุ้น XP วันละ 5 ครั้ง ตอบถูกรับเลย!</div>' +
           '</div>' +
           '<div style="width:36px; height:36px; border-radius:50%; background:white; box-shadow:0 4px 0 rgba(60,130,220,0.2); display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--clay-blue);">▶</div>' +
         '</div>' +
@@ -2207,7 +2207,7 @@ var App = {
 
   /* ===== วงล้อประจำวัน (Daily Spin) =====
      กติกา: หมุนวงล้อ → เห็นรางวัลค้างไว้ → ตอบคำถามถูกจึงได้ XP จริง
-     10 รอบ/วัน · ช่องวงล้อเฉลี่ย 10 XP · เพดานรวม 100 XP/วัน
+     5 รอบ/วัน · ช่องวงล้อ 5-20 XP · ไม่มีเพดาน XP แยก (5 รอบ x 20 = 100 XP คือสูงสุดอยู่แล้ว)
      ช่อง FREE = ตอบถูกแล้วได้หมุนใหม่โดยไม่เสียรอบ (สูงสุด 3 ครั้ง/วัน)
      คำถามใช้ชุดเดิมของ Daily Quest (getDailyQuest) วนใช้ซ้ำเมื่อได้หมุนฟรี */
   viewDailySpin: function() {
@@ -2229,9 +2229,9 @@ var App = {
 
     var segs = (s.segments && s.segments.length) ? s.segments
              : [{ xp: 5 }, { xp: 10 }, { xp: 15 }, { xp: 10 }, { free: true }, { xp: 20 }, { xp: 5 }, { xp: 15 }];
-    var maxRounds = s.maxRounds || 10;
+    var maxRounds = s.maxRounds || 5;
     var outOfRounds = s.roundsUsed >= maxRounds;
-    var xpPct = Math.min(100, Math.round((s.xpToday / (s.xpCap || 100)) * 100));
+    var roundPct = Math.min(100, Math.round((s.roundsUsed / maxRounds) * 100));
 
     var soundBtn = '<button class="spin-sound-btn" onclick="App.toggleSpinSound()" title="เปิด/ปิดเสียง">' +
       (this.SFX.muted ? '🔇' : '🔊') + '</button>';
@@ -2247,11 +2247,11 @@ var App = {
           '<div style="font-weight:800; font-size:13px; color:var(--clay-blue-shadow);">รอบ ' + Math.min(s.roundsUsed + (outOfRounds ? 0 : 1), maxRounds) + '/' + maxRounds + '</div>' +
         '</div>' +
         '<div style="height:12px; border-radius:8px; background:var(--clay-gray, #EDE7F6); overflow:hidden; box-shadow:inset 0 2px 4px rgba(90,60,140,0.12);">' +
-          '<div style="height:100%; width:' + xpPct + '%; border-radius:8px; background:linear-gradient(90deg,#7ED957,#4CAF50); transition:width .4s;"></div>' +
+          '<div style="height:100%; width:' + roundPct + '%; border-radius:8px; background:linear-gradient(90deg,#7ED957,#4CAF50); transition:width .4s;"></div>' +
         '</div>' +
         '<div style="display:flex; justify-content:space-between; margin-top:6px; font-size:11px; font-weight:700;">' +
           '<span style="color:' + (s.freeLeft > 0 ? '#C8901E' : 'var(--clay-text-light)') + ';">🎁 หมุนฟรีเหลือ ' + (s.freeLeft != null ? s.freeLeft : 3) + '/' + (s.maxFree || 3) + '</span>' +
-          '<span style="color:var(--clay-text-light);">XP วันนี้ ' + s.xpToday + '/' + (s.xpCap || 100) + '</span>' +
+          '<span style="color:var(--clay-text-light);">XP วันนี้ ' + s.xpToday + '</span>' +
         '</div>' +
       '</div>';
 
@@ -2263,7 +2263,7 @@ var App = {
           '<div class="spin-done-chest mascot-bounce">' + spinArt.chest() + '</div>' +
           '<h2 class="text-title" style="color:var(--bear-brown); margin:0 0 6px;">หมุนครบแล้ววันนี้!</h2>' +
           '<div style="font-size:26px; font-weight:900; color:var(--bear-orange); margin:10px 0 4px;">+' + s.xpToday + ' XP</div>' +
-          '<p style="font-size:13px; color:var(--clay-text-light); margin:0;">พรุ่งนี้กลับมาหมุนใหม่ได้อีก 10 ครั้งนะ 🐾</p>' +
+          '<p style="font-size:13px; color:var(--clay-text-light); margin:0;">พรุ่งนี้กลับมาหมุนใหม่ได้อีก 5 ครั้งนะ 🐾</p>' +
         '</div>' +
         '<button class="btn btn-primary" style="margin-top:16px;" onclick="App.navigate(\'dashboard\')">กลับหน้าหลัก</button>' +
       '</div>';
@@ -2366,7 +2366,6 @@ var App = {
             ? '<div style="font-size:15px; font-weight:800; color:#8A5A00; margin:6px 0;">รอบนี้ไม่ถูกนับ หมุนใหม่ได้เลย</div>'
             : '<div style="font-size:30px; font-weight:900; color:' + (s.correct ? 'var(--bear-orange)' : '#B0779B') + '; margin:6px 0;">+' + s.awarded + ' XP</div>' +
               (s.consolation ? '<div style="font-size:12px; font-weight:800; color:var(--clay-text-light); margin-top:-2px;">XP ปลอบใจ — ตั้งใจอีกนิดรอบหน้านะ 💪</div>' : '')) +
-          (s.capped ? '<div style="font-size:11px; color:var(--clay-text-light); font-weight:700;">* ชนเพดาน ' + (s.xpCap || 100) + ' XP ต่อวันแล้ว</div>' : '') +
           (!s.correct ? '<div style="font-size:13px; color:var(--clay-text); margin-top:6px;">คำตอบที่ถูก: <b>' + this.esc(qr.correctAnswer) + '</b></div>' : '') +
           (qr.explanation ? '<div style="font-size:12px; color:var(--clay-text-light); margin-top:6px; line-height:1.7;">' + this.esc(qr.explanation) + '</div>' : '') +
         '</div>' +
@@ -2385,7 +2384,7 @@ var App = {
 
   applySpinState: function(res) {
     var s = this.state.dailySpin;
-    ['roundsUsed', 'freeUsed', 'xpToday', 'maxRounds', 'maxFree', 'xpCap', 'freeLeft', 'roundsLeft']
+    ['roundsUsed', 'freeUsed', 'xpToday', 'maxRounds', 'maxFree', 'freeLeft', 'roundsLeft']
       .forEach(function(k) { if (typeof res[k] === 'number') s[k] = res[k]; });
     if (res.segments && res.segments.length) s.segments = res.segments;
   },
@@ -2537,7 +2536,6 @@ var App = {
       if (!res || !res.success) { s.phase = 'result'; s.awarded = 0; s.wonFree = false; self.render(true); return; }
       self.applySpinState(res);
       s.awarded = res.awarded || 0;
-      s.capped = !!res.capped;
       s.wonFree = !!res.wonFree;
       s.consolation = !!res.consolation;
       s.phase = 'result';
@@ -2549,7 +2547,7 @@ var App = {
       self.render(true);
     }).withFailureHandler(function() {
       s.answering = false;
-      s.awarded = 0; s.capped = false; s.wonFree = false; s.phase = 'result';
+      s.awarded = 0; s.wonFree = false; s.phase = 'result';
       self.toast('บันทึกไม่สำเร็จ รอบนี้ยังไม่ได้ XP');
       self.render(true);
     }).claimDailySpin(this.state.user.UserID, s.segmentIndex, correct);
@@ -2558,12 +2556,12 @@ var App = {
   nextSpinRound: function() {
     var s = this.state.dailySpin;
     s.qIndex++;                                   // ข้อถัดไป (วนซ้ำได้เมื่อหมุนฟรีจนเกินจำนวนข้อ)
-    if (s.roundsUsed >= (s.maxRounds || 10)) {
+    if (s.roundsUsed >= (s.maxRounds || 5)) {
       s.phase = 'done';
     } else {
       s.phase = 'idle';
       s.segmentIndex = null; s.prize = 0; s.awarded = 0;
-      s.capped = false; s.correct = false; s.wonFree = false; s.isFree = false; s.consolation = false;
+      s.correct = false; s.wonFree = false; s.isFree = false; s.consolation = false;
     }
     this.render(true);
   },

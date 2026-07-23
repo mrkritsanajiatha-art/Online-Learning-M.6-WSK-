@@ -188,12 +188,15 @@ export const SPIN_SEGMENTS = [
   { xp: 5 }, { xp: 10 }, { xp: 15 }, { xp: 10 },
   { free: true }, { xp: 20 }, { xp: 5 }, { xp: 15 }
 ];                                        // XP รวม 80 / 8 ช่อง = เฉลี่ย 10 XP + 1 ช่องหมุนฟรี
-export const SPIN_MAX_ROUNDS = 10;
-export const SPIN_DAILY_XP_CAP = 100;
+export const SPIN_MAX_ROUNDS = 5;
+export const SPIN_MAX_PRIZE = 20;         // ช่องที่จ่ายสูงสุด — ใช้เป็น max_score ของแถว
 export const SPIN_MAX_FREE = 3;           // เพดานหมุนฟรี/วัน กันหมุนวนไม่จบ
 // ตอบผิดยังได้ XP ปลอบใจ — เด็กที่ตั้งใจเล่นจะได้ไม่รู้สึกว่าเสียเที่ยวเปล่า
-// (ยังนับรวมในเพดาน 100 XP/วันเหมือนกัน เพดานรวมจึงไม่เปลี่ยน)
 export const SPIN_CONSOLATION_XP = 3;
+
+/* ไม่มีเพดาน XP รายวันแยกต่างหาก เพราะจำนวนรอบคุมเพดานอยู่แล้ว:
+   5 รอบ x ช่องสูงสุด 20 XP = 100 XP/วัน คือค่าสูงสุดที่เป็นไปได้
+   ช่อง FREE จ่าย 0 XP แล้วคืนรอบให้ จึงเพิ่มจำนวนครั้งที่หมุน แต่ไม่ดันเพดานขึ้น */
 
 // แถวหมุนฟรีใช้ reference_id = 1 เป็นเครื่องหมาย เพื่อไม่ให้ถูกนับเป็นรอบที่ใช้ไป
 const FREE_REF = 1;
@@ -221,10 +224,8 @@ function spinStatePayload(roundsUsed, freeUsed, xpToday) {
     xpToday,
     roundsLeft: Math.max(0, SPIN_MAX_ROUNDS - roundsUsed),
     freeLeft: Math.max(0, SPIN_MAX_FREE - freeUsed),
-    xpLeft: Math.max(0, SPIN_DAILY_XP_CAP - xpToday),
     maxRounds: SPIN_MAX_ROUNDS,
     maxFree: SPIN_MAX_FREE,
-    xpCap: SPIN_DAILY_XP_CAP,
     segments: SPIN_SEGMENTS
   };
 }
@@ -258,21 +259,20 @@ export async function claimDailySpin(userId, segmentIndex, correct) {
   const uid = String(userId).trim();
   const { roundsUsed, freeUsed, xpToday } = await readSpinToday(uid);
   if (roundsUsed >= SPIN_MAX_ROUNDS) {
-    return Object.assign(spinStatePayload(roundsUsed, freeUsed, xpToday), { exhausted: true, awarded: 0, capped: false });
+    return Object.assign(spinStatePayload(roundsUsed, freeUsed, xpToday), { exhausted: true, awarded: 0 });
   }
 
   const idx = Number(segmentIndex);
   const seg = (idx >= 0 && idx < SPIN_SEGMENTS.length) ? SPIN_SEGMENTS[idx] : { xp: 0 };
   // ตอบถูกถึงได้รางวัลเต็ม — ตอบผิดได้ XP ปลอบใจและตัดรอบทิ้ง (แม้จะหมุนติดช่องฟรี)
   const wonFree = !!(correct && seg.free && freeUsed < SPIN_MAX_FREE);
-  const prize = correct ? (seg.free ? (wonFree ? 0 : 10) : seg.xp) : SPIN_CONSOLATION_XP;
-  const awarded = Math.max(0, Math.min(prize, SPIN_DAILY_XP_CAP - xpToday));
+  const awarded = correct ? (seg.free ? (wonFree ? 0 : 10) : seg.xp) : SPIN_CONSOLATION_XP;
 
   // เขียนแถวเสมอ (แม้ awarded = 0) — แถวปกติ = ตัด 1 รอบ, แถวฟรี = ไม่กินรอบ
   const { error: insErr } = await supabase.from('scores').insert([{
     user_id: uid, quiz_type: 'DailySpin',
     reference_id: wonFree ? FREE_REF : null,
-    score: awarded, max_score: SPIN_DAILY_XP_CAP, time_spent: 0
+    score: awarded, max_score: SPIN_MAX_PRIZE, time_spent: 0
   }]);
   if (insErr) return { success: false, message: insErr.message };
 
@@ -284,8 +284,7 @@ export async function claimDailySpin(userId, segmentIndex, correct) {
       exhausted: false,
       awarded,
       wonFree,
-      consolation: !correct && awarded > 0,   // XP ที่ได้มาจากการปลอบใจ ไม่ใช่รางวัล
-      capped: awarded < prize   // โดนเพดาน 100 XP/วัน ตัด
+      consolation: !correct && awarded > 0   // XP ที่ได้มาจากการปลอบใจ ไม่ใช่รางวัล
     }
   );
 }
