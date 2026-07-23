@@ -2207,7 +2207,7 @@ var App = {
 
   /* ===== วงล้อประจำวัน (Daily Spin) =====
      กติกา: หมุนวงล้อ → เห็นรางวัลค้างไว้ → ตอบคำถามถูกจึงได้ XP จริง
-     5 รอบ/วัน · ช่องวงล้อ 5-20 XP · ไม่มีเพดาน XP แยก (5 รอบ x 20 = 100 XP คือสูงสุดอยู่แล้ว)
+     5 รอบ/วัน · ช่องวงล้อ 5-40 XP · ไม่มีเพดาน XP แยก (5 รอบ x 40 = 200 XP คือสูงสุดอยู่แล้ว)
      ช่อง FREE = ตอบถูกแล้วได้หมุนใหม่โดยไม่เสียรอบ (สูงสุด 3 ครั้ง/วัน)
      คำถามใช้ชุดเดิมของ Daily Quest (getDailyQuest) วนใช้ซ้ำเมื่อได้หมุนฟรี */
   viewDailySpin: function() {
@@ -2228,7 +2228,7 @@ var App = {
     }
 
     var segs = (s.segments && s.segments.length) ? s.segments
-             : [{ xp: 5 }, { xp: 10 }, { xp: 15 }, { xp: 10 }, { free: true }, { xp: 20 }, { xp: 5 }, { xp: 15 }];
+             : [{ xp: 40 }, { xp: 10 }, { xp: 25 }, { xp: 5 }, { free: true }, { xp: 30 }, { xp: 15 }, { xp: 20 }];
     var maxRounds = s.maxRounds || 5;
     var outOfRounds = s.roundsUsed >= maxRounds;
     var roundPct = Math.min(100, Math.round((s.roundsUsed / maxRounds) * 100));
@@ -2329,7 +2329,7 @@ var App = {
       for (var m = 0; m < opts.length; m++) {
         optHtml += '<button class="btn quiz-option" onclick="App.answerSpinQuestion(this, ' + m + ')">' + this.esc(opts[m]) + '</button>';
       }
-      var bigWin = s.prize >= 20;
+      var bigWin = s.prize >= 30;
       var prizeCard = s.isFree
         ? '<div class="card spin-prize-card spin-prize-free" style="margin-top:16px; text-align:center;">' +
             '<div style="font-size:12px; font-weight:800; color:#8A5A00;">หมุนติดช่องพิเศษ!</div>' +
@@ -2541,7 +2541,7 @@ var App = {
       s.phase = 'result';
       if (s.wonFree) { self.SFX.freeSpin(); self.celebrate(50); }
       else if (!s.correct) self.SFX.wrong();          // ได้ XP ปลอบใจก็ยังคือตอบผิด
-      else if (s.awarded >= 20) { self.SFX.bigWin(); self.celebrate(60); }
+      else if (s.awarded >= 30) { self.SFX.bigWin(); self.celebrate(60); }
       else if (s.awarded > 0) { self.SFX.win(); self.celebrate(40); }
       else self.SFX.wrong();
       self.render(true);
