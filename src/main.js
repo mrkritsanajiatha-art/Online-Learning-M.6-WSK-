@@ -2510,6 +2510,34 @@ var App = {
     if (res.segments && res.segments.length) s.segments = res.segments;
   },
 
+  startSpin: function() {
+    var self = this;
+    var s = this.state.dailySpin;
+    if (s.phase !== 'idle') return;
+    s.phase = 'spinning';
+    s.restAngle = s.restAngle || 0;
+    this.render(true);
+    this.SFX.launch();
+
+    google.script.run.withSuccessHandler(function(res) {
+      if (!res || !res.success) { s.phase = 'idle'; self.render(true); return; }
+      self.applySpinState(res);
+      if (res.exhausted) { s.phase = 'done'; self.render(true); return; }
+
+      s.segmentIndex = res.segmentIndex;
+      s.prize = res.prize;
+      s.isFree = !!res.isFree;
+      self.animateSpin();
+    }).withFailureHandler(function(e) {
+      // shim ครอบ success handler ไว้ใน try/catch ด้วย error ที่เกิดตอนเริ่มอนิเมชัน
+      // จึงมาโผล่ที่นี่และดูเหมือน "เน็ตมีปัญหา" — log ไว้ให้ตามต่อได้
+      if (e) console.error('startSpin failed:', e);
+      s.phase = 'idle';
+      self.toast('เริ่มหมุนไม่สำเร็จ ลองใหม่อีกครั้งนะ');
+      self.render(true);
+    }).rollDailySpin(this.state.user.UserID);
+  },
+
   /* หมุนวงล้อด้วย requestAnimationFrame
      เก็บ "แผนการเคลื่อนที่" ไว้ใน state เพื่อให้ stopSpin() วางแผนใหม่กลางอากาศได้
      ผลรางวัลถูกสุ่มจากเซิร์ฟเวอร์ไปแล้ว การกดหยุดจึงย่นเวลา ไม่ได้เปลี่ยนช่องที่จะลง */
