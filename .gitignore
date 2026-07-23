@@ -13,3 +13,6 @@ seed_*.js
 # เฉลยข้อสอบ — ลงฐานข้อมูลไปแล้ว เก็บไว้เป็นสำเนาในเครื่องเท่านั้น
 seed_midterm.json
 seed_midterm_content.sql
+# ไฟล์ export รายชื่อผู้สมัคร — มีชื่อ เบอร์โทร อีเมล และสถานะการชำระเงิน
+registrations_*.csv
+registrations_*.xlsx

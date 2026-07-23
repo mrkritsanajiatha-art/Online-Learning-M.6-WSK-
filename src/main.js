@@ -544,7 +544,9 @@ var App = {
       } catch(e) {}
     }
     if (this.state.user) {
-      if (this.isAdmin() && !this.state.studentMode) this.navigate('admin');
+      // ขออีเมลก่อนเข้าหน้าไหนก็ตาม — แอดมินก็ลืมรหัสได้เหมือนกัน
+      if (this.needsContactInfo()) this.navigate('contactInfo');
+      else if (this.isAdmin() && !this.state.studentMode) this.navigate('admin');
       else this.afterAuth();
     } else {
       this.render();
@@ -588,6 +590,57 @@ var App = {
       '</div>';
   },
 
+  /* ปลายทางหลังล็อกอิน เรียงตามความจำเป็น:
+     ยังไม่มีอีเมล (และยังไม่ได้ข้ามของวันนี้) → ขออีเมลก่อน
+     ยังไม่เคยวัดระดับ → placement test
+     นอกนั้น → แดชบอร์ด                                            */
+  authLanding: function() {
+    if (this.needsContactInfo()) return 'contactInfo';
+    return this.afterContactRoute();
+  },
+
+  // ยังไม่มีอีเมลในระบบ และยังไม่ได้กด "ข้ามไปก่อน" ของวันนี้
+  needsContactInfo: function() {
+    var u = this.state.user;
+    return !!(u && !u.Email && !this.contactSkippedToday());
+  },
+
+  // ปลายทางหลังผ่านด่านอีเมลแล้ว — ครูกลับหน้าครู นักเรียนไปวัดระดับ/แดชบอร์ด
+  afterContactRoute: function() {
+    if (this.isAdmin() && !this.state.studentMode) return 'admin';
+    return (this.state.user && this.state.user.PlacementDone) ? 'dashboard' : 'placementTest';
+  },
+
+  // "ข้ามไปก่อน" มีอายุแค่วันนี้ — พรุ่งนี้เด้งใหม่ เพราะบัญชีที่ไม่มีอีเมลกู้รหัสไม่ได้เลย
+  contactSkippedToday: function() {
+    return localStorage.getItem('lms_contact_skip') === this.todayTH();
+  },
+
+  skipContactInfo: function() {
+    localStorage.setItem('lms_contact_skip', this.todayTH());
+    this.navigate(this.afterContactRoute());
+  },
+
+  saveContactInfo: function() {
+    var self = this;
+    var email = (document.getElementById('contact-email') || {}).value || '';
+    var phone = (document.getElementById('contact-phone') || {}).value || '';
+    var st = document.getElementById('contact-status');
+    var show = function(color, msg) { if (st) { st.style.color = color; st.innerText = msg; } };
+    if (!email.trim()) { show('var(--clay-red)', 'กรุณากรอกอีเมล'); return; }
+    show('var(--clay-text-light)', 'กำลังบันทึก... ⏳');
+    google.script.run.withSuccessHandler(function(res) {
+      if (!res.success) { show('var(--clay-red)', res.message || 'บันทึกไม่สำเร็จ'); return; }
+      self.state.user.Email = res.email;
+      self.state.user.Phone = res.phone;
+      localStorage.setItem('lms_user', JSON.stringify(self.state.user));
+      self.toast('✅ บันทึกอีเมลแล้ว');
+      self.navigate(self.afterContactRoute());
+    }).withFailureHandler(function(e) {
+      show('var(--clay-red)', 'Error: ' + e.message);
+    }).updateContactInfo(this.state.user.UserID, email, phone);
+  },
+
   afterAuth: function() {
     // Record login → real streak + daily bonus, then route to placement test (first-time) or dashboard
     var self = this;
@@ -602,11 +655,9 @@ var App = {
           }, 600);
         }
       }
-      var goTo = (self.state.user && self.state.user.PlacementDone) ? 'dashboard' : 'placementTest';
-      self.navigate(goTo);
+      self.navigate(self.authLanding());
     }).withFailureHandler(function() {
-      var goTo = (self.state.user && self.state.user.PlacementDone) ? 'dashboard' : 'placementTest';
-      self.navigate(goTo);
+      self.navigate(self.authLanding());
     }).recordLogin(this.state.user.UserID);
     this.loadAnnouncement();
   },
@@ -821,7 +872,8 @@ var App = {
     var self = this;
     // Stop any running QR scanner camera when navigating away
     this.stopQRScanner();
-    if (!this.state.user && route !== 'login' && route !== 'register') {
+    // หน้าที่เข้าได้ทั้งที่ยังไม่ล็อกอิน (ลืมรหัสผ่านต้องเข้าได้ ไม่งั้นก็กู้ไม่ได้)
+    if (!this.state.user && route !== 'login' && route !== 'register' && route !== 'forgotPassword') {
       route = 'login';
     }
     this.state.currentRoute = route;
@@ -1096,6 +1148,8 @@ var App = {
     var r = this.state.currentRoute;
     if (r === 'login') return this.viewLogin();
     if (r === 'register') return this.viewRegister();
+    if (r === 'forgotPassword') return this.viewForgotPassword();
+    if (r === 'contactInfo') return this.viewContactInfo();
     if (r === 'dashboard') return this.viewDashboard() + this.bottomNav('home');
     if (r === 'lessons') return this.viewLessons() + this.bottomNav('lessons');
     if (r === 'lessonGroup') return this.viewLessonGroup() + this.bottomNav('lessons');
@@ -1197,6 +1251,9 @@ var App = {
         '<input type="password" class="input-field" placeholder="🔒 Password" id="password">' +
         '<button class="btn btn-primary" onclick="App.handleLogin()">🐻 เข้าสู่ระบบ</button>' +
         '<button class="btn btn-outline" onclick="App.navigate(\'register\')">สมัครสมาชิกใหม่</button>' +
+        '<div style="text-align:center; margin-top:12px;">' +
+          '<span onclick="App.navigate(\'forgotPassword\')" style="font-size:13px; font-weight:700; color:var(--clay-purple); cursor:pointer; text-decoration:underline;">ลืมรหัสผ่าน?</span>' +
+        '</div>' +
       '</div>' +
       // ชื่อคนห่อด้วย .no-break กันเบราว์เซอร์หักกลางคำไทย (ไทยไม่มีช่องว่างระหว่างคำ)
       '<div style="margin-top: 20px; text-align: center; font-size: 11px; line-height: 1.9; color: var(--clay-text-light);">' +
@@ -1226,11 +1283,61 @@ var App = {
         '</select>' +
         '<input type="number" class="input-field" placeholder="เลขที่" id="reg-number">' +
         '<input type="text" class="input-field" placeholder="รหัสนักเรียน" id="reg-studentid">' +
+        '<input type="email" class="input-field" placeholder="📧 อีเมล (ใช้กู้รหัสผ่านเวลาลืม)" id="reg-email">' +
+        '<input type="tel" class="input-field" placeholder="📱 เบอร์โทร (ไม่บังคับ)" id="reg-phone">' +
         '<input type="text" class="input-field" placeholder="Username" id="reg-username">' +
         '<input type="password" class="input-field" placeholder="Password" id="reg-password">' +
         '<input type="password" class="input-field" placeholder="ยืนยัน Password" id="reg-confirm-password">' +
         '<button class="btn btn-primary" onclick="App.handleRegister()">สมัครสมาชิก</button>' +
         '<button class="btn btn-outline" onclick="App.navigate(\'login\')">มีบัญชีอยู่แล้ว?</button>' +
+      '</div>' +
+    '</div>';
+  },
+
+  /* ===== ลืมรหัสผ่าน =====
+     กรอกอีเมลที่ผูกไว้ → ระบบส่งรหัสไปให้ทางเมล
+     ไม่ต้องล็อกอิน จึงต้องอยู่ใน whitelist ของ navigate() ด้วย        */
+  viewForgotPassword: function() {
+    return '<div class="page-content" style="display:flex; flex-direction:column; justify-content:center; min-height:100%;">' +
+      '<div class="text-center" style="margin-bottom:20px;">' +
+        '<div class="mascot-bounce" style="font-size:72px; filter:drop-shadow(0 8px 0 rgba(200,140,80,0.3));">' + this.bear + '</div>' +
+        '<h2 class="text-title" style="background:linear-gradient(135deg,var(--bear-brown),var(--clay-purple)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; margin-bottom:4px;">ลืมรหัสผ่าน</h2>' +
+        '<p style="font-size:13px; color:var(--clay-text-light); margin:0;">ไม่เป็นไร พี่หมีน้อยส่งไปให้ทางอีเมลได้! 🐾</p>' +
+      '</div>' +
+      '<div class="card" style="padding:20px;">' +
+        '<div style="font-size:13px; color:var(--clay-text-light); line-height:1.9; margin-bottom:12px;">' +
+          'กรอกอีเมลที่เคยผูกไว้กับบัญชี ระบบจะส่ง <b>Username และรหัสผ่าน</b> ไปให้ที่เมลนั้น' +
+        '</div>' +
+        '<input type="email" class="input-field" placeholder="📧 อีเมลของเธอ" id="forgot-email" onkeydown="if(event.key===\'Enter\')App.handleForgotPassword()">' +
+        '<div id="forgot-status" style="text-align:center; font-size:13px; font-weight:700; line-height:1.8; margin-bottom:10px;"></div>' +
+        '<button class="btn btn-primary" id="forgot-btn" onclick="App.handleForgotPassword()">📨 ส่งรหัสผ่านไปที่อีเมล</button>' +
+        '<button class="btn btn-outline" onclick="App.navigate(\'login\')">กลับไปหน้าเข้าสู่ระบบ</button>' +
+      '</div>' +
+      '<div style="text-align:center; font-size:12px; color:var(--clay-text-light); line-height:1.9; margin-top:16px;">' +
+        'ยังไม่เคยกรอกอีเมล หรือจำอีเมลไม่ได้?<br>ให้ไปบอกคุณครูเพื่อขอตั้งรหัสใหม่ได้เลย 🙏' +
+      '</div>' +
+    '</div>';
+  },
+
+  /* ===== หน้าเด้งขออีเมล (บัญชีเก่าที่สมัครก่อนมีระบบนี้) =====
+     เด้งจาก afterAuth() เมื่อยังไม่มีอีเมลในระบบ กด "ข้ามไปก่อน" ได้
+     แต่จะกลับมาเด้งใหม่ในวันถัดไป เพราะถ้าไม่มีอีเมลก็กู้รหัสไม่ได้เลย   */
+  viewContactInfo: function() {
+    var u = this.state.user || {};
+    return '<div class="page-content" style="display:flex; flex-direction:column; justify-content:center; min-height:100%;">' +
+      '<div class="text-center" style="margin-bottom:18px;">' +
+        '<div class="mascot-bounce" style="font-size:72px; filter:drop-shadow(0 8px 0 rgba(200,140,80,0.3));">' + this.bear + '</div>' +
+        '<h2 class="text-title" style="background:linear-gradient(135deg,var(--bear-brown),var(--clay-purple)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; margin-bottom:4px;">ฝากอีเมลไว้หน่อยนะ</h2>' +
+        '<p style="font-size:13px; color:var(--clay-text-light); margin:0;">เผื่อวันไหนลืมรหัสผ่าน จะได้กู้เองได้เลย 🐾</p>' +
+      '</div>' +
+      '<div class="card" style="padding:20px;">' +
+        this.fieldLabel('อีเมล (ใช้กู้รหัสผ่าน)') +
+        '<input type="email" class="input-field" id="contact-email" placeholder="เช่น student@gmail.com" value="' + this.esc(u.Email || '') + '">' +
+        this.fieldLabel('เบอร์โทร (ไม่บังคับ — ไว้ให้คุณครูติดต่อ)') +
+        '<input type="tel" class="input-field" id="contact-phone" placeholder="เช่น 0812345678" value="' + this.esc(u.Phone || '') + '">' +
+        '<div id="contact-status" style="text-align:center; font-size:13px; font-weight:700; margin-bottom:10px;"></div>' +
+        '<button class="btn btn-primary" onclick="App.saveContactInfo()">💾 บันทึกแล้วไปต่อ</button>' +
+        '<button class="btn btn-outline" onclick="App.skipContactInfo()">ข้ามไปก่อน</button>' +
       '</div>' +
     '</div>';
   },
@@ -3376,6 +3483,12 @@ var App = {
           '</div>' +
           '<div style="width:96px;">' + this.fieldLabel('เลขที่') + '<input id="edit-number" type="number" class="input-field" style="margin-bottom:0;" value="' + this.esc(u.Number) + '" placeholder="เลขที่"></div>' +
         '</div>' +
+        '<div style="margin-top:14px;">' +
+          this.fieldLabel('📧 อีเมล (ใช้กู้รหัสผ่านเวลาลืม)') +
+          '<input id="edit-email" type="email" class="input-field" value="' + this.esc(u.Email || '') + '" placeholder="เช่น student@gmail.com">' +
+          this.fieldLabel('📱 เบอร์โทร (ไว้ให้คุณครูติดต่อ)') +
+          '<input id="edit-phone" type="tel" class="input-field" style="margin-bottom:0;" value="' + this.esc(u.Phone || '') + '" placeholder="เช่น 0812345678">' +
+        '</div>' +
       '</div>' +
       // about me
       '<div class="card">' +
@@ -3529,6 +3642,7 @@ var App = {
     var f = {
       firstName: val('edit-firstname'), lastName: val('edit-lastname'), nickname: val('edit-nickname'),
       className: val('edit-class'), number: val('edit-number'),
+      email: val('edit-email'), phone: val('edit-phone'),
       motto: val('edit-motto'), dream: val('edit-dream'), targetGoal: val('edit-target'), bio: val('edit-bio'),
       youtubeUrl: val('edit-youtube')
     };
@@ -3537,12 +3651,14 @@ var App = {
     if (st) { st.style.color = 'var(--clay-text-light)'; st.innerText = 'กำลังบันทึก... ⏳'; }
     var newAvatar = this.state.editAvatar;
 
-    var doneInfo = false, doneImg = !newAvatar;
+    var doneInfo = false, doneImg = !newAvatar, savedPayload = null;
     var finish = function() {
       if (!doneInfo || !doneImg) return;
       var u = self.state.user;
       u.FirstName = f.firstName; u.LastName = f.lastName; u.Nickname = f.nickname;
       u.Class = f.className; u.Number = f.number;
+      // อีเมล/เบอร์ใช้ค่าที่ผ่านการ normalize จากฝั่ง api แล้ว (ตัวพิมพ์เล็ก / เหลือแต่ตัวเลข)
+      if (savedPayload) { u.Email = savedPayload.email || ''; u.Phone = savedPayload.phone || ''; }
       u.Motto = f.motto; u.Dream = f.dream; u.TargetGoal = f.targetGoal; u.Bio = f.bio;
       u.YoutubeUrl = f.youtubeUrl;
       if (newAvatar) u.ProfileImage = newAvatar;
@@ -3553,7 +3669,7 @@ var App = {
     };
     google.script.run.withSuccessHandler(function(res) {
       if (!res.success) { if (st) { st.style.color = 'var(--clay-red)'; st.innerText = res.message || 'บันทึกไม่สำเร็จ'; } return; }
-      doneInfo = true; finish();
+      savedPayload = res.payload; doneInfo = true; finish();
     }).withFailureHandler(function(e){ if(st){st.style.color='var(--clay-red)'; st.innerText='Error: '+e.message;} }).updateProfile(this.state.user.UserID, f);
 
     if (newAvatar) {
@@ -4082,7 +4198,10 @@ var App = {
         if (response.success) {
           App.state.user = response.user;
           localStorage.setItem('lms_user', JSON.stringify(response.user));
-          if (response.user.Role === 'Admin' && !App.state.studentMode) {
+          if (App.needsContactInfo()) {
+            // ยังไม่เคยฝากอีเมลไว้ — ขอก่อน ไม่งั้นลืมรหัสแล้วกู้เองไม่ได้
+            App.navigate('contactInfo');
+          } else if (response.user.Role === 'Admin' && !App.state.studentMode) {
             App.navigate('admin');
           } else {
             App.afterAuth();
@@ -4104,11 +4223,17 @@ var App = {
       className: document.getElementById('reg-class').value,
       number: document.getElementById('reg-number').value,
       studentId: document.getElementById('reg-studentid').value,
+      email: document.getElementById('reg-email').value,
+      phone: document.getElementById('reg-phone').value,
       username: document.getElementById('reg-username').value,
       password: document.getElementById('reg-password').value,
       confirmPassword: document.getElementById('reg-confirm-password').value
     };
     if (!formData.className) { alert('กรุณาเลือกห้องเรียน'); return; }
+    // ตรวจอีเมลตั้งแต่ตรงนี้ด้วย เพื่อบอกสาเหตุก่อนยิงไปที่ฐานข้อมูล
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
+      alert('กรุณากรอกอีเมลให้ถูกต้อง — ใช้กู้รหัสผ่านเวลาลืม'); return;
+    }
     if (formData.password !== formData.confirmPassword) { alert('รหัสผ่านไม่ตรงกัน'); return; }
     var el = document.querySelector('.app-container');
     if (el) el.style.opacity = '0.6';
@@ -4120,6 +4245,24 @@ var App = {
       })
       .withFailureHandler(function(error) { if (el) el.style.opacity = '1'; alert('Error: ' + error.message); })
       .registerStudent(formData);
+  },
+
+  handleForgotPassword: function() {
+    var email = (document.getElementById('forgot-email') || {}).value || '';
+    var st = document.getElementById('forgot-status');
+    var btn = document.getElementById('forgot-btn');
+    var show = function(color, msg) { if (st) { st.style.color = color; st.innerText = msg; } };
+    if (!email.trim()) { show('var(--clay-red)', 'กรุณากรอกอีเมล'); return; }
+
+    show('var(--clay-text-light)', 'กำลังส่ง... ⏳');
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
+    google.script.run.withSuccessHandler(function(res) {
+      if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+      show(res.success ? 'var(--clay-green-shadow)' : 'var(--clay-red)', res.message || 'ส่งไม่สำเร็จ');
+    }).withFailureHandler(function(e) {
+      if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+      show('var(--clay-red)', 'Error: ' + e.message);
+    }).requestPasswordEmail(email);
   },
 
   handleProfileUpload: function(event) {

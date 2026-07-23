@@ -41,6 +41,23 @@ export function normalizeClassName(raw) {
   return `ม.6/${room}`;
 }
 
+/* ============================================================
+   อีเมล / เบอร์โทร
+   ------------------------------------------------------------
+   เก็บอีเมลเป็นตัวพิมพ์เล็กเสมอ เพราะตอนขอรหัสผ่านคนกรอกมั่วตัวพิมพ์ใหญ่-เล็ก
+   และเบอร์เก็บเฉพาะตัวเลข เพราะนักเรียนพิมพ์ทั้ง 08x-xxx-xxxx และ 08x xxx xxxx
+   ทั้งคู่คืน null เมื่อไม่ผ่าน เพื่อให้ผู้เรียกตัดสินใจเองว่าจะบังคับหรือปล่อย
+   ============================================================ */
+export function normalizeEmail(raw) {
+  const v = String(raw || '').trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? v.slice(0, 255) : null;
+}
+
+export function normalizePhone(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  return digits.length >= 9 && digits.length <= 15 ? digits : null;
+}
+
 function mapUser(data) {
   return {
     UserID: data.id,
@@ -50,6 +67,8 @@ function mapUser(data) {
     Class: data.class_name,
     Number: data.student_number,
     StudentId: data.student_id || '',
+    Email: data.email || '',
+    Phone: data.phone || '',
     ProfileImage: data.profile_image || '',
     Nickname: data.nickname || '',
     Motto: data.motto || '',
@@ -78,6 +97,10 @@ export async function registerStudent(userObj) {
   const { data: existing } = await supabase.from('users').select('id').eq('username', userObj.username).single();
   if (existing) return { success: false, message: 'Username นี้ถูกใช้งานแล้ว' };
 
+  // อีเมลเป็นทางเดียวที่ใช้กู้รหัสผ่านได้ จึงบังคับกรอกและตรวจรูปแบบตั้งแต่ตอนสมัคร
+  const email = normalizeEmail(userObj.email);
+  if (!email) return { success: false, message: 'กรุณากรอกอีเมลให้ถูกต้อง (ใช้กู้รหัสผ่านเวลาลืม)' };
+
   const { data, error } = await supabase.from('users').insert([{
     prefix: userObj.prefix,
     first_name: userObj.firstname,
@@ -86,7 +109,9 @@ export async function registerStudent(userObj) {
     student_number: userObj.number,
     student_id: userObj.studentId,
     username: userObj.username,
-    password_hash: userObj.password
+    password_hash: userObj.password,
+    email: email,
+    phone: normalizePhone(userObj.phone)
   }]).select().single();
 
   if (error) return { success: false, message: error.message };
@@ -649,6 +674,11 @@ export async function updateProfile(userId, f) {
   const fn = s(f.firstName, 100);
   if (!fn) return { success: false, message: 'กรุณากรอกชื่อ' };
   const num = parseInt(f.number, 10);
+  // อีเมลว่างได้ (บัญชีเก่ายังไม่เคยกรอก) แต่ถ้ากรอกมาแล้วผิดรูปแบบต้องเตือน
+  // ไม่งั้นจะกลายเป็นเก็บอีเมลพิมพ์ผิดไว้แล้วมาพบตอนลืมรหัสว่ากู้ไม่ได้
+  const rawEmail = (f.email || '').trim();
+  const email = rawEmail ? normalizeEmail(rawEmail) : null;
+  if (rawEmail && !email) return { success: false, message: 'รูปแบบอีเมลไม่ถูกต้อง' };
   const payload = {
     first_name: fn,
     last_name: s(f.lastName, 100),
@@ -659,11 +689,64 @@ export async function updateProfile(userId, f) {
     dream: s(f.dream, 160),
     target_goal: s(f.targetGoal, 160),
     bio: s(f.bio, 300),
-    youtube_url: (f.youtubeUrl || '').trim().slice(0, 500) || null
+    youtube_url: (f.youtubeUrl || '').trim().slice(0, 500) || null,
+    email: email,
+    phone: normalizePhone(f.phone)
   };
   const { error } = await supabase.from('users').update(payload).eq('id', String(userId).trim());
   if (error) return { success: false, message: error.message };
   return { success: true, payload: payload };
+}
+
+/* ============================================================
+   อีเมล + เบอร์โทร เฉพาะสองช่อง (หน้าที่เด้งให้กรอกหลังล็อกอิน)
+   แยกจาก updateProfile() เพราะหน้านั้นไม่มีช่องอื่นให้กรอก
+   ถ้าใช้ updateProfile จะเผลอเขียนทับชื่อ/ห้อง/bio ด้วยค่าว่าง
+   ============================================================ */
+export async function updateContactInfo(userId, emailRaw, phoneRaw) {
+  const email = normalizeEmail(emailRaw);
+  if (!email) return { success: false, message: 'กรุณากรอกอีเมลให้ถูกต้อง' };
+  const phone = normalizePhone(phoneRaw);
+  const { error } = await supabase.from('users')
+    .update({ email: email, phone: phone })
+    .eq('id', String(userId).trim());
+  if (error) return { success: false, message: error.message };
+  return { success: true, email: email, phone: phone || '' };
+}
+
+/* ============================================================
+   ลืมรหัสผ่าน — ขอให้ระบบส่งรหัสไปที่อีเมล
+   ------------------------------------------------------------
+   ค้นบัญชีและส่งเมลจากฝั่ง Google Apps Script (gas-forgot-password/Code.gs)
+   ไม่ทำที่นี่ เพราะถ้าให้เบราว์เซอร์ค้น users เองจะกลายเป็นว่าใครก็ดูรหัส
+   ของคนอื่นได้ — สคริปต์ฝั่งนั้นถือ service key และส่งเมลไปที่เจ้าของอีเมลเท่านั้น
+
+   ต้องส่งเป็น text/plain เพราะ Apps Script ไม่ตอบ preflight ของ CORS
+   (application/json จะทำให้เบราว์เซอร์ยิง OPTIONS ก่อน แล้วพัง)
+   ============================================================ */
+/* ⚠️ ต้องวาง URL ของ Apps Script (ที่ลงท้ายด้วย /exec) ตรงนี้ด้วย ไม่ใช่แค่ใน .env
+   เพราะ .env ไม่ถูก commit ขึ้น GitHub ตอน GitHub Actions build จึงไม่มีค่านี้
+   (เหตุผลเดียวกับที่ supabaseClient.js hardcode URL ไว้เป็นค่าสำรอง) */
+const FORGOT_PASSWORD_URL_FALLBACK = 'https://script.google.com/macros/s/AKfycbwKOa7SYZBprZBNy4hjk3yRsD03EXJX9USkroGGUAFV4k7G77UBFJh5ORP-yrPUkStB7Q/exec';
+
+const FORGOT_PASSWORD_URL = import.meta.env.VITE_RESET_URL || FORGOT_PASSWORD_URL_FALLBACK;
+
+export async function requestPasswordEmail(emailRaw) {
+  const email = normalizeEmail(emailRaw);
+  if (!email) return { success: false, message: 'กรุณากรอกอีเมลให้ถูกต้อง' };
+  if (!FORGOT_PASSWORD_URL) {
+    return { success: false, message: 'ระบบส่งเมลยังไม่ได้ตั้งค่า กรุณาแจ้งคุณครู' };
+  }
+  try {
+    const res = await fetch(FORGOT_PASSWORD_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'forgotPassword', email })
+    });
+    return await res.json();
+  } catch (e) {
+    return { success: false, message: 'ติดต่อระบบส่งเมลไม่ได้ กรุณาลองใหม่อีกครั้ง' };
+  }
 }
 
 export async function recordLogin(userId) {
