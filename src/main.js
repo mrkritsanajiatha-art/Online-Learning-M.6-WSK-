@@ -134,7 +134,133 @@ var spinArt = {
     return '<svg viewBox="0 0 100 100" preserveAspectRatio="none" class="spin-art-stars" aria-hidden="true">' + out + '</svg>';
   },
 
-  // ประกายรอบรางวัลใหญ่ (ช่อง 20 XP)
+  /* ---- วงล้อ (SVG) ----
+     วาดทีละช่องเพื่อให้ช่องแต้มสูงได้ไล่เฉดทองของตัวเอง (conic-gradient ทำได้แค่สีเรียบ)
+     ระดับช่อง: 40 = แจ็กพอต · 25-30 = พรีเมียม · ที่เหลือ = ม่วง/ครีมสลับ · FREE = เหลืองอำพัน */
+  wheelTier: function(seg, plainCount) {
+    if (seg.free) return 'free';
+    if (seg.xp >= 40) return 'jackpot';
+    if (seg.xp >= 30) return 'premium';
+    // สลับม่วง/ครีมตามลำดับ "ช่องธรรมดา" ไม่ใช่ตาม index ของวง
+    // ไม่งั้นช่องทองไปกินคิวจนสีม่วงเหลือช่องเดียว วงล้อดูซีด
+    return plainCount % 2 === 0 ? 'plainA' : 'plainB';
+  },
+
+  wheel: function(segs) {
+    var C = 100, R = 97;
+    var n = segs.length, slice = 360 / n;
+    var pt = function(r, deg) {
+      var a = deg * Math.PI / 180;
+      return (C + r * Math.sin(a)).toFixed(2) + ' ' + (C - r * Math.cos(a)).toFixed(2);
+    };
+    var FILL = {
+      jackpot: 'url(#sw-jack)', premium: 'url(#sw-prem)', free: 'url(#sw-free)',
+      plainA: 'url(#sw-pa)', plainB: 'url(#sw-pb)'
+    };
+    var TEXT = {
+      jackpot: '#4A2A00', premium: '#5C3A00', free: '#7A4E00',
+      plainA: '#FFFFFF', plainB: '#7B4BB7'
+    };
+
+    var defs =
+      '<defs>' +
+        '<radialGradient id="sw-jack" cx="50%" cy="12%" r="105%">' +
+          '<stop offset="0%" stop-color="#FFFBE0"/><stop offset="38%" stop-color="#FFD84D"/>' +
+          '<stop offset="78%" stop-color="#E9A50C"/><stop offset="100%" stop-color="#B47500"/>' +
+        '</radialGradient>' +
+        '<radialGradient id="sw-prem" cx="50%" cy="12%" r="105%">' +
+          '<stop offset="0%" stop-color="#FFF6DA"/><stop offset="55%" stop-color="#FFE099"/>' +
+          '<stop offset="100%" stop-color="#DFA63C"/>' +
+        '</radialGradient>' +
+        '<radialGradient id="sw-free" cx="50%" cy="12%" r="105%">' +
+          '<stop offset="0%" stop-color="#FFF3CC"/><stop offset="100%" stop-color="#F3B534"/>' +
+        '</radialGradient>' +
+        '<radialGradient id="sw-pa" cx="50%" cy="12%" r="105%">' +
+          '<stop offset="0%" stop-color="#CBA9FB"/><stop offset="100%" stop-color="#9C6BE8"/>' +
+        '</radialGradient>' +
+        '<radialGradient id="sw-pb" cx="50%" cy="12%" r="105%">' +
+          '<stop offset="0%" stop-color="#FFFDF7"/><stop offset="100%" stop-color="#F6E7D2"/>' +
+        '</radialGradient>' +
+        '<linearGradient id="sw-rim" x1="0" y1="0" x2="0" y2="1">' +
+          '<stop offset="0%" stop-color="#FFEDB4"/><stop offset="45%" stop-color="#E2A928"/>' +
+          '<stop offset="100%" stop-color="#A97400"/>' +
+        '</linearGradient>' +
+        // เรืองแสงเฉพาะช่องแจ็กพอต ให้เด่นกว่าช่องอื่นชัดเจน
+        '<filter id="sw-glow" x="-40%" y="-40%" width="180%" height="180%">' +
+          '<feGaussianBlur stdDeviation="2.6" result="b"/>' +
+          '<feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>' +
+        '</filter>' +
+      '</defs>';
+
+    var slices = '', edges = '', studs = '', labels = '', plainCount = 0;
+    for (var i = 0; i < n; i++) {
+      var tier = this.wheelTier(segs[i], plainCount);
+      if (tier === 'plainA' || tier === 'plainB') plainCount++;
+      var a0 = i * slice, a1 = a0 + slice;
+      var big = (tier === 'jackpot' || tier === 'premium');
+
+      slices += '<path d="M' + C + ' ' + C + ' L' + pt(R, a0) +
+        ' A' + R + ' ' + R + ' 0 ' + (slice > 180 ? 1 : 0) + ' 1 ' + pt(R, a1) + ' Z" fill="' + FILL[tier] + '"/>';
+
+      // ขอบคั่นช่อง — ช่องแต้มสูงใช้เส้นทองหนากว่า ดูมีกรอบของตัวเอง
+      edges += '<line x1="' + C + '" y1="' + C + '" x2="' + pt(R, a0).split(' ')[0] + '" y2="' + pt(R, a0).split(' ')[1] +
+        '" stroke="' + (big ? 'rgba(255,255,255,.85)' : 'rgba(255,255,255,.5)') + '" stroke-width="' + (big ? 1.8 : 1) + '"/>';
+
+      // หมุดตามขอบวง — ตัวที่เข็มดีดกระทบตอนหมุน
+      studs += '<circle cx="' + pt(R * 0.93, a0).split(' ')[0] + '" cy="' + pt(R * 0.93, a0).split(' ')[1] +
+        '" r="2.6" fill="url(#sw-rim)" stroke="rgba(255,255,255,.6)" stroke-width=".6"/>';
+
+      var mid = a0 + slice / 2;
+      var flip = (mid > 90 && mid < 270);
+      var ty = C - R * 0.60;
+      var txt = segs[i].free ? 'FREE' : String(segs[i].xp);
+      var fs = segs[i].free ? 15 : (tier === 'jackpot' ? 30 : (tier === 'premium' ? 25 : 21));
+      // ความพรีเมียมมาจากไล่เฉดทอง ขนาดเลข และเรืองแสง ไม่ใส่ไอคอนเพิ่ม
+      // (ดาว/จุดที่ลองใส่ไว้ล้นชนขอบวง และดูเหมือนจุดหลงมามากกว่าเครื่องหมายระดับ)
+      var inner = '';
+      inner += '<text x="' + C + '" y="' + ty + '" text-anchor="middle" dominant-baseline="central" ' +
+        'font-size="' + fs + '" font-weight="900" fill="' + TEXT[tier] + '" font-family="inherit" ' +
+        'letter-spacing="' + (segs[i].free ? 1 : 0) + '"' +
+        (big ? ' filter="url(#sw-glow)" stroke="rgba(255,255,255,.55)" stroke-width=".7" paint-order="stroke"' : '') +
+        '>' + txt + '</text>';
+      if (tier === 'jackpot') {
+        inner += '<text x="' + C + '" y="' + (ty + 19) + '" text-anchor="middle" dominant-baseline="central" ' +
+          'font-size="8.5" font-weight="900" fill="#6B3E00" font-family="inherit" letter-spacing="1.4">MAX</text>';
+      }
+
+      labels += '<g transform="rotate(' + mid + ' ' + C + ' ' + C + ')">' +
+        (flip ? '<g transform="rotate(180 ' + C + ' ' + ty + ')">' + inner + '</g>' : inner) +
+      '</g>';
+    }
+
+    return '<svg viewBox="0 0 200 200" class="spin-wheel-svg" aria-hidden="true">' + defs +
+      slices + edges +
+      '<circle cx="' + C + '" cy="' + C + '" r="' + R + '" fill="none" stroke="url(#sw-rim)" stroke-width="6"/>' +
+      '<circle cx="' + C + '" cy="' + C + '" r="' + (R - 4) + '" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1.4"/>' +
+      studs + labels +
+    '</svg>';
+  },
+
+  /* แสงหมุนอยู่หลังวงล้อ — รัศมี 12 แฉกไล่จางออกจากจุดกึ่งกลาง
+     หมุนสวนทางวงล้อด้วย CSS ทำให้ฉากหลังไม่นิ่งตาย */
+  wheelGlow: function() {
+    var rays = '';
+    for (var i = 0; i < 12; i++) {
+      rays += '<path d="M100 100 L' +
+        (100 + 100 * Math.sin((i * 30 - 7) * Math.PI / 180)).toFixed(1) + ' ' +
+        (100 - 100 * Math.cos((i * 30 - 7) * Math.PI / 180)).toFixed(1) + ' L' +
+        (100 + 100 * Math.sin((i * 30 + 7) * Math.PI / 180)).toFixed(1) + ' ' +
+        (100 - 100 * Math.cos((i * 30 + 7) * Math.PI / 180)).toFixed(1) + ' Z" fill="url(#sw-ray)"/>';
+    }
+    return '<svg viewBox="0 0 200 200" class="spin-rays" aria-hidden="true">' +
+      '<defs><linearGradient id="sw-ray" x1="0" y1="1" x2="0" y2="0">' +
+        '<stop offset="0%" stop-color="#C084FC" stop-opacity=".55"/>' +
+        '<stop offset="100%" stop-color="#FFD166" stop-opacity="0"/>' +
+      '</linearGradient></defs>' + rays +
+    '</svg>';
+  },
+
+  // ประกายรอบรางวัลใหญ่ (ช่องแต้มสูง)
   sparkle: function() {
     var star = function(x, y, r, delay, color) {
       var d = 'M' + x + ' ' + (y - r) +
@@ -2169,14 +2295,21 @@ var App = {
       gain.connect(ctx.destination);
       osc.start(t0);
       osc.stop(t0 + dur + 0.03);
+      return osc;
     },
 
-    // เสียง "แต๊ก" ตอนหมุดผ่านเข็ม — เว้นระยะขั้นต่ำกันเสียงรัวจนแตกตอนวงล้อหมุนเร็ว
-    tick: function() {
-      var now = Date.now();
-      if (now - this.lastTick < 38) return;
-      this.lastTick = now;
-      this.note({ f: 1250 + Math.random() * 260, dur: 0.035, type: 'square', vol: 0.07 });
+    // เสียง "แต๊ก" ของหมุดที่จองไว้ล่วงหน้า — เก็บ oscillator ไว้เพื่อยกเลิกได้
+    // ถ้าผู้เล่นกดหยุด (แผนใหม่สั้นกว่าเดิม เสียงชุดเก่าจะดังเลยจุดที่วงล้อหยุดไปแล้ว)
+    pendingTicks: [],
+    tickAt: function(delaySec) {
+      var osc = this.note({ f: 1250 + Math.random() * 260, dur: 0.035, type: 'square', vol: 0.07, delay: delaySec });
+      if (osc) this.pendingTicks.push(osc);
+    },
+    cancelTicks: function() {
+      for (var i = 0; i < this.pendingTicks.length; i++) {
+        try { this.pendingTicks[i].stop(); } catch (e) { /* เล่นจบไปแล้ว */ }
+      }
+      this.pendingTicks = [];
     },
 
     launch: function() { this.note({ f: 180, f2: 760, dur: 0.3, type: 'triangle', vol: 0.13 }); },
@@ -2271,33 +2404,16 @@ var App = {
 
     // ----- วงล้อ -----
     var slice = 360 / segs.length;
-    var stops = [];
-    var labels = '';
-    for (var i = 0; i < segs.length; i++) {
-      var isFree = !!segs[i].free;
-      var c = isFree ? '#FFD166' : (i % 2 === 0 ? '#B794F6' : '#FFF3E0');
-      stops.push(c + ' ' + (i * slice) + 'deg ' + ((i + 1) * slice) + 'deg');
-      var txtColor = isFree ? '#8A5A00' : (i % 2 === 0 ? '#FFFFFF' : '#7B4BB7');
-      var txt = isFree ? 'FREE' : segs[i].xp;
-      var mid = i * slice + slice / 2;
-      // พลิกตัวอักษร 180° เมื่อช่องนั้นไปอยู่ครึ่งล่างของจอ ไม่งั้นอ่านกลับหัว
-      // (คิดจากมุมที่วงล้อค้างอยู่จริง ป้ายจึงอ่านออกเสมอหลังหมุนจบ)
-      var onScreen = ((mid + (s.restAngle || 0)) % 360 + 360) % 360;
-      var flip = (onScreen > 95 && onScreen < 265) ? ' rotate(180deg)' : '';
-      labels += '<div class="spin-seg-label' + (isFree ? ' is-free' : '') + '" style="transform:rotate(' + mid + 'deg);">' +
-        '<span style="color:' + txtColor + '; transform:translateX(-50%)' + flip + ';">' + txt + '</span>' +
-      '</div>';
-    }
-    var wheelInner = '<div class="spin-wheel-face" style="background:conic-gradient(' + stops.join(',') + ');">' + labels + '</div>';
-
     // มุมค้างไว้หลังหมุนจบ (ระหว่างหมุนไม่ re-render ปล่อยให้ rAF คุมเอง)
     var rotateStyle = (s.restAngle ? ' style="transform:rotate(' + s.restAngle + 'deg);"' : '');
 
     var wheelBlock =
-      '<div class="spin-stage">' +
+      '<div class="spin-stage' + (s.phase === 'spinning' ? ' is-spinning' : '') + '">' +
+        '<div class="spin-bg">' + spinArt.wheelGlow() + '</div>' +
+        '<div class="spin-halo"></div>' +
         '<div class="spin-pointer" id="spin-pointer"></div>' +
         '<div class="spin-wheel' + (s.phase === 'idle' ? ' is-idle' : '') + '">' +
-          '<div class="spin-wheel-rotor" id="spin-rotor"' + rotateStyle + '>' + wheelInner + '</div>' +
+          '<div class="spin-wheel-rotor" id="spin-rotor"' + rotateStyle + '>' + spinArt.wheel(segs) + '</div>' +
           '<div class="spin-hub">' +
             '<img src="' + mascot2Url + '" class="spin-hub-img" alt="" />' +
           '</div>' +
@@ -2312,7 +2428,12 @@ var App = {
         '<div style="font-size:12px; color:var(--clay-text-light); text-align:center; margin-top:10px; line-height:1.7;">หมุนให้ได้รางวัลก่อน แล้วตอบคำถามให้ถูก<br>ตอบผิดก็ยังได้ 3 XP ติดมือกลับไปนะ 💪</div>';
 
     } else if (s.phase === 'spinning') {
-      body = '<div style="text-align:center; margin-top:20px; font-size:16px; font-weight:800; color:var(--clay-purple-shadow);">กำลังหมุน... 🌀</div>';
+      // กดหยุดได้ แต่รางวัลถูกสุ่มจากเซิร์ฟเวอร์ไปแล้ว การกดจึงแค่ย่นเวลารอ
+      // (วงล้อจะไหลต่ออีกพักหนึ่งก่อนเข้าช่องเดิม ไม่ได้หยุดผลึ่งกลางอากาศ)
+      body = '<div class="spin-btn-wrap">' +
+          '<button class="spin-btn spin-btn-stop" id="spin-stop-btn" onclick="App.stopSpin()"><span>STOP</span></button>' +
+        '</div>' +
+        '<div style="font-size:12px; color:var(--clay-text-light); text-align:center; margin-top:10px;">กดเพื่อชะลอวงล้อให้เข้าที่เร็วขึ้น</div>';
 
     } else if (s.phase === 'question') {
       var q = this.spinQuestion();
@@ -2389,34 +2510,9 @@ var App = {
     if (res.segments && res.segments.length) s.segments = res.segments;
   },
 
-  /* หมุนวงล้อด้วย requestAnimationFrame แทน CSS transition
-     เพื่อให้รู้มุมทุกเฟรม → ตีเสียง "แต๊ก" ตรงจังหวะที่หมุดผ่านเข็มได้จริง
-     และดีดเข็มให้สะบัดตามแรง เหมือนวงล้อจริง */
-  startSpin: function() {
-    var self = this;
-    var s = this.state.dailySpin;
-    if (s.phase !== 'idle') return;
-    s.phase = 'spinning';
-    s.restAngle = s.restAngle || 0;
-    this.render(true);
-    this.SFX.launch();
-
-    google.script.run.withSuccessHandler(function(res) {
-      if (!res || !res.success) { s.phase = 'idle'; self.render(true); return; }
-      self.applySpinState(res);
-      if (res.exhausted) { s.phase = 'done'; self.render(true); return; }
-
-      s.segmentIndex = res.segmentIndex;
-      s.prize = res.prize;
-      s.isFree = !!res.isFree;
-      self.animateSpin();
-    }).withFailureHandler(function() {
-      s.phase = 'idle';
-      self.toast('เชื่อมต่อไม่ได้ ลองใหม่อีกครั้งนะ');
-      self.render(true);
-    }).rollDailySpin(this.state.user.UserID);
-  },
-
+  /* หมุนวงล้อด้วย requestAnimationFrame
+     เก็บ "แผนการเคลื่อนที่" ไว้ใน state เพื่อให้ stopSpin() วางแผนใหม่กลางอากาศได้
+     ผลรางวัลถูกสุ่มจากเซิร์ฟเวอร์ไปแล้ว การกดหยุดจึงย่นเวลา ไม่ได้เปลี่ยนช่องที่จะลง */
   animateSpin: function() {
     var self = this;
     var s = this.state.dailySpin;
@@ -2426,57 +2522,69 @@ var App = {
     var pointer = document.getElementById('spin-pointer');
     var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    // จุดที่เข็มจะค้าง: ไม่ใช่กลางช่องเป๊ะ แต่ค่อนไปทางหมุดที่เพิ่งผ่าน (15-40% ของช่อง)
-    // ทำให้ตอนสปริงกลับวงล้อข้ามหมุดอีกครั้ง ได้เสียง "ต๊อก" ปิดท้ายเสมอ เหมือนวงล้อจริง
-    var landF = 0.15 + Math.random() * 0.25;
+    // จุดที่เข็มจะค้าง: ไม่ใช่กลางช่องเป๊ะ แต่เยื้องแบบสุ่มให้ดูเป็นธรรมชาติ
+    // เลี่ยงช่วง 30% แรก/ท้ายของช่อง ไม่งั้นเข็มไปค้างคาบนเส้นแบ่ง ดูเหมือนกำกวมว่าได้ช่องไหน
+    var landF = 0.32 + Math.random() * 0.36;
     var want = s.segmentIndex * slice + landF * slice;
+    var landing = (((360 - want) % 360) + 360) % 360;   // มุมพัก 0..360 ที่ทำให้เข็มชี้ช่องเป้าหมาย
+
+    // มุมถัดไปที่ตรงกับ landing และเดินหน้าไปแล้วอย่างน้อย minAdvance องศา
+    var nextLanding = function(fromAngle, minAdvance) {
+      var d = (((landing - (fromAngle % 360)) % 360) + 360) % 360;
+      while (d < minAdvance) d += 360;
+      return fromAngle + d;
+    };
+
+    var angleOf = function(p, t) {          // t = 0..1 ของแผนนั้น
+      if (t < p.settleAt || p.settleAt >= 1) {
+        // ชะลอตัวแบบแรงเสียดทาน แล้วเลยหมุดไปเล็กน้อย
+        // เลขชี้กำลังต่ำ = ชะลอยืดยาว หมุดจึงยังผ่านเข็มเรื่อย ๆ ไม่เงียบยาวก่อนหยุด
+        var u = Math.min(1, t / p.settleAt);
+        return p.from + (p.target + p.over - p.from) * (1 - Math.pow(1 - u, p.ease));
+      }
+      var v = (t - p.settleAt) / (1 - p.settleAt);      // สปริงกลับเข้าหมุด
+      return (p.target + p.over) - p.over * (1 - Math.pow(1 - v, 3));
+    };
+
     var from = s.restAngle || 0;
-    var turns = 5 + Math.floor(Math.random() * 3);            // สุ่มจำนวนรอบ 5-7
-    var target = from + turns * 360 + (((360 - want) - (from % 360)) + 360) % 360;
+    var turns = reduce ? 1 : (7 + Math.floor(Math.random() * 3));   // 7-9 รอบ
+    var plan = {
+      from: from,
+      target: nextLanding(from, turns * 360),
+      over: reduce ? 0 : slice * 0.5,       // เลยหมุดแล้วสปริงกลับ ได้เสียง "ต๊อก" ปิดท้าย
+      settleAt: reduce ? 1 : 0.9,
+      ease: reduce ? 2.4 : 3.1,             // ยิ่งสูงยิ่งพุ่งแรงตอนต้นแล้วค่อย ๆ คลาย
+      dur: reduce ? 1100 : 7200,
+      t0: performance.now()
+    };
+    s._plan = plan;
+    s._slice = slice;
+    s._nextLanding = nextLanding;
+    s._angleOf = angleOf;
+    s._reduce = reduce;
 
     var settled = false;
     var finish = function() {
       if (settled) return;
       settled = true;
-      s.restAngle = target % 360;
+      s._plan = null;
+      s.restAngle = ((plan.target % 360) + 360) % 360;
       if (rotor) rotor.style.transform = 'rotate(' + s.restAngle + 'deg)';
       s.phase = 'question';
       self.render(true);
     };
+    s._finishSpin = finish;
 
     if (!rotor) { finish(); return; }
 
-    // โหมดลดการเคลื่อนไหว: ยังหมุนอยู่ (ไม่งั้นเกมหมดความหมาย) แต่สั้นลง
-    // รอบเดียว ไม่มีการสปริงเลยหมุด และไม่ดีดเข็ม
-    if (reduce) {
-      turns = 1;
-      target = from + 360 + (((360 - want) - (from % 360)) + 360) % 360;
-    }
-    var DUR = reduce ? 1100 : 3800;
-    var OVERSHOOT = reduce ? 0 : slice * 0.5;    // เลยหมุดไปแล้วสปริงกลับ ได้เสียง "ต๊อก" ปิดท้าย
-    var SETTLE_AT = reduce ? 1 : 0.88;           // สัดส่วนเวลาที่เริ่มสปริงกลับ
+    this.scheduleSpinTicks(angleOf, plan, slice);
 
-    // มุมของวงล้อ ณ เวลา t (0..1) — ใช้ร่วมกันทั้งการวาดและการจองจังหวะเสียง
-    var angleAt = function(t) {
-      if (t < SETTLE_AT || SETTLE_AT >= 1) {
-        // ชะลอตัวแบบแรงเสียดทาน แล้วเลยเป้าหมายไปเล็กน้อย
-        // เลขชี้กำลัง 2.4 ทำให้ชะลอตัวยืดยาว ไม่ช้าฮวบตั้งแต่ต้น
-        // หมุดจึงยังผ่านเข็มเรื่อย ๆ ไม่เงียบยาวก่อนหยุด (เว้นช่วงท้ายราว 0.4 วิ)
-        var u = Math.min(1, t / SETTLE_AT);
-        return from + (target + OVERSHOOT - from) * (1 - Math.pow(1 - u, 2.4));
-      }
-      // สปริงกลับเข้าหมุด
-      var v = (t - SETTLE_AT) / (1 - SETTLE_AT);
-      return (target + OVERSHOOT) + (target - (target + OVERSHOOT)) * (1 - Math.pow(1 - v, 3));
-    };
-
-    this.scheduleSpinTicks(angleAt, slice, DUR);
-
-    var t0 = performance.now();
     var lastAngle = from;
     var frame = function(now) {
-      var t = Math.min(1, (now - t0) / DUR);
-      var angle = angleAt(t);
+      var p = s._plan;
+      if (!p) return;                        // จบไปแล้ว (หรือถูกยกเลิก)
+      var t = Math.min(1, (now - p.t0) / p.dur);
+      var angle = angleOf(p, t);
 
       // ดีดเข็มตอนหมุดผ่าน (เฉพาะภาพ — เสียงจองไว้ล่วงหน้าแล้ว จึงไม่พึ่งเฟรมเรต)
       if (pointer && !reduce && Math.floor(angle / slice) !== Math.floor(lastAngle / slice)) {
@@ -2487,28 +2595,65 @@ var App = {
       rotor.style.transform = 'rotate(' + angle + 'deg)';
 
       if (t < 1) requestAnimationFrame(frame);
-      else finish();
+      else { plan = p; finish(); }
     };
     requestAnimationFrame(frame);
 
     // กันเหนียว: เบราว์เซอร์หยุดส่ง requestAnimationFrame เมื่อสลับแท็บ/พักจอ
     // ถ้าไม่มีตัวนี้ วงล้อจะค้างที่ "กำลังหมุน..." ตลอดไป กลับมาแล้วเล่นต่อไม่ได้
-    setTimeout(finish, DUR + 600);
+    // ตั้งเวลาใหม่ทุกครั้งที่วางแผนใหม่ (ดู stopSpin) จึงเก็บ id ไว้
+    s._spinGuard = setTimeout(finish, plan.dur + 800);
+  },
+
+  /* ผู้เล่นกดหยุด — วางแผนใหม่จากมุมปัจจุบัน ให้ไหลต่ออีกราว 1 รอบครึ่งแล้วเข้าช่องเดิม
+     ไม่หยุดผลึ่งทันที เพราะวงล้อจริงมีโมเมนตัม และช่องที่จะลงถูกกำหนดไว้แล้ว */
+  stopSpin: function() {
+    var s = this.state.dailySpin;
+    var p = s._plan;
+    if (s.phase !== 'spinning' || !p || p.stopping) return;
+
+    var now = performance.now();
+    var t = Math.min(1, (now - p.t0) / p.dur);
+    var cur = s._angleOf(p, t);
+    if (t >= 0.9) return;                    // ใกล้เข้าที่อยู่แล้ว กดตอนนี้ไม่ต่างอะไร
+
+    var btn = document.getElementById('spin-stop-btn');
+    if (btn) { btn.disabled = true; btn.classList.add('is-off'); }
+
+    var coast = s._reduce ? 200 : (420 + Math.random() * 260);   // ไหลต่ออีกราว 1-2 รอบ
+    var np = {
+      from: cur,
+      target: s._nextLanding(cur, coast),
+      over: s._reduce ? 0 : s._slice * 0.42,
+      settleAt: s._reduce ? 1 : 0.86,
+      ease: 2.2,                             // ชะลอนุ่มกว่ารอบปกติ ให้รู้สึกว่า "ค่อย ๆ หมด แรง"
+      dur: s._reduce ? 420 : 2100,
+      t0: now,
+      stopping: true
+    };
+    s._plan = np;
+
+    this.SFX.cancelTicks();                  // เสียงชุดเดิมจองไว้ยาวเกินแผนใหม่ ต้องยกเลิกก่อน
+    this.scheduleSpinTicks(s._angleOf, np, s._slice);
+
+    clearTimeout(s._spinGuard);
+    var fin = s._finishSpin;
+    s._spinGuard = setTimeout(function() { if (fin) fin(); }, np.dur + 800);
   },
 
   /* จองเสียง "แต๊ก" ทุกครั้งที่หมุดจะผ่านเข็ม ล่วงหน้าทั้งชุด
      ผูกกับนาฬิกาของ AudioContext ไม่ใช่เฟรมของหน้าจอ จังหวะจึงตรงเป๊ะเสมอ
      แม้เครื่องช้าหรือเบราว์เซอร์ลดเฟรมเรตลง (rAF ถูก throttle) */
-  scheduleSpinTicks: function(angleAt, slice, durMs) {
+  scheduleSpinTicks: function(angleOf, plan, slice) {
     if (!this.SFX.ready()) return;
     var STEP = 6;        // ความละเอียดในการหาเวลาที่ข้ามเส้นแบ่งช่อง (ms)
     var MIN_GAP = 38;    // เว้นระยะขั้นต่ำ กันเสียงรัวจนแตกตอนวงล้อหมุนเร็ว
-    var last = angleAt(0);
+    var last = angleOf(plan, 0);
     var lastFired = -999;
-    for (var ms = STEP; ms <= durMs; ms += STEP) {
-      var a = angleAt(ms / durMs);
+    for (var ms = STEP; ms <= plan.dur; ms += STEP) {
+      var a = angleOf(plan, ms / plan.dur);
       if (Math.floor(a / slice) !== Math.floor(last / slice) && ms - lastFired >= MIN_GAP) {
-        this.SFX.note({ f: 1250 + Math.random() * 260, dur: 0.035, type: 'square', vol: 0.07, delay: ms / 1000 });
+        this.SFX.tickAt(ms / 1000);
         lastFired = ms;
       }
       last = a;
