@@ -3,6 +3,11 @@ import QRCode from 'qrcode';
 import jsQR from 'jsqr';
 import mascotUrl from './assets/mascot.png';
 import mascot2Url from './assets/mascot2.png';
+import navHomeUrl from './assets/nav/home.png';
+import navLessonsUrl from './assets/nav/lessons.png';
+import navActivityUrl from './assets/nav/activity.png';
+import navBonusUrl from './assets/nav/bonus.png';
+import navProfileUrl from './assets/nav/profile.png';
 
 window.google = {
   script: {
@@ -4033,27 +4038,18 @@ var App = {
   /* ===== BOTTOM NAV ===== */
 
   bottomNav: function(activeTab) {
-    var qrSvg = '<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">' +
-      '<rect x="1" y="1" width="9" height="9" rx="1.5"/><rect x="3" y="3" width="5" height="5" rx="0.5" fill="var(--clay-bg)"/><rect x="5" y="5" width="1" height="1" fill="currentColor"/>' +
-      '<rect x="14" y="1" width="9" height="9" rx="1.5"/><rect x="16" y="3" width="5" height="5" rx="0.5" fill="var(--clay-bg)"/><rect x="18" y="5" width="1" height="1" fill="currentColor"/>' +
-      '<rect x="1" y="14" width="9" height="9" rx="1.5"/><rect x="3" y="16" width="5" height="5" rx="0.5" fill="var(--clay-bg)"/><rect x="5" y="18" width="1" height="1" fill="currentColor"/>' +
-      '<rect x="14" y="14" width="2" height="2"/><rect x="18" y="14" width="2" height="2"/><rect x="22" y="14" width="1" height="2"/>' +
-      '<rect x="14" y="18" width="2" height="2"/><rect x="18" y="18" width="4" height="2"/><rect x="14" y="22" width="2" height="1"/><rect x="18" y="21" width="5" height="2"/>' +
-      '</svg>';
     var tabs = [
-      { id:'home',     icon:'&#x1F3E0;', label:'หน้าหลัก', route:'dashboard' },
-      { id:'lessons',  icon:'&#x1F4DA;', label:'บทเรียน',  route:'lessons' },
-      { id:'activity', icon:'&#x26A1;',  label:'กิจกรรม',  route:'activity' },
-      { id:'bonus',    icon: qrSvg,      label:'QR คะแนน', route:'bonusQR', isSvg: true },
-      { id:'profile',  icon:'&#x1F43E;', label:'โปรไฟล์',  route:'profile' }
+      { id:'home',     icon: navHomeUrl,     label:'หน้าหลัก', route:'dashboard' },
+      { id:'lessons',  icon: navLessonsUrl,  label:'บทเรียน',  route:'lessons' },
+      { id:'activity', icon: navActivityUrl, label:'กิจกรรม',  route:'activity' },
+      { id:'bonus',    icon: navBonusUrl,    label:'QR คะแนน', route:'bonusQR' },
+      { id:'profile',  icon: navProfileUrl,  label:'โปรไฟล์',  route:'profile' }
     ];
     var navHtml = '';
     for (var i = 0; i < tabs.length; i++) {
       var tab = tabs[i];
       var cls = activeTab === tab.id ? 'nav-item active' : 'nav-item';
-      var iconHtml = tab.isSvg
-        ? '<div class="nav-icon" style="display:flex;align-items:center;justify-content:center;">' + tab.icon + '</div>'
-        : '<div class="nav-icon">' + tab.icon + '</div>';
+      var iconHtml = '<img class="nav-icon" src="' + tab.icon + '" alt="' + tab.label + '" draggable="false">';
       navHtml += '<div class="' + cls + '" title="' + tab.label + '" onclick="App.navigate(\'' + tab.route + '\')">' +
         '<div class="nav-icon-wrap">' + iconHtml + '</div>' +
         '<div class="nav-dot"></div>' +
