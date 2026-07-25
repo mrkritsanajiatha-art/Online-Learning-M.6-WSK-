@@ -756,11 +756,31 @@ export async function recordLogin(userId) {
   if (!u) return { success: false };
   const today = bangkokDate();
   const last = u.last_login ? bangkokDate(u.last_login) : null;
-  if (last === today) {
-    return { success: true, streak: u.streak || 0, bonus: 0, already: true };
+
+  // Streak is derived from ACTUAL activity days (scores), not from last_login
+  // alone. A student who stays in a persisted session and keeps doing quizzes
+  // without ever cold-starting the app would leave last_login stale — the old
+  // `last === yesterday` check then wrongly reset the streak to 1. We instead
+  // count consecutive Thailand-days that have activity, treating this login as
+  // activity for today, so an every-day learner keeps their streak.
+  const sinceIso = new Date(Date.now() - 45 * 24 * 3600 * 1000).toISOString();
+  const { data: acts } = await supabase
+    .from('scores').select('created_at').eq('user_id', uid).gte('created_at', sinceIso);
+  const daySet = new Set((acts || []).map(a => bangkokDate(a.created_at)));
+  daySet.add(today); // this login counts as attendance today
+  let newStreak = 0;
+  for (let i = 0; ; i++) {
+    if (daySet.has(bangkokDate(Date.now() - i * 24 * 3600 * 1000))) newStreak++;
+    else break;
   }
-  const yesterday = bangkokDate(Date.now() - 24 * 3600 * 1000);
-  const newStreak = (last === yesterday) ? (u.streak || 0) + 1 : 1;
+
+  if (last === today) {
+    // Already logged in today: refresh the (possibly repaired) streak, no bonus.
+    if (newStreak !== (u.streak || 0)) {
+      await supabase.from('users').update({ streak: newStreak }).eq('id', uid);
+    }
+    return { success: true, streak: newStreak, bonus: 0, already: true };
+  }
   const bonus = Math.min(50, newStreak * 10); // day1=10 … day5+=50 per day
   // Compare-and-swap on last_login so two concurrent logins (two tabs/devices)
   // can't both award the daily bonus: only the update that still matches the
