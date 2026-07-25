@@ -3238,7 +3238,7 @@ var App = {
   viewUserProfile: function() {
     var data = this.state.viewingUser;
     if (!data) return '<div class="loader"><div class="loader-bear">' + this.bear + '</div><div class="loader-text">กำลังโหลดโปรไฟล์...</div></div>' + this.bottomNav('story');
-    if (data.error) return '<div class="page-content"><button onclick="App.navigate(\'feed\')" style="background:none;border:none;font-size:18px;color:var(--clay-text-light);cursor:pointer;padding:0;margin-bottom:16px;font-weight:700;">&#x2190; กลับ</button><div class="card" style="text-align:center;padding:32px;"><div style="font-size:48px;margin-bottom:12px;">' + this.bear + '</div><div style="font-weight:800;font-size:16px;color:var(--clay-text);">ไม่พบข้อมูลผู้ใช้</div><div style="font-size:13px;color:var(--clay-text-light);margin-top:8px;">อาจเกิดข้อผิดพลาดหรือผู้ใช้ถูกลบออกแล้ว</div></div></div>' + this.bottomNav('story');
+    if (data.error) return '<div class="page-content"><button onclick="App.navigate(\'activity\')" style="background:none;border:none;font-size:18px;color:var(--clay-text-light);cursor:pointer;padding:0;margin-bottom:16px;font-weight:700;">&#x2190; กลับ</button><div class="card" style="text-align:center;padding:32px;"><div style="font-size:48px;margin-bottom:12px;">' + this.bear + '</div><div style="font-weight:800;font-size:16px;color:var(--clay-text);">ไม่พบข้อมูลผู้ใช้</div><div style="font-size:13px;color:var(--clay-text-light);margin-top:8px;">อาจเกิดข้อผิดพลาดหรือผู้ใช้ถูกลบออกแล้ว</div></div></div>' + this.bottomNav('story');
     var u = data.user;
     var st = data.stats;
     var lv = this.levelInfo(u.xp);
@@ -3247,7 +3247,7 @@ var App = {
       : '<div style="display:flex;justify-content:center;align-items:center;width:100%;height:100%;font-size:44px;">' + this.bear + '</div>';
     var isMe = this.state.user && this.state.user.UserID === u.id;
     return '<div class="page-content">' +
-      '<button onclick="App.navigate(\'feed\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
+      '<button onclick="App.navigate(\'activity\')" style="background:none; border:none; font-size:18px; color:var(--clay-text-light); cursor:pointer; padding:0; margin-bottom:16px; font-weight:700;">&#x2190; กลับ</button>' +
       '<div style="background:linear-gradient(135deg,#5BA4F5,#C084FC); border-radius:28px; padding:24px; margin-bottom:16px; text-align:center; box-shadow:0 8px 0 rgba(90,140,200,0.2),0 14px 28px rgba(90,140,200,0.15);">' +
         '<div style="position:relative; width:90px; height:90px; margin:0 auto 12px;">' +
           '<div style="width:90px; height:90px; border-radius:50%; overflow:hidden; border:4px solid white; box-shadow:0 4px 12px rgba(0,0,0,0.2);">' + avatar + '</div>' +
