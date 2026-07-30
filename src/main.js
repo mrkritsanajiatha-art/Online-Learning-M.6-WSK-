@@ -5173,26 +5173,108 @@ var App = {
               : pct >= 60 ? { emoji: '👍', label: 'ดีมาก!', color: '#1565C0' }
               : pct >= 40 ? { emoji: '📘', label: 'พยายามต่อไป!', color: '#F57F17' }
               : { emoji: '💪', label: 'ลองใหม่อีกครั้ง!', color: '#C62828' };
+    var cert = this._gatCertData(correct, total, pct, fillCorrect, m.awarded);
     return '<div class="page-content">' +
-      '<div style="text-align:center; padding:26px 16px 14px;">' +
-        '<div style="font-size:72px; margin-bottom:8px; animation:mascot-bounce 1.5s ease infinite;">' + grade.emoji + '</div>' +
-        '<div style="font-size:22px; font-weight:900; color:' + grade.color + ';">' + grade.label + '</div>' +
-        '<div style="font-size:14px; color:var(--clay-text-light); margin-top:4px;">จบบทเรียน 20 สำนวน GAT Eng แล้ว!</div>' +
+      '<div style="text-align:center; padding:20px 16px 12px;">' +
+        '<div style="font-size:60px; margin-bottom:4px; animation:mascot-bounce 1.5s ease infinite;">' + grade.emoji + '</div>' +
+        '<div style="font-size:20px; font-weight:900; color:' + grade.color + ';">' + grade.label + '</div>' +
+        '<div style="font-size:13px; color:var(--clay-text-light); margin-top:4px;">จบบทเรียน 20 สำนวน GAT Eng แล้ว!</div>' +
       '</div>' +
-      '<div style="background:#F8F3FF; border:2px solid var(--clay-purple); border-radius:20px; padding:20px; text-align:center; margin-bottom:12px;">' +
-        '<div style="font-size:11px; font-weight:800; color:var(--clay-purple-shadow); letter-spacing:2px;">คะแนนปรนัย</div>' +
-        '<div style="font-size:52px; font-weight:900; color:var(--clay-purple-shadow); line-height:1;">' + correct + '<span style="font-size:22px;">/' + total + '</span></div>' +
-        '<div style="font-size:13px; color:var(--clay-text-light); margin-top:4px;">คิดเป็น ' + pct + '%</div>' +
+      // ใบรับรองผล (SVG) — เซฟเป็นรูป หรือแคปหน้าจอเก็บไว้ได้
+      '<div id="gat-cert-box" style="width:100%; border-radius:18px; overflow:hidden; box-shadow:0 8px 24px rgba(120,60,180,0.22); margin-bottom:10px;">' +
+        this._gatCertSvg(cert) +
       '</div>' +
-      '<div style="display:flex; gap:10px; margin-bottom:16px;">' +
-        '<div class="stat-card" style="background:#EEF4FF;"><div style="font-size:20px;">✍️</div><div style="font-weight:800; font-size:18px; color:#2563EB;">' + fillCorrect + '/' + this.GAT_FILL.length + '</div><div style="font-size:11px; color:var(--clay-text-light);">เติมคำ</div></div>' +
-        '<div class="stat-card" style="background:#FFF3E0;"><div style="font-size:20px;">⚡</div><div style="font-weight:800; font-size:18px; color:var(--bear-orange);">+' + m.awarded + '</div><div style="font-size:11px; color:var(--clay-text-light);">XP</div></div>' +
-      '</div>' +
+      '<div style="font-size:11px; color:var(--clay-text-light); text-align:center; margin-bottom:14px;">📸 กด “บันทึกเป็นรูป” หรือแคปหน้าจอส่งคุณครูได้เลย</div>' +
+      '<button class="btn btn-primary" style="margin-bottom:10px;" onclick="App.gatSaveCertificate()">💾 บันทึกใบรับรองเป็นรูป</button>' +
       '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">' +
         '<button class="btn" style="background:#F3E8FF; color:var(--clay-purple-shadow); border:2px solid rgba(160,80,200,0.25); margin:0;" onclick="App.navigate(\'gatIdioms\')">🔄 ทำใหม่</button>' +
         '<button class="btn btn-primary" style="margin:0;" onclick="App.navigate(\'dashboard\')">🏠 กลับหน้าหลัก</button>' +
       '</div>' +
     '</div>';
+  },
+
+  // รวบรวมข้อมูลใบรับรอง (ชื่อ-ชั้น-เลขที่ + ผลคะแนน + วันที่ พ.ศ.)
+  _gatCertData: function(correct, total, pct, fillCorrect, xp) {
+    var u = this.state.user || {};
+    var months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+    var d = new Date();
+    var name = ((u.FirstName || '') + ' ' + (u.LastName || '')).trim() || 'นักเรียน';
+    return {
+      name: name,
+      room: u.Class || '-',
+      no: (u.Number != null && u.Number !== '') ? String(u.Number) : '-',
+      correct: correct, total: total, pct: pct,
+      fillCorrect: fillCorrect, fillTotal: this.GAT_FILL.length, xp: xp,
+      date: d.getDate() + ' ' + months[d.getMonth()] + ' ' + (d.getFullYear() + 543)
+    };
+  },
+
+  // ใบรับรองเป็น SVG (self-contained) — ใช้ทั้งแสดงผลและแปลงเป็น PNG ตอนเซฟ
+  _gatCertSvg: function(c) {
+    function x(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    var ff = "'Prompt','Sarabun','Kanit','Noto Sans Thai',sans-serif";
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" width="640" height="400" style="width:100%;height:auto;display:block;" font-family="' + ff + '">' +
+      '<defs>' +
+        '<linearGradient id="gatcg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FF8C42"/><stop offset="0.55" stop-color="#C084FC"/><stop offset="1" stop-color="#8B5CF6"/></linearGradient>' +
+        '<linearGradient id="gatcs" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FF8C42"/><stop offset="1" stop-color="#C084FC"/></linearGradient>' +
+      '</defs>' +
+      '<rect width="640" height="400" rx="26" fill="url(#gatcg)"/>' +
+      '<rect x="14" y="14" width="612" height="372" rx="18" fill="#ffffff"/>' +
+      // header
+      '<text x="320" y="58" text-anchor="middle" font-size="15" font-weight="700" fill="#8B5CF6" letter-spacing="1">ENGKRIT M6 · ใบรับรองการเรียน</text>' +
+      '<text x="320" y="92" text-anchor="middle" font-size="24" font-weight="800" fill="#3D2B5C">💖 20 สำนวนเตรียมสอบ GAT Eng</text>' +
+      '<line x1="120" y1="112" x2="520" y2="112" stroke="#EADCFB" stroke-width="2"/>' +
+      // score circle
+      '<circle cx="320" cy="188" r="60" fill="none" stroke="#F0E7FF" stroke-width="14"/>' +
+      '<circle cx="320" cy="188" r="60" fill="none" stroke="url(#gatcs)" stroke-width="14" stroke-linecap="round" ' +
+        'stroke-dasharray="' + (Math.PI * 2 * 60).toFixed(1) + '" stroke-dashoffset="' + (Math.PI * 2 * 60 * (1 - c.pct / 100)).toFixed(1) + '" transform="rotate(-90 320 188)"/>' +
+      '<text x="320" y="184" text-anchor="middle" font-size="44" font-weight="900" fill="#5B21B6">' + c.correct + '<tspan font-size="20" fill="#9B8BB4">/' + c.total + '</tspan></text>' +
+      '<text x="320" y="214" text-anchor="middle" font-size="16" font-weight="800" fill="#C084FC">' + c.pct + '%</text>' +
+      // sub stats
+      '<text x="200" y="272" text-anchor="middle" font-size="13" fill="#7A6E90">เติมคำ <tspan font-weight="800" fill="#2563EB">' + c.fillCorrect + '/' + c.fillTotal + '</tspan></text>' +
+      '<text x="440" y="272" text-anchor="middle" font-size="13" fill="#7A6E90">ได้รับ <tspan font-weight="800" fill="#FF8C42">+' + c.xp + ' XP</tspan></text>' +
+      // student box
+      '<rect x="70" y="292" width="500" height="60" rx="14" fill="#F8F3FF"/>' +
+      '<text x="320" y="318" text-anchor="middle" font-size="20" font-weight="900" fill="#3D2B5C">' + x(c.name) + '</text>' +
+      '<text x="320" y="340" text-anchor="middle" font-size="13" fill="#7A6E90">ชั้น ' + x(c.room) + '  ·  เลขที่ ' + x(c.no) + '</text>' +
+      // footer date
+      '<text x="320" y="375" text-anchor="middle" font-size="11" fill="#B0A6C4">เรียนสำเร็จเมื่อ ' + x(c.date) + '</text>' +
+    '</svg>';
+  },
+
+  // เซฟใบรับรองเป็นไฟล์ PNG (แปลง SVG → canvas → ดาวน์โหลด, ไม่ใช้ไลบรารีนอก)
+  gatSaveCertificate: function() {
+    var self = this;
+    var g = this.state.gatIdioms, m = g.mcq, f = g.fill;
+    var correct = 0;
+    for (var i = 0; i < m.questions.length; i++) if (m.answers[i] === m.questions[i].ans) correct++;
+    var total = m.questions.length;
+    var pct = Math.round((correct / total) * 100);
+    var c = this._gatCertData(correct, total, pct, f.correct.filter(Boolean).length, m.awarded);
+    var svg = this._gatCertSvg(c);
+    var scale = 2;
+    var blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var img = new Image();
+    img.onload = function() {
+      var canvas = document.createElement('canvas');
+      canvas.width = 640 * scale; canvas.height = 400 * scale;
+      var ctx = canvas.getContext('2d');
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      ctx.drawImage(img, 0, 0, 640, 400);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(function(png) {
+        if (!png) { self.toast('เซฟไม่สำเร็จ ลองแคปหน้าจอแทนนะ 📸'); return; }
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(png);
+        a.download = 'GAT-Idioms_' + (c.name.replace(/\s+/g, '') || 'result') + '.png';
+        document.body.appendChild(a); a.click();
+        setTimeout(function() { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+        self.toast('บันทึกรูปแล้ว 🎉');
+      }, 'image/png');
+    };
+    img.onerror = function() { URL.revokeObjectURL(url); self.toast('เซฟไม่สำเร็จ ลองแคปหน้าจอแทนนะ 📸'); };
+    img.src = url;
   },
 
   // ---- ตัวคุมวิดีโอ YouTube: ปิดปุ่มควบคุม + กันเลื่อนข้าม + ปลดล็อกเมื่อดูจบ ----
