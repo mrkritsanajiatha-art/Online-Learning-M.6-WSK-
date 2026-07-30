@@ -516,6 +516,67 @@
     100% { left: 130%; }
   }
 
+  /* ---- บทเรียนพิเศษ GAT: การ์ดพรีเมียม + ป้าย New! กระพริบ ---- */
+  .gat-premium-card {
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(135deg, #FF6FB5 0%, #C084FC 55%, #8B5CF6 100%);
+    background-size: 180% 180%;
+    border: none;
+    box-shadow: 0 8px 0 rgba(150,30,110,0.28), 0 14px 30px rgba(160,80,200,0.30);
+    animation: gatGradient 6s ease infinite;
+  }
+  /* แถบแสงกวาดผ่านการ์ดเป็นจังหวะ (premium sheen) */
+  .gat-premium-card::before {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0; left: -120%;
+    width: 60%;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,0.45), transparent);
+    transform: skewX(-18deg);
+    animation: gatSheen 3.6s ease-in-out infinite;
+    z-index: 0;
+  }
+  @keyframes gatGradient {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+  }
+  @keyframes gatSheen {
+    0%, 55% { left: -120%; }
+    100% { left: 130%; }
+  }
+  /* การ์ดที่ยังไม่เปิด: หรี่สี + หยุดเอฟเฟกต์ */
+  .gat-card-locked { filter: grayscale(0.35) brightness(0.92); animation: none; }
+  .gat-card-locked::before { display: none; }
+  .gat-heart-pulse { animation: gatHeart 1.4s ease-in-out infinite; }
+  @keyframes gatHeart {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.18); }
+  }
+  .gat-new-badge {
+    position: absolute;
+    top: 8px; right: 10px;
+    z-index: 2;
+    background: linear-gradient(135deg, #FFE259, #FFA751);
+    color: #7A2E00;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: .5px;
+    padding: 3px 10px;
+    border-radius: 10px;
+    box-shadow: 0 3px 0 rgba(180,90,0,0.30);
+    animation: gatBlink 1s steps(1, end) infinite;
+  }
+  @keyframes gatBlink {
+    0%, 60% { opacity: 1; transform: scale(1); }
+    70% { opacity: .25; transform: scale(0.94); }
+    85%, 100% { opacity: 1; transform: scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .gat-premium-card, .gat-premium-card::before,
+    .gat-heart-pulse, .gat-new-badge { animation: none; }
+  }
+
   /* ---- Progress bar: แถบแสงเลื่อน (goal-gradient) ---- */
   .progress-bar-fill { position: relative; overflow: hidden; }
   .progress-bar-fill::after {

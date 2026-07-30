@@ -38,6 +38,7 @@ gas-backup/      ← ต้นฉบับ Google Apps Script (ไม่ใช�
 | `guide` | `viewGuide()` | 948 |
 | `bonusQR` | `viewBonusQR()` | 1624 |
 | `wordBridge` | `viewWordBridge()` | 2454 |
+| `gatIdioms` | `viewGatIdioms()` | — (บทเรียนพิเศษ 20 สำนวน GAT: video→เติมคำ→MCQ) |
 | `community` | `viewCommunity()` | 666 |
 | `storyCompose` | `viewStoryCompose()` | 791 |
 | `storyView` | `viewStoryView()` | 843 |

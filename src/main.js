@@ -340,6 +340,14 @@ var App = {
     placement: { phase: 'intro', currentIndex: 0, answers: [], result: null, answering: false },
     englishCourse: { exp: 0, progress: {}, loaded: false },
     englishQuiz: { moduleId: null, questions: [], currentIndex: 0, answers: [], submitted: false, awarded: 0 },
+    // บทเรียนพิเศษเฉพาะกิจ 31 ก.ค. 2569 — 20 สำนวนเตรียมสอบ GAT Eng
+    // phase: intro → video → fill → mcq → done
+    gatIdioms: {
+      phase: 'intro',
+      videoEnded: false,
+      fill: { idx: 0, value: '', answers: [], correct: [], done: false },
+      mcq: { idx: 0, answers: [], submitted: false, awarded: 0 }
+    },
     selfProfile: null
   },
 
@@ -411,6 +419,54 @@ var App = {
       { q: 'Error ID: "Each of the students have their own textbook."', opts: ['Each of', 'the students', 'have', 'their own'], ans: 2, explain: 'have → has (Each of + N + singular verb)' }
     ]
   },
+
+  // ===== บทเรียนพิเศษ: 20 สำนวนเตรียมสอบ GAT Eng (31 ก.ค. 2569) =====
+  GAT_LESSON: {
+    date: '31 กรกฎาคม 2569',
+    videoId: 'psQcK7Q-Big',
+    xp: 30, // XP ครั้งเดียวเมื่อเรียนจบ (ผ่าน submitGameScore key 'gat_idioms')
+    // เปิดให้เรียน 31 ก.ค. 2569 เวลา 08:00 น. (ไทย = UTC+7 → 01:00 UTC)
+    openAt: '2026-07-31T01:00:00Z',
+    openLabel: 'พฤ. 31 ก.ค. 08:00 น.'
+  },
+
+  // 20 สำนวนหลัก (idiom → ความหมายไทย) ใช้สร้างทั้งข้อสอบ MCQ และเป็นคลังอ้างอิง
+  GAT_IDIOMS: [
+    { en: 'bored to death',            th: 'เบื่อจะตายอยู่แล้ว' },
+    { en: "You've got to be kidding",  th: 'คุณต้องล้อเล่นแน่ๆ เลย' },
+    { en: 'sick and tired',            th: 'เบื่อหน่าย โคตรเบื่อ' },
+    { en: 'call it a day',             th: 'เลิกงาน เลิกทำบางสิ่ง' },
+    { en: "get on one's nerves",       th: 'รบกวน กวนประสาท' },
+    { en: 'couch potato',              th: 'คนขี้เกียจ (ดูทีวีทั้งวัน)' },
+    { en: "read one's mind",           th: 'รู้ใจ เหมือนอ่านใจได้' },
+    { en: 'feel blue',                 th: 'รู้สึกเสียใจ เศร้าใจ' },
+    { en: 'fender bender',             th: 'อุบัติเหตุเล็กๆ น้อยๆ' },
+    { en: 'get a foot in the door',    th: 'ผ่านขั้นแรก (เริ่มมีโอกาส)' },
+    { en: 'chicken',                   th: 'คนขี้ขลาด ไก่อ่อน' },
+    { en: 'give (someone) a hard time', th: 'ทำให้ยุ่งยาก ลำบาก' },
+    { en: "make up one's mind",        th: 'ตัดสินใจ' },
+    { en: 'go Dutch',                  th: 'แบ่งกันจ่ายคนละครึ่ง' },
+    { en: 'throw in the towel',        th: 'ยอมแพ้ ยกผ้าขาว' },
+    { en: 'goose bumps',               th: 'ขนลุก' },
+    { en: 'stay in touch',             th: 'ไม่ขาดการติดต่อ' },
+    { en: 'have the guts',             th: 'กล้าหาญ กล้าพอที่จะ...' },
+    { en: 'rain or shine',             th: 'ไม่ว่าจะเกิดอะไรขึ้น' },
+    { en: 'easier said than done',     th: 'พูดง่ายแต่ทำยาก' }
+  ],
+
+  // แบบทดสอบเติมคำ — เติมสำนวนที่หายไปในประโยค (accept = คำตอบที่ยอมรับ, เทียบแบบผ่อนปรน)
+  GAT_FILL: [
+    { sentence: "I've watched TV all day. I'm ___ of doing nothing.", hint: 'เบื่อหน่าย โคตรเบื่อ', accept: ['sick and tired'] },
+    { sentence: "It's already 6 p.m. Let's ___ and go home.", hint: 'เลิกงาน/เลิกทำ', accept: ['call it a day'] },
+    { sentence: "My little brother keeps singing loudly and it really ___ my ___.", hint: 'กวนประสาท', accept: ["gets on my nerves", "get on my nerves"] },
+    { sentence: "He never exercises and just lies on the sofa — a real ___.", hint: 'คนขี้เกียจดูทีวีทั้งวัน', accept: ['couch potato'] },
+    { sentence: "When the horror scene started, I got ___ all over my arms.", hint: 'ขนลุก', accept: ['goose bumps', 'goosebumps'] },
+    { sentence: "Don't worry, we will ___ even after you move abroad.", hint: 'ไม่ขาดการติดต่อ', accept: ['stay in touch', 'keep in touch'] },
+    { sentence: "You paid last time, so today let's ___.", hint: 'จ่ายคนละครึ่ง', accept: ['go dutch'] },
+    { sentence: "After failing five times, he finally ___ and quit.", hint: 'ยอมแพ้', accept: ['threw in the towel', 'throw in the towel'] },
+    { sentence: "Losing weight sounds simple, but it's ___.", hint: 'พูดง่ายแต่ทำยาก', accept: ['easier said than done'] },
+    { sentence: "Did you really win the lottery? You've ___!", hint: 'ล้อเล่นแน่ๆ', accept: ["got to be kidding", "gotta be kidding"] }
+  ],
 
   // ===== BADGE DEFINITIONS =====
   BADGE_DEFS: [
@@ -1138,6 +1194,16 @@ var App = {
       var qs = this.ENGLISH_QUESTIONS[modId] || [];
       this.state.englishQuiz = { moduleId: modId, questions: qs, currentIndex: 0, answers: [], submitted: false, awarded: 0 };
       this.render();
+    } else if (route === 'gatIdioms') {
+      // เริ่มบทเรียนพิเศษใหม่เสมอเมื่อเข้าจากภายนอก (params 'resume' = ไม่รีเซ็ต)
+      if (params !== 'resume') {
+        this.state.gatIdioms = {
+          phase: 'intro', videoEnded: false,
+          fill: { idx: 0, value: '', answers: [], correct: [], done: false },
+          mcq: { idx: 0, answers: [], submitted: false, awarded: 0 }
+        };
+      }
+      this.render();
     } else {
       this.render();
     }
@@ -1179,6 +1245,7 @@ var App = {
     if (r === 'placementTest') return this.viewPlacementTest();
     if (r === 'englishCourse') return this.viewEnglishCourse() + this.bottomNav('home');
     if (r === 'englishModuleQuiz') return this.viewEnglishModuleQuiz();
+    if (r === 'gatIdioms') return this.viewGatIdioms();
     return '<div class="loader">Page not found</div>';
   },
 
@@ -1207,6 +1274,8 @@ var App = {
     else if (r === 'adminScanner') this.initQRScanner();
     else if (r === 'profileEdit' && this.state.cropperOpen) this.initCropper();
     if (r === 'profile' || r === 'userProfile') this.initVinyl();
+    if (r === 'gatIdioms' && this.state.gatIdioms.phase === 'video') this.initGatVideo();
+    if (r === 'gatIdioms' && this.state.gatIdioms.phase === 'intro') this._podcastSync();
     if (this.state.announcement.show) this.initAnnounceCard();
   },
 
@@ -1607,6 +1676,28 @@ var App = {
       '</div>' +
       // ===== HERO: สิ่งที่นักเรียนทำบ่อยที่สุด (จากข้อมูลการใช้งานจริง) =====
       '<div style="font-weight:800; font-size:14px; color:var(--clay-text-light); margin:2px 4px 10px;">วันนี้เรียนอะไรดี 🐾</div>' +
+      // ⭐ บทเรียนพิเศษเฉพาะกิจ — 20 สำนวน GAT Eng (เปิด 31 ก.ค. 08:00)
+      (function(open, label, isAdmin) {
+        var lockedBadge = open
+          ? '<div class="gat-new-badge">✨ New!</div>'
+          : '<div class="gat-new-badge" style="background:linear-gradient(135deg,#B0A8C8,#8B82A8); color:#fff; animation:none;">🔒 ' + label + '</div>';
+        var subline = open
+          ? 'วิดีโอ → เติมคำ → ปรนัย 20 ข้อ'
+          : 'จะเปิดให้เรียน ' + label + (isAdmin ? ' · (ครูดูพรีวิวได้)' : '');
+        var rightIcon = open ? '▶' : '🔒';
+        return '<div class="card action-card gat-premium-card' + (open ? '' : ' gat-card-locked') + '" style="margin-bottom:12px; cursor:pointer;" onclick="App.gatEnter()">' +
+          lockedBadge +
+          '<div style="display:flex; align-items:center; gap:12px; position:relative; z-index:1;">' +
+            '<div class="' + (open ? 'gat-heart-pulse' : '') + '" style="font-size:42px; flex-shrink:0;">💖</div>' +
+            '<div style="flex:1;">' +
+              '<div style="display:inline-block; background:rgba(255,255,255,0.9); color:#D6409F; font-size:9px; font-weight:800; border-radius:8px; padding:2px 8px; letter-spacing:.5px;">พิเศษ · 31 ก.ค.</div>' +
+              '<div style="font-weight:900; font-size:15px; color:#fff; margin-top:5px; text-shadow:0 1px 2px rgba(120,20,90,0.25);">20 สำนวนเตรียมสอบ GAT Eng</div>' +
+              '<div style="font-size:12px; color:rgba(255,255,255,0.92); margin-top:3px; font-weight:600;">' + subline + '</div>' +
+            '</div>' +
+            '<div style="width:38px; height:38px; border-radius:50%; background:#fff; box-shadow:0 4px 0 rgba(160,30,110,0.25); display:flex; align-items:center; justify-content:center; font-size:16px; color:#D6409F; flex-shrink:0;">' + rightIcon + '</div>' +
+          '</div>' +
+        '</div>';
+      })(this.gatIsOpen(), this.GAT_LESSON.openLabel, this.isAdmin()) +
       // วงล้อประจำวัน — อันดับ 1 ของการใช้งาน
       '<div class="card action-card" style="background:linear-gradient(145deg,#E0EEFF,#CCE0FF); box-shadow:0 6px 0 rgba(60,130,220,0.2),0 10px 20px rgba(60,130,220,0.10); margin-bottom:12px; cursor:pointer;" onclick="App.navigate(\'dailyQuest\')">' +
         '<div style="display:flex; align-items:center; gap:12px;">' +
@@ -4839,6 +4930,523 @@ var App = {
       })
       .withFailureHandler(function() {})
       .submitEnglishScore(self.state.user.UserID, eq.moduleId, score, maxScore);
+  },
+
+  /* ===================================================================
+     บทเรียนพิเศษเฉพาะกิจ — 20 สำนวนเตรียมสอบ GAT Eng (31 ก.ค. 2569)
+     ลำดับบังคับ: intro → video (ดูจบ ห้ามข้าม) → เติมคำ → MCQ 20 ข้อ → ผล
+     =================================================================== */
+
+  // เปิดเรียนแล้วหรือยัง — ครู (Admin) ดูพรีวิวได้ก่อนเวลาเปิด
+  gatIsOpen: function() {
+    if (this.isAdmin()) return true;
+    return Date.now() >= Date.parse(this.GAT_LESSON.openAt);
+  },
+
+  // กดจากการ์ดหน้าหลัก — เปิดแล้วค่อยเข้า ไม่งั้นเตือน
+  gatEnter: function() {
+    if (this.gatIsOpen()) { this.navigate('gatIdioms'); }
+    else { this.toast('🔒 บทเรียนนี้เปิด ' + this.GAT_LESSON.openLabel); }
+  },
+
+  _gatLocked: function() {
+    return '<div class="page-content" style="display:flex; flex-direction:column; justify-content:center; min-height:100%;">' +
+      '<div style="text-align:center; padding:20px;">' +
+        '<div class="mascot-bounce" style="font-size:72px;">🔒</div>' +
+        '<div style="font-size:22px; font-weight:900; color:var(--clay-purple-shadow); margin-top:10px;">ยังไม่ถึงเวลาเปิด</div>' +
+        '<div style="font-size:14px; color:var(--clay-text-light); margin-top:6px; line-height:1.8;">บทเรียน <b>20 สำนวนเตรียมสอบ GAT Eng</b><br>จะเปิดให้เรียนวัน<b style="color:var(--bear-orange);">' + this.GAT_LESSON.openLabel + '</b></div>' +
+      '</div>' +
+      '<button class="btn btn-primary" onclick="App.navigate(\'dashboard\')">🏠 กลับหน้าหลัก</button>' +
+    '</div>';
+  },
+
+  viewGatIdioms: function() {
+    if (!this.gatIsOpen()) return this._gatLocked();
+    var g = this.state.gatIdioms;
+    if (g.phase === 'video')  return this._gatVideo();
+    if (g.phase === 'fill')   return this._gatFill();
+    if (g.phase === 'mcq')    return this._gatMcq();
+    if (g.phase === 'done')   return this._gatResult();
+    return this._gatIntro();
+  },
+
+  // แถบหัวเรื่อง + ตัวบอกสเต็ป (1 วิดีโอ · 2 เติมคำ · 3 ปรนัย)
+  _gatStepBar: function(active) {
+    var steps = [ { n:'1', t:'วิดีโอ' }, { n:'2', t:'เติมคำ' }, { n:'3', t:'ปรนัย' } ];
+    var html = steps.map(function(s, i) {
+      var on = (i + 1) <= active;
+      var cur = (i + 1) === active;
+      return '<div style="flex:1; text-align:center;">' +
+        '<div style="width:30px; height:30px; margin:0 auto 4px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:13px; ' +
+          (on ? 'background:linear-gradient(135deg,#FF8C42,#C084FC); color:#fff; box-shadow:0 4px 0 rgba(160,80,200,0.25);' : 'background:rgba(0,0,0,0.06); color:var(--clay-text-light);') +
+          (cur ? ' outline:3px solid rgba(192,132,252,0.35);' : '') + '">' + s.n + '</div>' +
+        '<div style="font-size:10px; font-weight:700; color:' + (on ? 'var(--clay-purple-shadow)' : 'var(--clay-text-light)') + ';">' + s.t + '</div>' +
+      '</div>';
+    }).join('<div style="align-self:flex-start; margin-top:14px; flex:0 0 18px; height:2px; background:rgba(0,0,0,0.08);"></div>');
+    return '<div style="display:flex; align-items:flex-start; gap:4px; margin-bottom:18px;">' + html + '</div>';
+  },
+
+  _gatIntro: function() {
+    var L = this.GAT_LESSON;
+    var chips = this.GAT_IDIOMS.map(function(it, i) {
+      return '<div style="background:#fff; border:2px solid rgba(160,80,200,0.15); border-radius:12px; padding:8px 10px;">' +
+        '<div style="font-size:12px; font-weight:800; color:var(--clay-purple-shadow);">' + (i + 1) + '. ' + App.esc(it.en) + '</div>' +
+        '<div style="font-size:11px; color:var(--clay-text-light); margin-top:2px;">' + App.esc(it.th) + '</div>' +
+      '</div>';
+    }).join('');
+    return '<div class="page-content">' +
+      '<div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">' +
+        '<button onclick="App.navigate(\'dashboard\')" style="background:#F3E8FF; border:none; border-radius:50%; width:36px; height:36px; font-size:16px; cursor:pointer; color:var(--clay-purple-shadow);">←</button>' +
+        '<div style="font-size:12px; font-weight:800; color:var(--clay-text-light);">บทเรียนพิเศษ · ' + L.date + '</div>' +
+      '</div>' +
+      '<div style="background:linear-gradient(135deg,#FF8C42,#C084FC); border-radius:26px; padding:22px 20px; margin-bottom:18px; box-shadow:0 8px 0 rgba(160,80,200,0.2),0 14px 28px rgba(160,80,200,0.15); text-align:center;">' +
+        '<div style="font-size:44px;">💖</div>' +
+        '<div style="font-size:22px; font-weight:900; color:#fff; margin-top:4px;">20 สำนวนเตรียมสอบ</div>' +
+        '<div style="display:inline-block; background:rgba(255,255,255,0.25); border-radius:16px; padding:4px 14px; font-size:13px; font-weight:800; color:#fff; margin-top:8px;">GAT Eng · Idioms</div>' +
+      '</div>' +
+      '<div class="card" style="margin-bottom:16px;">' +
+        '<div style="font-size:14px; font-weight:800; color:var(--clay-text); margin-bottom:8px;">🎬 บทเรียนนี้มี 3 ขั้นตอน</div>' +
+        '<div style="font-size:13px; color:var(--clay-text-light); line-height:2;">' +
+          '1️⃣ ดูวิดีโอ 20 สำนวน (ต้องดูให้จบ ข้ามไม่ได้)<br>' +
+          '2️⃣ ทำแบบทดสอบ <b>เติมคำ</b> 10 ข้อ<br>' +
+          '3️⃣ ทำแบบทดสอบ <b>ปรนัย (Multiple Choice)</b> 20 ข้อ<br>' +
+          '🎁 เรียนจบครั้งแรกรับ <b style="color:var(--bear-orange);">+' + L.xp + ' XP</b>' +
+        '</div>' +
+      '</div>' +
+      // 🎧 Podcast — ฟังทบทวนได้ แม้ปิดหน้าจอ (audio ฝังถาวรบน body + MediaSession)
+      '<div class="card" style="background:linear-gradient(135deg,#2B2140,#4A3A6B); border:none; margin-bottom:16px; padding:16px 18px; box-shadow:0 8px 0 rgba(40,25,70,0.3),0 12px 24px rgba(80,50,140,0.25);">' +
+        '<div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">' +
+          '<div style="font-size:34px;">🎧</div>' +
+          '<div style="flex:1;">' +
+            '<div style="font-size:15px; font-weight:900; color:#fff;">Podcast ทบทวน 20 สำนวน</div>' +
+            '<div style="font-size:11px; color:rgba(255,255,255,0.7); margin-top:2px;">ฟังเพลินๆ · ปิดหน้าจอก็ฟังต่อได้ 🌙</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex; align-items:center; gap:10px;">' +
+          '<button onclick="App.podcastSeek(-15)" style="background:rgba(255,255,255,0.12); border:none; color:#fff; width:40px; height:40px; border-radius:50%; font-size:12px; font-weight:800; cursor:pointer;">-15</button>' +
+          '<button id="gat-pc-btn" onclick="App.podcastToggle()" style="background:linear-gradient(135deg,#FF8C42,#C084FC); border:none; color:#fff; width:52px; height:52px; border-radius:50%; font-size:20px; cursor:pointer; box-shadow:0 4px 0 rgba(0,0,0,0.25); flex-shrink:0;">▶</button>' +
+          '<button onclick="App.podcastSeek(15)" style="background:rgba(255,255,255,0.12); border:none; color:#fff; width:40px; height:40px; border-radius:50%; font-size:12px; font-weight:800; cursor:pointer;">+15</button>' +
+          '<div style="flex:1; margin-left:4px;">' +
+            '<div onclick="App.podcastScrub(event)" style="height:8px; background:rgba(255,255,255,0.15); border-radius:8px; overflow:hidden; cursor:pointer;">' +
+              '<div id="gat-pc-prog" style="width:0%; height:100%; background:linear-gradient(90deg,#FF8C42,#C084FC); border-radius:8px;"></div>' +
+            '</div>' +
+            '<div id="gat-pc-time" style="font-size:10px; color:rgba(255,255,255,0.7); margin-top:5px; font-variant-numeric:tabular-nums;">0:00 / 0:00</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="font-size:13px; font-weight:800; color:var(--clay-text-light); margin:0 4px 10px;">📖 คลังสำนวน 20 คำ (อ่านก่อนเริ่ม)</div>' +
+      '<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:20px;">' + chips + '</div>' +
+      '<button class="btn btn-primary" onclick="App.gatGoVideo()">▶ เริ่มดูวิดีโอ</button>' +
+    '</div>';
+  },
+
+  _gatVideo: function() {
+    var g = this.state.gatIdioms;
+    var ended = g.videoEnded;
+    return '<div class="page-content">' +
+      this._gatStepBar(1) +
+      '<div class="card" style="padding:14px; margin-bottom:14px;">' +
+        '<div style="font-size:15px; font-weight:800; color:var(--clay-text); margin-bottom:10px;">🎬 วิดีโอ 20 สำนวน GAT Eng</div>' +
+        // ปิดปุ่มควบคุมของ YouTube (controls=0) + ชั้นดักคลิกของเราเอง (สั่งเล่น/หยุดผ่าน API)
+        // ชั้นนี้กันคลิกทะลุไปโดนปุ่มแชร์ / โลโก้ YouTube / ชื่อคลิป ไม่ให้เด้งออกไป YouTube
+        '<div id="gat-video-wrap" style="position:relative; width:100%; padding-top:56.25%; border-radius:16px; overflow:hidden; background:#000;">' +
+          '<div id="gat-yt" style="position:absolute; inset:0; width:100%; height:100%;"></div>' +
+          '<div id="gat-video-cover" onclick="App.gatToggleVideo()" style="position:absolute; inset:0; z-index:3; cursor:pointer; display:flex; align-items:center; justify-content:center; background:transparent;">' +
+            // ซ่อนไว้ตอนเริ่ม (โชว์ปุ่มแดงของ YouTube ที่คมกว่า) — โผล่มาเฉพาะตอนหยุดกลางคลิป
+            '<div id="gat-play-icon" style="width:64px; height:64px; border-radius:50%; background:rgba(0,0,0,0.6); box-shadow:0 4px 16px rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; font-size:24px; color:#fff; padding-left:4px; opacity:0; transition:opacity .25s;">▶</div>' +
+          '</div>' +
+        '</div>' +
+        '<button class="btn btn-outline" style="margin-top:10px; margin-bottom:0;" onclick="App.gatFullscreen()">⛶ ดูแบบเต็มจอ / แนวนอน</button>' +
+        '<div style="height:8px; background:rgba(0,0,0,0.08); border-radius:8px; overflow:hidden; margin-top:12px;">' +
+          '<div id="gat-video-prog" style="width:' + (ended ? '100' : '0') + '%; height:100%; background:linear-gradient(90deg,#FF8C42,#C084FC); border-radius:8px; transition:width 0.4s;"></div>' +
+        '</div>' +
+        '<div id="gat-lock-note" style="font-size:12px; font-weight:700; text-align:center; margin-top:10px; color:' + (ended ? 'var(--clay-green-shadow)' : 'var(--clay-text-light)') + ';">' +
+          (ended ? '✅ ดูจบแล้ว! ไปต่อกันเลย' : '🔒 ต้องดูวิดีโอให้จบก่อน จึงจะไปต่อได้') +
+        '</div>' +
+      '</div>' +
+      '<button id="gat-continue" ' + (ended ? '' : 'disabled ') + 'class="btn ' + (ended ? 'btn-primary' : '') + '" ' +
+        'style="' + (ended ? '' : 'background:rgba(0,0,0,0.12); color:#fff; cursor:not-allowed;') + '" ' +
+        'onclick="App.gatVideoContinue()">' + (ended ? 'ทำแบบทดสอบเติมคำ →' : 'ดูวิดีโอให้จบก่อนนะ 🔒') + '</button>' +
+    '</div>';
+  },
+
+  _gatFill: function() {
+    var g = this.state.gatIdioms, f = g.fill;
+    var total = this.GAT_FILL.length;
+    var item = this.GAT_FILL[f.idx];
+    var answered = f.answers[f.idx] !== undefined;
+    var isRight = f.correct[f.idx];
+    var pct = Math.round((f.idx / total) * 100);
+    var sentenceHtml = this.esc(item.sentence).replace(/___+/g,
+      '<span style="display:inline-block; min-width:70px; border-bottom:3px solid var(--clay-purple); margin:0 2px;">&nbsp;</span>');
+
+    var feedback = '';
+    if (answered) {
+      feedback = '<div style="background:' + (isRight ? '#E8F5E9' : '#FFEBEE') + '; border-left:4px solid ' + (isRight ? '#4CAF50' : '#F44336') + '; border-radius:10px; padding:12px 14px; margin-bottom:14px; font-size:13px; color:var(--clay-text); line-height:1.6;">' +
+        (isRight ? '✅ <b>ถูกต้อง!</b>' : '❌ <b>ยังไม่ถูก</b> — คำตอบของคุณ: "' + this.esc(f.answers[f.idx]) + '"') +
+        '<br>เฉลย: <b style="color:var(--clay-purple-shadow);">' + this.esc(item.accept[0]) + '</b></div>';
+    }
+
+    var actionBtn = answered
+      ? (f.idx < total - 1
+          ? '<button class="btn btn-primary" onclick="App.gatFillNext()">ข้อถัดไป →</button>'
+          : '<button class="btn btn-primary" onclick="App.gatGoMcq()">ไปทำข้อสอบปรนัย 20 ข้อ →</button>')
+      : '<button class="btn btn-primary" onclick="App.gatFillCheck()">ตรวจคำตอบ</button>' +
+        '<button class="btn btn-outline" onclick="App.gatFillReveal()">💡 ขอเฉลย / ข้าม</button>';
+
+    return '<div class="page-content">' +
+      this._gatStepBar(2) +
+      '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">' +
+        '<div style="font-size:13px; font-weight:800; color:var(--clay-purple-shadow);">✍️ เติมคำ · ข้อ ' + (f.idx + 1) + '/' + total + '</div>' +
+        '<div style="font-size:13px; font-weight:800; color:var(--clay-purple-shadow);">' + pct + '%</div>' +
+      '</div>' +
+      '<div style="height:8px; background:rgba(0,0,0,0.08); border-radius:8px; overflow:hidden; margin-bottom:16px;">' +
+        '<div style="width:' + pct + '%; height:100%; background:var(--clay-purple); border-radius:8px; transition:width 0.4s;"></div>' +
+      '</div>' +
+      '<div class="card" style="background:#F8F3FF; border:none; padding:18px 20px; margin-bottom:14px;">' +
+        '<div style="font-size:16px; font-weight:700; color:var(--clay-text); line-height:1.9;">' + sentenceHtml + '</div>' +
+        '<div style="font-size:12px; color:var(--clay-text-light); margin-top:10px;">🇹🇭 ความหมาย: <b>' + this.esc(item.hint) + '</b></div>' +
+      '</div>' +
+      (answered
+        ? ''
+        : '<input type="text" class="input-field" id="gat-fill-input" placeholder="พิมพ์สำนวนภาษาอังกฤษ..." ' +
+          'value="' + this.esc(f.value || '') + '" oninput="App.state.gatIdioms.fill.value=this.value" ' +
+          'onkeydown="if(event.key===\'Enter\')App.gatFillCheck()" autocomplete="off" autocapitalize="none">') +
+      feedback + actionBtn +
+    '</div>';
+  },
+
+  _gatMcq: function() {
+    var g = this.state.gatIdioms, m = g.mcq;
+    if (!m.questions || !m.questions.length) m.questions = this._gatBuildMcq();
+    var qs = m.questions, total = qs.length;
+    var q = qs[m.idx];
+    var answered = m.answers[m.idx] !== undefined;
+    var pct = Math.round((m.idx / total) * 100);
+    var self = this;
+
+    var optsHtml = q.opts.map(function(opt, i) {
+      var picked = answered && m.answers[m.idx] === i;
+      var correct = answered && i === q.ans;
+      var wrong = answered && picked && i !== q.ans;
+      var bg = correct ? 'background:#E8F5E9; border-color:#4CAF50;'
+             : wrong ? 'background:#FFEBEE; border-color:#F44336;' : '';
+      var letter = ['A', 'B', 'C', 'D'][i];
+      return '<button onclick="App.gatMcqAnswer(' + i + ')" style="width:100%; text-align:left; display:flex; align-items:center; gap:12px; padding:13px 14px; ' + bg + ' border:2px solid rgba(0,0,0,0.10); border-radius:14px; cursor:pointer; font-family:var(--font-main); margin-bottom:8px;">' +
+        '<div style="width:30px; height:30px; border-radius:50%; background:var(--clay-purple); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; color:#fff; flex-shrink:0;">' + letter + '</div>' +
+        '<span style="font-size:14px; font-weight:600; color:var(--clay-text);">' + self.esc(opt) + '</span>' +
+        (correct ? '<span style="margin-left:auto;">✅</span>' : wrong ? '<span style="margin-left:auto;">❌</span>' : '') +
+      '</button>';
+    }).join('');
+
+    var nextBtn = answered
+      ? (m.idx < total - 1
+          ? '<button class="btn btn-primary" onclick="App.gatMcqNext()">ถัดไป →</button>'
+          : '<button class="btn btn-primary" onclick="App.gatSubmitMcq()">🏁 ดูผลคะแนน</button>')
+      : '';
+
+    return '<div class="page-content">' +
+      this._gatStepBar(3) +
+      '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">' +
+        '<div style="font-size:13px; font-weight:800; color:var(--clay-purple-shadow);">📝 ปรนัย · ข้อ ' + (m.idx + 1) + '/' + total + '</div>' +
+        '<div style="font-size:13px; font-weight:800; color:var(--clay-purple-shadow);">' + pct + '%</div>' +
+      '</div>' +
+      '<div style="height:8px; background:rgba(0,0,0,0.08); border-radius:8px; overflow:hidden; margin-bottom:16px;">' +
+        '<div style="width:' + pct + '%; height:100%; background:var(--clay-purple); border-radius:8px; transition:width 0.4s;"></div>' +
+      '</div>' +
+      '<div class="card" style="background:#F8F3FF; border:none; padding:18px 20px; margin-bottom:14px;">' +
+        '<div style="font-size:12px; color:var(--clay-text-light); font-weight:700;">สำนวนนี้แปลว่าอะไร?</div>' +
+        '<div style="font-size:20px; font-weight:900; color:var(--clay-purple-shadow); margin-top:4px;">' + this.esc(q.q) + '</div>' +
+      '</div>' +
+      optsHtml + nextBtn +
+    '</div>';
+  },
+
+  _gatResult: function() {
+    var g = this.state.gatIdioms, m = g.mcq, f = g.fill;
+    var correct = 0;
+    for (var i = 0; i < m.questions.length; i++) if (m.answers[i] === m.questions[i].ans) correct++;
+    var total = m.questions.length;
+    var pct = Math.round((correct / total) * 100);
+    var fillCorrect = f.correct.filter(Boolean).length;
+    var grade = pct >= 80 ? { emoji: '🌟', label: 'ยอดเยี่ยม!', color: '#2E7D32' }
+              : pct >= 60 ? { emoji: '👍', label: 'ดีมาก!', color: '#1565C0' }
+              : pct >= 40 ? { emoji: '📘', label: 'พยายามต่อไป!', color: '#F57F17' }
+              : { emoji: '💪', label: 'ลองใหม่อีกครั้ง!', color: '#C62828' };
+    return '<div class="page-content">' +
+      '<div style="text-align:center; padding:26px 16px 14px;">' +
+        '<div style="font-size:72px; margin-bottom:8px; animation:mascot-bounce 1.5s ease infinite;">' + grade.emoji + '</div>' +
+        '<div style="font-size:22px; font-weight:900; color:' + grade.color + ';">' + grade.label + '</div>' +
+        '<div style="font-size:14px; color:var(--clay-text-light); margin-top:4px;">จบบทเรียน 20 สำนวน GAT Eng แล้ว!</div>' +
+      '</div>' +
+      '<div style="background:#F8F3FF; border:2px solid var(--clay-purple); border-radius:20px; padding:20px; text-align:center; margin-bottom:12px;">' +
+        '<div style="font-size:11px; font-weight:800; color:var(--clay-purple-shadow); letter-spacing:2px;">คะแนนปรนัย</div>' +
+        '<div style="font-size:52px; font-weight:900; color:var(--clay-purple-shadow); line-height:1;">' + correct + '<span style="font-size:22px;">/' + total + '</span></div>' +
+        '<div style="font-size:13px; color:var(--clay-text-light); margin-top:4px;">คิดเป็น ' + pct + '%</div>' +
+      '</div>' +
+      '<div style="display:flex; gap:10px; margin-bottom:16px;">' +
+        '<div class="stat-card" style="background:#EEF4FF;"><div style="font-size:20px;">✍️</div><div style="font-weight:800; font-size:18px; color:#2563EB;">' + fillCorrect + '/' + this.GAT_FILL.length + '</div><div style="font-size:11px; color:var(--clay-text-light);">เติมคำ</div></div>' +
+        '<div class="stat-card" style="background:#FFF3E0;"><div style="font-size:20px;">⚡</div><div style="font-weight:800; font-size:18px; color:var(--bear-orange);">+' + m.awarded + '</div><div style="font-size:11px; color:var(--clay-text-light);">XP</div></div>' +
+      '</div>' +
+      '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">' +
+        '<button class="btn" style="background:#F3E8FF; color:var(--clay-purple-shadow); border:2px solid rgba(160,80,200,0.25); margin:0;" onclick="App.navigate(\'gatIdioms\')">🔄 ทำใหม่</button>' +
+        '<button class="btn btn-primary" style="margin:0;" onclick="App.navigate(\'dashboard\')">🏠 กลับหน้าหลัก</button>' +
+      '</div>' +
+    '</div>';
+  },
+
+  // ---- ตัวคุมวิดีโอ YouTube: ปิดปุ่มควบคุม + กันเลื่อนข้าม + ปลดล็อกเมื่อดูจบ ----
+  gatGoVideo: function() { this.state.gatIdioms.phase = 'video'; this.render(); },
+
+  initGatVideo: function() {
+    var self = this;
+    if (!document.getElementById('gat-yt')) return;
+    self._gatWatchedMax = 0;
+    function create() {
+      self._gatPlayer = new window.YT.Player('gat-yt', {
+        videoId: self.GAT_LESSON.videoId,
+        playerVars: { controls: 0, disablekb: 1, modestbranding: 1, rel: 0, fs: 0, playsinline: 1, iv_load_policy: 3 },
+        events: { onStateChange: function(e) { self._gatOnState(e); } }
+      });
+    }
+    if (window.YT && window.YT.Player) { create(); return; }
+    if (!document.getElementById('yt-iframe-api')) {
+      var tag = document.createElement('script');
+      tag.id = 'yt-iframe-api';
+      tag.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(tag);
+    }
+    // YouTube เรียก callback global ตัวนี้เมื่อ API พร้อม
+    window.onYouTubeIframeAPIReady = function() { create(); };
+  },
+
+  _gatOnState: function(e) {
+    var self = this;
+    var PS = window.YT.PlayerState;
+    var icon = document.getElementById('gat-play-icon');
+    if (e.data === PS.PLAYING) {
+      if (icon) icon.style.opacity = '0';           // เล่นอยู่ → ซ่อนไอคอน play
+      if (self._gatTimer) clearInterval(self._gatTimer);
+      // ทุก 0.5 วิ: ถ้าเวลากระโดดล้ำจุดที่เคยดู → ดึงกลับ (กันลากข้าม)
+      self._gatTimer = setInterval(function() {
+        try {
+          var t = self._gatPlayer.getCurrentTime();
+          if (t > self._gatWatchedMax + 1.5) { self._gatPlayer.seekTo(self._gatWatchedMax, true); }
+          else if (t > self._gatWatchedMax) { self._gatWatchedMax = t; }
+          var dur = self._gatPlayer.getDuration() || 0;
+          var bar = document.getElementById('gat-video-prog');
+          if (bar && dur) bar.style.width = Math.min(100, (self._gatWatchedMax / dur) * 100) + '%';
+        } catch (_) {}
+      }, 500);
+    } else if (e.data === PS.PAUSED) {
+      if (icon) icon.style.opacity = '1';           // หยุดชั่วคราว → โชว์ไอคอน play อีกครั้ง
+    } else if (e.data === PS.ENDED) {
+      if (self._gatTimer) { clearInterval(self._gatTimer); self._gatTimer = null; }
+      if (icon) icon.style.display = 'none';
+      self.state.gatIdioms.videoEnded = true;
+      // อัปเดต DOM ตรงๆ เพื่อไม่ให้ iframe ถูกรีเซ็ตจากการ re-render
+      var bar = document.getElementById('gat-video-prog'); if (bar) bar.style.width = '100%';
+      var note = document.getElementById('gat-lock-note');
+      if (note) { note.innerHTML = '✅ ดูจบแล้ว! ไปต่อกันเลย'; note.style.color = 'var(--clay-green-shadow)'; }
+      var btn = document.getElementById('gat-continue');
+      if (btn) { btn.disabled = false; btn.className = 'btn btn-primary'; btn.style.cssText = ''; btn.innerHTML = 'ทำแบบทดสอบเติมคำ →'; }
+    }
+  },
+
+  gatVideoContinue: function() {
+    if (!this.state.gatIdioms.videoEnded) { this.toast('ดูวิดีโอให้จบก่อนนะ 🔒'); return; }
+    if (this._gatTimer) { clearInterval(this._gatTimer); this._gatTimer = null; }
+    try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (_) {}
+    try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen(); } catch (_) {}
+    this.state.gatIdioms.phase = 'fill';
+    this.render();
+  },
+
+  // แตะที่วิดีโอ = เล่น/หยุด (สั่งผ่าน API เอง เพื่อกันคลิกทะลุไปปุ่มแชร์/YouTube)
+  gatToggleVideo: function() {
+    var p = this._gatPlayer;
+    if (!p) return;
+    try {
+      if (p.getPlayerState() === window.YT.PlayerState.PLAYING) p.pauseVideo();
+      else p.playVideo();
+    } catch (_) {}
+  },
+
+  // ดูเต็มจอ + ล็อกแนวนอนบนมือถือ (fullscreen ที่กล่องครอบ ไม่ใช่ iframe → ยังไม่มีปุ่มควบคุม YouTube)
+  gatFullscreen: function() {
+    var el = document.getElementById('gat-video-wrap');
+    if (!el) return;
+    var req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen || el.webkitEnterFullscreen;
+    try { if (req) req.call(el); } catch (_) {}
+    // ล็อกจอเป็นแนวนอนถ้าอุปกรณ์รองรับ (ส่วนใหญ่คือมือถือ Android/Chrome)
+    try {
+      if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(function() {});
+      }
+    } catch (_) {}
+  },
+
+  // ---- Podcast: audio ฝังถาวรบน body (เล่นต่อได้แม้เปลี่ยนหน้า/ปิดจอ) + MediaSession ----
+  ensurePodcast: function() {
+    var a = document.getElementById('gat-podcast-audio');
+    if (a) return a;
+    var self = this;
+    a = document.createElement('audio');
+    a.id = 'gat-podcast-audio';
+    a.preload = 'metadata';
+    // ใช้ BASE_URL ของ Vite เพื่อให้ path ถูกต้องทั้ง dev และหลัง build
+    a.src = (import.meta.env.BASE_URL || '/') + 'podcast-gat-idioms.m4a';
+    document.body.appendChild(a);
+    a.addEventListener('timeupdate', function() { self._podcastSync(); });
+    a.addEventListener('loadedmetadata', function() { self._podcastSync(); });
+    a.addEventListener('play', function() { self._podcastSync(); self._mediaState('playing'); });
+    a.addEventListener('pause', function() { self._podcastSync(); self._mediaState('paused'); });
+    a.addEventListener('ended', function() { self._podcastSync(); });
+    // MediaSession → ปุ่มควบคุมบน Lock screen / Control center
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.metadata = new window.MediaMetadata({
+          title: '20 สำนวนเตรียมสอบ GAT Eng',
+          artist: 'ครูกฤษณะ เจี๊ยะทา',
+          album: 'Engkrit M6 · Podcast'
+        });
+        navigator.mediaSession.setActionHandler('play', function() { a.play(); });
+        navigator.mediaSession.setActionHandler('pause', function() { a.pause(); });
+        navigator.mediaSession.setActionHandler('seekbackward', function() { self.podcastSeek(-15); });
+        navigator.mediaSession.setActionHandler('seekforward', function() { self.podcastSeek(15); });
+      } catch (_) {}
+    }
+    return a;
+  },
+
+  podcastToggle: function() {
+    var a = this.ensurePodcast();
+    if (a.paused) { a.play().catch(function() {}); } else { a.pause(); }
+  },
+
+  podcastSeek: function(delta) {
+    var a = document.getElementById('gat-podcast-audio');
+    if (!a || !a.duration) return;
+    a.currentTime = Math.max(0, Math.min(a.duration, a.currentTime + delta));
+  },
+
+  podcastScrub: function(ev) {
+    var a = document.getElementById('gat-podcast-audio');
+    if (!a || !a.duration) return;
+    var bar = ev.currentTarget;
+    var rect = bar.getBoundingClientRect();
+    var ratio = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+    a.currentTime = ratio * a.duration;
+  },
+
+  _fmtTime: function(s) {
+    s = Math.max(0, Math.floor(s || 0));
+    var m = Math.floor(s / 60);
+    var ss = s % 60;
+    return m + ':' + (ss < 10 ? '0' : '') + ss;
+  },
+
+  // อัปเดตแค่ปุ่ม/แถบ/เวลา (ไม่ re-render ทั้งหน้า จึงไม่รบกวน audio)
+  _podcastSync: function() {
+    var a = document.getElementById('gat-podcast-audio');
+    if (!a) return;
+    var btn = document.getElementById('gat-pc-btn');
+    if (btn) btn.innerHTML = a.paused ? '▶' : '❚❚';
+    var prog = document.getElementById('gat-pc-prog');
+    if (prog && a.duration) prog.style.width = (a.currentTime / a.duration * 100) + '%';
+    var time = document.getElementById('gat-pc-time');
+    if (time) time.textContent = this._fmtTime(a.currentTime) + ' / ' + this._fmtTime(a.duration);
+  },
+
+  _mediaState: function(state) {
+    if ('mediaSession' in navigator) { try { navigator.mediaSession.playbackState = state; } catch (_) {} }
+  },
+
+  // ---- เติมคำ ----
+  _gatNorm: function(s) {
+    return String(s || '').toLowerCase().replace(/[.,!?'’"]/g, '').replace(/^to\s+/, '').replace(/\s+/g, ' ').trim();
+  },
+
+  gatFillCheck: function() {
+    var f = this.state.gatIdioms.fill;
+    var item = this.GAT_FILL[f.idx];
+    var raw = (f.value || '').trim();
+    if (!raw) { this.toast('พิมพ์คำตอบก่อนนะ ✍️'); return; }
+    var norm = this._gatNorm(raw);
+    var ok = item.accept.some(function(a) { return App._gatNorm(a) === norm; });
+    f.answers[f.idx] = raw;
+    f.correct[f.idx] = ok;
+    if (ok) this.celebrate(20);
+    this.render(true);
+  },
+
+  gatFillReveal: function() {
+    var f = this.state.gatIdioms.fill;
+    f.answers[f.idx] = f.answers[f.idx] || '(ขอเฉลย)';
+    f.correct[f.idx] = false;
+    this.render(true);
+  },
+
+  gatFillNext: function() {
+    var f = this.state.gatIdioms.fill;
+    if (f.idx < this.GAT_FILL.length - 1) { f.idx++; f.value = ''; this.render(); }
+  },
+
+  // ---- MCQ 20 ข้อ (สร้างจาก GAT_IDIOMS: ถามสำนวน เลือกความหมายไทย) ----
+  _gatBuildMcq: function() {
+    var idioms = this.GAT_IDIOMS;
+    function shuffle(arr) {
+      var a = arr.slice();
+      for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; }
+      return a;
+    }
+    return shuffle(idioms).map(function(it) {
+      // เลือกตัวลวง 3 ตัวจากความหมายอื่น
+      var distractors = shuffle(idioms.filter(function(x) { return x.th !== it.th; })).slice(0, 3).map(function(x) { return x.th; });
+      var opts = shuffle([it.th].concat(distractors));
+      return { q: it.en, opts: opts, ans: opts.indexOf(it.th) };
+    });
+  },
+
+  gatGoMcq: function() {
+    var m = this.state.gatIdioms.mcq;
+    m.questions = this._gatBuildMcq();
+    m.idx = 0; m.answers = []; m.submitted = false;
+    this.state.gatIdioms.phase = 'mcq';
+    this.render();
+  },
+
+  gatMcqAnswer: function(optIdx) {
+    var m = this.state.gatIdioms.mcq;
+    if (m.answers[m.idx] !== undefined) return;
+    m.answers[m.idx] = optIdx;
+    this.render(true);
+  },
+
+  gatMcqNext: function() {
+    var m = this.state.gatIdioms.mcq;
+    if (m.idx < m.questions.length - 1) { m.idx++; this.render(true); }
+  },
+
+  gatSubmitMcq: function() {
+    var self = this;
+    var m = this.state.gatIdioms.mcq;
+    var correct = 0;
+    for (var i = 0; i < m.questions.length; i++) if (m.answers[i] === m.questions[i].ans) correct++;
+    var pct = correct / m.questions.length;
+    // XP ให้ตามสัดส่วนคะแนน สูงสุด = GAT_LESSON.xp (ครั้งเดียวตลอดกาล)
+    m.awarded = Math.round(this.GAT_LESSON.xp * pct);
+    m.submitted = true;
+    this.state.gatIdioms.phase = 'done';
+    this.render();
+    this.celebrate(pct >= 0.8 ? 60 : 30);
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res && res.alreadyDone) { m.awarded = 0; if (self.state.currentRoute === 'gatIdioms') self.render(true); }
+        self.refreshDashboardQuietly && self.refreshDashboardQuietly();
+      })
+      .withFailureHandler(function() {})
+      .submitGameScore(self.state.user.UserID, 'gat_idioms', m.awarded);
   },
 
   adminSaveQuizBuilder: function() {
